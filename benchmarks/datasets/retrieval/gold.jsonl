@@ -1,0 +1,29 @@
+{"query_id": "q001", "query": "BM25 算法 公式", "memory_id": "09cde05d-43e8-4a84-b5d6-539b83b485c9", "relevance": 3}
+{"query_id": "q001", "query": "BM25 算法 公式", "memory_id": "cc54c7b6-01b9-4ee7-9375-8b6eee3b15b3", "relevance": 2}
+{"query_id": "q002", "query": "数据库并发读写怎么处理", "memory_id": "baf0d568-32b2-453f-b607-cc44ea30ef39", "relevance": 3}
+{"query_id": "q002", "query": "数据库并发读写怎么处理", "memory_id": "0308c354-ee8d-40fd-80a3-2ef140bb682d", "relevance": 1}
+{"query_id": "q003", "query": "embedding 模型加载失败怎么办", "memory_id": "5847f131-e95d-4ddd-ab2b-84d7ec5e07e4", "relevance": 3}
+{"query_id": "q003", "query": "embedding 模型加载失败怎么办", "memory_id": "d2053473-e0e2-4774-aa2a-084c10344326", "relevance": 1}
+{"query_id": "q003", "query": "embedding 模型加载失败怎么办", "memory_id": "0308c354-ee8d-40fd-80a3-2ef140bb682d", "relevance": 1}
+{"query_id": "q004", "query": "BM25", "memory_id": "09cde05d-43e8-4a84-b5d6-539b83b485c9", "relevance": 3}
+{"query_id": "q004", "query": "BM25", "memory_id": "cc54c7b6-01b9-4ee7-9375-8b6eee3b15b3", "relevance": 2}
+{"query_id": "q005", "query": "BM25 算法", "memory_id": "09cde05d-43e8-4a84-b5d6-539b83b485c9", "relevance": 3}
+{"query_id": "q005", "query": "BM25 算法", "memory_id": "cc54c7b6-01b9-4ee7-9375-8b6eee3b15b3", "relevance": 2}
+{"query_id": "q006", "query": "BM25 IDF 公式", "memory_id": "cc54c7b6-01b9-4ee7-9375-8b6eee3b15b3", "relevance": 3}
+{"query_id": "q006", "query": "BM25 IDF 公式", "memory_id": "09cde05d-43e8-4a84-b5d6-539b83b485c9", "relevance": 3}
+{"query_id": "q007", "query": "SQLite WAL 模式", "memory_id": "baf0d568-32b2-453f-b607-cc44ea30ef39", "relevance": 3}
+{"query_id": "q008", "query": "embedding 双写架构", "memory_id": "0308c354-ee8d-40fd-80a3-2ef140bb682d", "relevance": 3}
+{"query_id": "q008", "query": "embedding 双写架构", "memory_id": "5847f131-e95d-4ddd-ab2b-84d7ec5e07e4", "relevance": 2}
+{"query_id": "q009", "query": "文档检索和排序用什么算法好", "memory_id": "09cde05d-43e8-4a84-b5d6-539b83b485c9", "relevance": 3}
+{"query_id": "q009", "query": "文档检索和排序用什么算法好", "memory_id": "cc54c7b6-01b9-4ee7-9375-8b6eee3b15b3", "relevance": 2}
+{"query_id": "q010", "query": "网络请求超时了怎么自动重试", "memory_id": "d2053473-e0e2-4774-aa2a-084c10344326", "relevance": 3}
+{"query_id": "q011", "query": "为什么要自己实现搜索算法", "memory_id": "cc54c7b6-01b9-4ee7-9375-8b6eee3b15b3", "relevance": 3}
+{"query_id": "q011", "query": "为什么要自己实现搜索算法", "memory_id": "09cde05d-43e8-4a84-b5d6-539b83b485c9", "relevance": 1}
+{"query_id": "q012", "query": "WAL checkpoint 是什么", "memory_id": "baf0d568-32b2-453f-b607-cc44ea30ef39", "relevance": 3}
+{"query_id": "q013", "query": "任务失败重试策略怎么设计", "memory_id": "d2053473-e0e2-4774-aa2a-084c10344326", "relevance": 3}
+{"query_id": "q014", "query": "向量模型挂了怎么发现", "memory_id": "5847f131-e95d-4ddd-ab2b-84d7ec5e07e4", "relevance": 3}
+{"query_id": "q015", "query": "rank-bm25 有什么问题", "memory_id": "cc54c7b6-01b9-4ee7-9375-8b6eee3b15b3", "relevance": 3}
+{"query_id": "q015", "query": "rank-bm25 有什么问题", "memory_id": "09cde05d-43e8-4a84-b5d6-539b83b485c9", "relevance": 1}
+{"query_id": "q016", "query": "指数退避和死信队列", "memory_id": "d2053473-e0e2-4774-aa2a-084c10344326", "relevance": 3}
+{"query_id": "q017", "query": "embedding 并发写入怎么防冲突", "memory_id": "0308c354-ee8d-40fd-80a3-2ef140bb682d", "relevance": 3}
+{"query_id": "q018", "query": "SQLite 读写并发的原理", "memory_id": "baf0d568-32b2-453f-b607-cc44ea30ef39", "relevance": 3}

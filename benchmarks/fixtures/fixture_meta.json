@@ -1,0 +1,12 @@
+{
+  "workspace": "eval-fixture",
+  "entries": 99,
+  "active": 97,
+  "stale": 6,
+  "archived": 2,
+  "conflict_pairs": 3,
+  "supersedes_relations": 2,
+  "queries": 101,
+  "judgments": 983,
+  "generated_at": "2026-10-15T14:38:46.306555"
+}

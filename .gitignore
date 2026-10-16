@@ -1,0 +1,58 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+
+.env
+
+# cwiki-data is its own git repository (split layout, see docs/git-sync.md)
+cwiki-data/
+
+# SQLite databases — stray local files only; cwiki-data copies live in the data repo.
+# WAL sidecars are transient and never tracked.
+*.db
+*.sqlite3
+*.db-shm
+*.db-wal
+*.db-journal
+
+# Local config overrides
+config.local.yaml
+
+# Temporary files
+*.tmp
+
+node_modules/
+apps/web/dist/
+apps/web/cwiki/
+data/
+*.tsbuildinfo
+
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+*.npz
+
+tmp-screenshot*.png
+.shot/
+benchmarks/reports/
+
+.qoder/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo

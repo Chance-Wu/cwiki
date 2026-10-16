@@ -1,0 +1,94 @@
+app:
+  # 安全默认：单用户本地部署仅监听本机；手机/局域网设备访问需改回 0.0.0.0，并把设备访问的 origin 加入 cors_origins
+  api_host: 0.0.0.0
+  api_port: 5172
+  # CORS 默认只放行前端 Vite dev 源（dev 经 proxy 同源访问，正常不触发跨域）
+  cors_origins: ["http://localhost:5173", "http://127.0.0.1:5173", "http://192.168.1.223:5173"]
+  debug: true
+  embedding_dimensions: 512
+  embedding_model: BAAI/bge-small-zh-v1.5
+  openai_api_key: ''
+database:
+  url: sqlite+aiosqlite:///./cwiki-data/cwiki.db
+memory:
+  title_max_length: 80
+  consolidate_threshold: 0.85
+  priority_discard_threshold: 0.35
+  priority_high_threshold: 0.85
+  priority_low_threshold: 0.65
+  relation_conflict_threshold: 0.6
+  relation_merge_threshold: 0.95
+  relation_update_threshold: 0.8
+  similarity_threshold: 0.7
+  # 三档审核：高分候选自动生效（须同时满足全部阈值），默认关，灰度放量
+  auto_approve_enabled: false
+  auto_approve_value_threshold: 0.85
+  auto_approve_confidence_threshold: 0.8
+  auto_approve_gate_threshold: 0.75
+  auto_approve_duplicate_threshold: 0.4
+parasitic_evolution:
+  agent_profile_enabled: true
+  auto_consolidate_enabled: true
+  auto_merge_enabled: true
+  auto_merge_threshold: 0.92
+  entity_extraction_enabled: true
+  episodic_retrieval_enabled: false
+  # 基于 episode 的 problems/solutions 信号按规则生成 lesson 候选：
+  # 仅当「失败→修复」信号齐备时生成一条候选，零 LLM 调用，默认关
+  episode_candidate_extraction_enabled: false
+  mastery_coupled_decay_enabled: true
+  memory_gap_detection_enabled: true
+  memory_relations_enabled: true
+  memory_version_tracking_enabled: true
+  proactive_push_enabled: true
+  review_reminders_enabled: true
+  write_time_conflict_enabled: true
+retrieval:
+  bm25_weight: 0.6
+  vector_weight: 0.4
+  reranker_confidence_weight: 0.13
+  reranker_freshness_weight: 0.13
+  reranker_importance_weight: 0.16
+  reranker_intent_weight: 0.12
+  reranker_key_term_bonus: 0.08
+  reranker_rrf_weight: 0.38
+  reranker_usage_weight: 0.08
+  # 效用分权重：上下文组装排序中同优先级内按 score + utility_weight × utility_score 排序，
+  # utility 缺省 0 时退化为纯 score 排序（向后兼容）
+  utility_weight: 0.15
+  # 候选过滤三档（none/demote/hard）：过期与低置信候选的处理方式。
+  # demote=压分保留可见性（默认）；hard=直接剔除；是否升 hard 由评测负例数据决定
+  stale_filter_mode: demote
+  confidence_floor_mode: demote
+  # 低置信阈值：confidence 低于它的候选按 confidence_floor_mode 处理，0 = 关闭
+  confidence_floor: 0.3
+  # 相关性下限三档（none/demote/hard）：按检索综合分剔除/降权明显不相关候选。
+  # 默认 none：rerank composite 在小候选池上 min-max 失去区分度，hard 会清场
+  # 精确命中查询；适用 score 语义明确的场景（如 context 评测池），检索链路关闭
+  relevance_floor_mode: none
+  relevance_floor: 0.5
+  # 检索可解释性：开启时 retrieval_trace.metadata 落库各路信号分项与逐条过滤原因
+  # （去重/多样性/合并/截断），供排查检索质量问题；关闭时不写 metadata
+  explain_enabled: true
+performance:
+  context_cache_ttl: 60.0
+  context_cache_max_size: 128
+  context_token_budget: 2000
+  dedup_top_k: 20
+  merge_suggestions_limit: 50
+  merge_suggestions_top_k: 10
+  merge_suggestions_threshold: 0.5
+  auto_consolidate_limit: 200
+  auto_consolidate_top_k: 20
+skills:
+  agents:
+    codex:
+      skills_dir: ~/.codex/skills
+    qoder:
+      plugins_dir: ~/.qoder/plugins/cache
+      skills_dir: ~/.qoder/skills
+storage:
+  memory_dir: ./cwiki-data
+  embedding_cache_dir: ./data/models/fastembed_cache
+  # 每记忆 _meta 导出的版本快照上限，截断保留最新
+  meta_version_limit: 10

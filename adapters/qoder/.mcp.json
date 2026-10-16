@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "cwiki": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["-m", "adapters.qoder.mcp_server"],
+      "env": {
+        "PYTHONPATH": "."
+      }
+    }
+  }
+}

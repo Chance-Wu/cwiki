@@ -1,0 +1,8 @@
+{
+  "name": "cwiki-qoder",
+  "version": "0.1.0",
+  "displayName": "cwiki",
+  "description": "Persistent memory integration for cwiki - local reminders, human review, MCP recall",
+  "hooks": "./hooks/hooks.json",
+  "mcpServers": "./.mcp.json"
+}

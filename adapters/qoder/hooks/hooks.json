@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python -m adapters.qoder.hooks session-start",
+            "env": {
+              "PYTHONPATH": "."
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

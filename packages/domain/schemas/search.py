@@ -1,0 +1,112 @@
+"""Search、Context、ProactivePush 与检索调试相关 schema。"""
+
+from __future__ import annotations
+
+from typing import Any
+from uuid import UUID
+
+from pydantic import BaseModel, Field
+
+
+class SearchRequest(BaseModel):
+    """搜索记忆。"""
+
+    workspace_id: str | None = Field(
+        default=None,
+        description="Workspace name or UUID; omit to search across all workspaces",
+    )
+    keyword: str = Field(description="Search keyword text")
+    project_id: UUID | None = None
+    memory_type: str | None = Field(default=None, max_length=64)
+    status: str | None = Field(default=None, max_length=32)
+    filters: dict[str, Any] | None = None
+    limit: int = Field(default=20, ge=1, le=100)
+    offset: int = Field(default=0, ge=0)
+    min_confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+
+
+class SearchResult(BaseModel):
+    """单条搜索结果。"""
+
+    id: UUID
+    title: str
+    content: str
+    type: str
+    version: int = 1
+    score: float | None = Field(default=None, description="Similarity score")
+
+
+class SearchResponse(BaseModel):
+    """搜索结果集。"""
+
+    results: list[SearchResult] = Field(default_factory=list)
+    total: int
+    keyword: str
+
+
+class ContextRequest(BaseModel):
+    """为 Agent 会话拉取相关上下文的请求。"""
+
+    workspace_id: str
+    agent_id: UUID
+    session_id: UUID
+    project_id: UUID | None = None
+    keyword: str | None = Field(default=None, description="Natural language keyword")
+    max_items: int = Field(default=10, ge=1, le=50)
+    max_tokens: int = Field(default=5000, ge=100, le=20000)
+    event_types: list[str] | None = Field(default=None, description="Filter by event types")
+    limit: int = Field(default=50, ge=1, le=500)
+    include_memories: bool = True
+    include_entities: bool = True
+    mode: str = Field(default="semantic", description="Retrieval mode: semantic, episodic, hybrid")
+
+
+class ContextItem(BaseModel):
+    """返回的单条上下文条目。"""
+
+    memory_id: UUID | None = None
+    type: str = Field(description="Item type: memory, entity, event")
+    id: UUID
+    title: str
+    content: str
+    version: int | None = None
+    score: float | None = Field(default=None, description="Relevance score")
+    source: str = "memory"
+    metadata: dict[str, Any] | None = None
+
+
+class ContextResponse(BaseModel):
+    """上下文检索响应。"""
+
+    context: str = ""
+    items: list[ContextItem] = Field(default_factory=list)
+    sources: list[str] = Field(default_factory=list)
+    total: int = 0
+    keyword: str | None = None
+    latency_ms: int = 0
+
+
+class ProactivePushRequest(BaseModel):
+    """主动记忆推送请求。"""
+
+    workspace_id: str
+    session_id: UUID
+    keywords: list[str] = Field(default_factory=list, max_length=10)
+    max_items: int = Field(default=3, ge=1, le=10)
+
+
+class ProactivePushItem(BaseModel):
+    """单条被主动推送的记忆。"""
+
+    memory_id: UUID
+    title: str
+    snippet: str
+    relevance: float
+    push_reason: str
+
+
+class ProactivePushResponse(BaseModel):
+    """主动记忆推送响应。"""
+
+    items: list[ProactivePushItem] = Field(default_factory=list)
+    total: int = 0

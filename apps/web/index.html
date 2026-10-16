@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <script>
+      // 首帧前同步 localStorage 中的主题与皮肤，消除暗色/皮肤用户的刷新白闪。
+      // 判定逻辑必须与 src/theme/ThemeProvider.tsx 保持一致。
+      ;(function () {
+        try {
+          var t = localStorage.getItem('theme')
+          var dark = t === 'dark' || (t !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+          if (dark) document.documentElement.classList.add('dark')
+          var s = localStorage.getItem('skin')
+          if (s === 'emerald' || s === 'terracotta') document.documentElement.setAttribute('data-skin', s)
+        } catch (e) {}
+      })()
+    </script>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/favicon.svg" />
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="preload" href="/fonts/InterVariable.woff2" as="font" type="font/woff2" crossorigin />
+    <meta name="theme-color" content="#D97706" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>cwiki</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

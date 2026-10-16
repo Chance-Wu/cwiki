@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -e ".[dev]"
+      - run: ruff check .
+      - run: ruff format --check .
+
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -e ".[dev]"
+      - run: mypy packages/ apps/ adapters/
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -e ".[dev]"
+      - run: pytest tests/ -v --cov=packages --cov=apps --cov-report=xml
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - working-directory: apps/web
+        run: npm ci
+      - working-directory: apps/web
+        run: npm run build
+
+  benchmark:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - uses: actions/cache@v4
+        with:
+          # 固定 key：模型版本不常换；升级模型时改 key 触发重新下载
+          path: data/models/fastembed_cache
+          key: fastembed-bge-small-zh-v1.5
+      - run: pip install -e ".[dev]"
+      # 夹具按固定种子生成（uuid5 命名空间 + seed42），逐次逐字节可复现，
+      # CI 现场重新生成即可与 baseline.json 可比，无需入库 db 文件
+      - run: python -m benchmarks.fixtures.generate_fixture
+      # runner 与门槛对比用 && 串联：runner 非零退出直接终止，不进 compare
+      - run: |
+          python -m benchmarks.runners.retrieval_runner \
+            --db-url sqlite+aiosqlite:///benchmarks/fixtures/eval_fixture.db \
+            --workspace-name eval-fixture \
+            && python -m benchmarks.runners.compare_reports \
+              --current benchmarks/reports/eval-fixture \
+              --dataset eval-fixture
+      # always()：对比失败（job 红）时仍上传报告，便于下载排查回归明细
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: retrieval-reports-eval-fixture
+          path: benchmarks/reports/eval-fixture
+          retention-days: 7

@@ -1,0 +1,16 @@
+{
+  "name": "cwiki",
+  "short_name": "cwiki",
+  "description": "Agent Memory Infrastructure",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#EFF6FF",
+  "theme_color": "#D97706",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}
