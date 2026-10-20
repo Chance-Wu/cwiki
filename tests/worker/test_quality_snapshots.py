@@ -108,11 +108,14 @@ class TestScoringSnapshots:
             assert result["priority"] == snapshot["priority"]
             assert result["novelty"] == pytest.approx(snapshot["novelty"], abs=1e-6)
         else:
-            _save_snapshot("scoring_full_pipeline", {
-                "value_score": result["value_score"],
-                "priority": result["priority"],
-                "novelty": result["novelty"],
-            })
+            _save_snapshot(
+                "scoring_full_pipeline",
+                {
+                    "value_score": result["value_score"],
+                    "priority": result["priority"],
+                    "novelty": result["novelty"],
+                },
+            )
 
 
 class TestRelationSnapshots:
@@ -127,7 +130,8 @@ class TestRelationSnapshots:
     def test_version_update_candidate(self):
         a, b = self._make_vecs(0.98)
         result = classify_relation(
-            a, b,
+            a,
+            b,
             "部署使用 v2.1.0，蓝绿发布",
             "部署使用 v2.0.0，滚动发布",
         )
@@ -136,7 +140,8 @@ class TestRelationSnapshots:
     def test_date_update_candidate(self):
         a, b = self._make_vecs(0.98)
         result = classify_relation(
-            a, b,
+            a,
+            b,
             "2026-10-15 决定采用方案 B",
             "2026-09-01 讨论了方案 A/B",
         )
@@ -145,7 +150,8 @@ class TestRelationSnapshots:
     def test_similar_content_returns_similar(self):
         a, b = self._make_vecs(0.98)
         result = classify_relation(
-            a, b,
+            a,
+            b,
             "使用 SQLAlchemy async 会话工厂",
             "使用 SQLAlchemy async 会话工厂。",
         )
@@ -154,7 +160,8 @@ class TestRelationSnapshots:
     def test_complementary_returns_similar(self):
         a, b = self._make_vecs(0.98)
         result = classify_relation(
-            a, b,
+            a,
+            b,
             "前端 Vite 构建配置要点",
             "后端 FastAPI 部署配置要点",
             "前端构建",
@@ -165,7 +172,8 @@ class TestRelationSnapshots:
     def test_medium_similarity_returns_new(self):
         a, b = self._make_vecs(0.50)
         result = classify_relation(
-            a, b,
+            a,
+            b,
             "使用 Redis 缓存用户会话",
             "PostgreSQL 连接池配置",
         )

@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from typing import Annotated, Any
 
-import yaml  # type: ignore[import-untyped]
+import yaml
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
@@ -69,6 +69,7 @@ class RetrievalConfigModel(BaseModel):
     bm25_weight: float
     vector_weight: float
     reranker_rrf_weight: float
+    reranker_semantic_weight: float
     reranker_confidence_weight: float
     reranker_importance_weight: float
     reranker_freshness_weight: float
@@ -176,6 +177,7 @@ async def get_config() -> ConfigData:
             bm25_weight=settings.bm25_weight,
             vector_weight=settings.vector_weight,
             reranker_rrf_weight=settings.reranker_rrf_weight,
+            reranker_semantic_weight=settings.reranker_semantic_weight,
             reranker_confidence_weight=settings.reranker_confidence_weight,
             reranker_importance_weight=settings.reranker_importance_weight,
             reranker_freshness_weight=settings.reranker_freshness_weight,

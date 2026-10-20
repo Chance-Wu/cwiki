@@ -91,8 +91,26 @@ async def import_workspace(
     except ValueError as e:
         raise HTTPException(400, detail=str(e)) from e
 
-    results = await import_data(db, data, resolved_ws_id, strategy)
+    results, touched_memory_ids = await import_data(db, data, resolved_ws_id, strategy)
     await db.commit()
+
+    # 导入是外部输入边界：事务提交后把 DB 状态镜像到 MD + 索引 + 向量，
+    # 与常规写入路径同一机制。单条失败只记日志不阻塞整批（见 file_sync 契约）。
+    if touched_memory_ids:
+        from sqlalchemy import select
+
+        from apps.api.file_sync import sync_memory_to_file
+        from apps.api.routes.search import invalidate_search_cache
+        from packages.domain.models import Memory
+
+        for memory_id in touched_memory_ids:
+            # commit 后重新加载，避免沿用 flush 前的过期实例
+            memory = (
+                await db.execute(select(Memory).where(Memory.id == memory_id))
+            ).scalar_one_or_none()
+            if memory is not None:
+                await sync_memory_to_file(memory, db, save_index=True)
+        invalidate_search_cache()
 
     return {
         "status": "ok",

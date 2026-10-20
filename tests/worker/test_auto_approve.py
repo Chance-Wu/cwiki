@@ -16,7 +16,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
@@ -358,3 +358,47 @@ class TestRevertAutoApprove:
             assert r.status_code == 404
         finally:
             app.dependency_overrides.clear()
+
+
+class TestScoreReplayGuard:
+    async def test_replay_skips_non_pending_candidate(
+        self, db: AsyncSession, ctx: dict, engine
+    ) -> None:
+        """at-least-once 重放守卫：非 pending_review 候选不再重评，
+        auto-approve 不得对同一候选重复创建正式记忆。"""
+        cand, cid = await _make_candidate(db)
+        cand.status = "approved"
+        await db.commit()
+
+        result = await _run_score(ctx, engine, cid, str(cand.workspace_id))
+
+        assert result["status"] == "skipped"
+        memory_count = (await db.execute(select(func.count()).select_from(Memory))).scalar_one()
+        assert memory_count == 0
+
+    async def test_merged_candidate_not_rescored(self, db: AsyncSession, ctx: dict, engine) -> None:
+        """已合并候选重放评分同样跳过。"""
+        cand, cid = await _make_candidate(db)
+        cand.status = "merged"
+        await db.commit()
+
+        result = await _run_score(ctx, engine, cid, str(cand.workspace_id))
+
+        assert result["status"] == "skipped"
+
+
+class TestApproveStatusGuard:
+    async def test_double_approve_raises_candidate_state_error(self, db: AsyncSession) -> None:
+        """服务层守卫：终态候选重复批准抛 409，不创建第二条记忆。"""
+        from packages.memory.service import CandidateStateError, approve_candidate
+
+        cand, _ = await _make_candidate(db)
+        memory = await approve_candidate(db, cand)
+        assert memory.status == "active"
+        assert cand.status == "approved"
+
+        with pytest.raises(CandidateStateError):
+            await approve_candidate(db, cand)
+
+        memory_count = (await db.execute(select(func.count()).select_from(Memory))).scalar_one()
+        assert memory_count == 1

@@ -93,13 +93,25 @@ class TestCalculateValueScore:
 
     def test_clamps_above_one(self):
         # MQ-102: 新公式不含 novelty，权重为 reusability(0.25) + stability(0.20) + confidence(0.20) + importance(0.20) + evidence_strength(0.15)
-        candidate = {"reusability": 100.0, "stability": 100.0, "confidence": 100.0, "importance": 100.0, "evidence_strength": 100.0}
+        candidate = {
+            "reusability": 100.0,
+            "stability": 100.0,
+            "confidence": 100.0,
+            "importance": 100.0,
+            "evidence_strength": 100.0,
+        }
         score = calculate_value_score(candidate)
         assert score <= 1.0
 
     def test_clamps_below_zero(self):
         # MQ-102: 新公式不含 novelty
-        candidate = {"reusability": -1.0, "stability": -0.5, "confidence": -0.5, "importance": -0.5, "evidence_strength": -0.5}
+        candidate = {
+            "reusability": -1.0,
+            "stability": -0.5,
+            "confidence": -0.5,
+            "importance": -0.5,
+            "evidence_strength": -0.5,
+        }
         score = calculate_value_score(candidate)
         assert score >= 0.0
 

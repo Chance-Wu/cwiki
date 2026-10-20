@@ -51,6 +51,15 @@ _publish_to_agent = publish_to_agent
 router = APIRouter(prefix=API_V1_PREFIX, tags=["skills"])
 
 
+def _is_sub_path(child: Path, parent: Path) -> bool:
+    """检查 child 是否在 parent 目录下。"""
+    try:
+        child.relative_to(parent)
+        return True
+    except ValueError:
+        return False
+
+
 # --------------- Pydantic 模型 ---------------
 
 
@@ -298,6 +307,12 @@ async def import_skill(
 ) -> dict[str, Any]:
     """从任意路径把 skill 导入项目 skills 目录。"""
     source = Path(body.source_path).expanduser().resolve()
+
+    # 白名单校验：空列表 = 不限制
+    if skills_config.import_allowed_paths and not any(
+        _is_sub_path(source, allowed) for allowed in skills_config.import_allowed_paths
+    ):
+        raise HTTPException(403, detail=f"Source path not in allowed paths: {source}")
 
     if source.is_file() and source.name == "SKILL.md":
         source_dir = source.parent

@@ -5,7 +5,7 @@ import json
 import httpx
 import pytest
 
-from adapters.qoder.client import CwikiClient, MemoryUpdateUncertainError
+from adapters.mcp.client import CwikiClient, MemoryUpdateUncertainError
 
 
 @pytest.fixture

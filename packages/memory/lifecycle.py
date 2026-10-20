@@ -13,10 +13,7 @@ class InvalidStatusTransition(Exception):
         self.current = current
         self.target = target
         self.allowed = allowed
-        super().__init__(
-            f"非法状态转换: {current!r} → {target!r}，"
-            f"允许的目标状态: {allowed}"
-        )
+        super().__init__(f"非法状态转换: {current!r} → {target!r}，允许的目标状态: {allowed}")
 
 
 # 正式记忆合法状态转换表

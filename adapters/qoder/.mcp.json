@@ -3,9 +3,13 @@
     "cwiki": {
       "type": "stdio",
       "command": "python",
-      "args": ["-m", "adapters.qoder.mcp_server"],
+      "args": [
+        "-m",
+        "adapters.qoder.mcp_server"
+      ],
       "env": {
-        "PYTHONPATH": "."
+        "PYTHONPATH": ".",
+        "CWIKI_HOST": "qoder"
       }
     }
   }

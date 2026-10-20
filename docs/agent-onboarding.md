@@ -12,7 +12,7 @@
 |---|---|---|
 | 适用场景 | Qoder 等 MCP 宿主 | 任意能发 HTTP 请求的程序 / 自研 Agent |
 | 适配层 | `adapters/qoder/`（stdio，`python -m adapters.qoder.mcp_server`） | 无，直接调 API |
-| 能力 | 14 个 `memory_*` 工具 + cwiki-save skill + 3 个斜杠命令 | 全部 REST 端点（见 [API 参考](api-reference.md)） |
+| 能力 | 17 个 `memory_*` 工具 + cwiki-save skill + 3 个斜杠命令 | 全部 REST 端点（见 [API 参考](api-reference.md)） |
 | 可靠写入 | 客户端本地暂存（`cached: true`），恢复后 `memory_retry_failed` 重试 | 幂等键 `client_write_id`（候选）/ `sequence`（事件） |
 | 行为契约 | AGENTS.md 受管区块 + hook 静态提醒 | 由调用方自行约定 |
 
@@ -56,9 +56,76 @@ MCP 服务器以 stdio 方式运行 `python -m adapters.qoder.mcp_server`。最�
 
 Qoder 用户的推荐做法仍是 `python scripts/setup.py`：它会修补插件缓存中的 `.mcp.json`（注入 venv python、`cwd`、`PYTHONPATH`），并在全局 `~/.qoder/mcp.json` 注入兜底条目。配置改动后需**完全重启宿主**——插件 MCP 服务器列表只在宿主启动时读取。
 
-14 个工具的完整契约（参数、默认值、严格 schema）见 [MCP 工具参考](../adapters/qoder/README.md#mcp-tools)；写入契约（语义原样保存、类型仅分类）见[记忆系统](memory-system.md#写入契约)。
+17 个工具的完整契约（参数、默认值、严格 schema）见 [MCP 工具参考](../adapters/qoder/README.md#mcp-tools)；写入契约（语义原样保存、类型仅分类）见[记忆系统](memory-system.md#写入契约)。
 
 ---
+
+### 2.1 其他宿主（Claude Code / Cursor / Codex / 任意 MCP）
+
+核心入口与 Qoder 相同，只是配置位置不同：
+
+| 能力 | 入口 | 说明 |
+|---|---|---|
+| MCP | `python -m adapters.mcp` | 与 Qoder 共用同一套工具；env 设置 `CWIKI_WORKSPACE` 绑定项目 |
+| Hook | `python -m adapters.hooks <host> <event>` | `host`：`qoder` / `claude` / `cursor`；事件见下表 |
+| 捕获 | `POST /v1/integrations/agent/capture` | 任意语言/脚本可直接提交 compact summary、工具失败、会话结束 |
+
+Hook 事件与宿主能力：
+
+| 事件 | Qoder / Claude Code | Cursor |
+|---|---|---|
+| `session-start` | ✅ 注入提醒 + 补投 spool | ✅ |
+| `user-prompt-submit` | ✅ 自动召回（每 prompt） | ❌（`beforeSubmitPrompt` 不能注入 context） |
+| `post-compact` | ✅ 捕获 `compact_summary` | ❌（无 summary） |
+| `post-tool-failure` | ✅ 捕获脱敏错误 | ✅ |
+| `session-end` | ✅ 结束会话 + 补投 | ✅ |
+
+安装器（推荐，先 dry-run 检查将写入的文件）：
+
+```bash
+python tasks.py setup-agent --host claude --project /path/to/project --dry-run
+python tasks.py setup-agent --host claude --project /path/to/project
+python tasks.py setup-agent --host cursor --project /path/to/project
+python tasks.py setup-agent --host codex  --project /path/to/project
+```
+
+安装器只管理 `cwiki` 配置条目与 `<!-- cwiki:begin -->` 区块，保留用户已有 hooks/MCP/指令；Claude 写 `~/.claude/settings.json` + 项目 `.mcp.json`，Cursor 写项目 `.cursor/{mcp,hooks}.json` 与 `.cursor/rules/cwiki.mdc`，Codex 写 `~/.codex/config.toml` 的托管块与 `AGENTS.md`。
+
+### 2.1.1 DeepSeek Harness（dsh）
+
+dsh 是 MCP 宿主，Agent 经 stdio 工具直连 cwiki（无原生 hooks；捕获可由宿主脚本经 capture API 提交）。dsh 连接外部 MCP 只有一条路径：在 profile 的 `~/.dsh/profiles/<profile>/cordis.patch.yml` 里，用官方 `@deepseek-ai/dsh-mcp-client` 桥声明一行 stdio 配置——**它不读 `~/.dsh/mcp.json`**（那是别的宿主约定）。安装器代写这一行：
+
+```bash
+python tasks.py setup-dsh --project /path/to/project          # 写入并落 skill
+python tasks.py setup-dsh --project /path/to/project --dry-run
+python tasks.py setup-dsh --verify                            # 挂载后起 stdio 自检（不经模型）
+```
+
+要点（均为实测）：
+
+- 配置条目必须包在 `- insert:` 里；顶层裸条目会被 dsh 当成"按 id 覆盖已有行"，patch 时报 `entry not found` 并被静默丢弃。
+- 字段是 `transport: stdio`（dsh 契约），不是 Claude/Codex 的 `type`；`serverName: cwiki` 决定工具名前缀 `mcp__cwiki__<tool>`。
+- 写入 `CWIKI_HOST=dsh`、`CWIKI_WORKSPACE=项目名`、`CWIKI_WORKSPACE_DIR=项目路径`。**dsh 不下发 roots、也不导出项目目录 env**（实测只有 `DSH_HOME`/`DSH_PROFILE`/`DSH_SESSION_ID` 等，无 `DSH_PROJECT_DIR`），故工作区归属靠安装器写入的静态 `CWIKI_WORKSPACE`。
+- profile 为 `patchReload: live` 时保存即热重载，否则需重启 `dsh`。多 profile 时用 `--profile` 指定（默认取 `$DSH_PROFILE`，其次 `web`）。
+- 安装器把 `cwiki-save` skill 落到 `<project>/.dsh/skills/`——dsh 只扫描 `<projectRoot>/.dsh/skills`、`.agents/skills` 等处，仓库内的 `skills/` 不在扫描范围。
+- **技能管理（Web「技能管理」页 / `/v1/skills`）已把 dsh 列为一等发布目标**：`config.yaml` 的 `skills.agents` 默认含 `dsh: {skills_dir: ~/.dsh/skills}`，`GET /v1/skills/agents` 会返回它；发布即在 `~/.dsh/skills/<name>` 建指向 `<cwiki>/skills/<name>` 的目录 symlink（无 symlink 权限时回退带 `.cwiki-source.json` 标记的副本），dsh 的扫描器会解引用跟随该链接。
+- dsh 的技能名校验比 cwiki 历史规则更严（`^[a-z0-9]+(?:-[a-z0-9]+)*$`）：前导/连续/尾随连字符会被 dsh 以 `invalid skill name` 静默忽略，因此 cwiki 创建/导入时即拒绝这类名字。
+
+### 2.2 导入 Qoder 原生 Auto-Memory
+
+Qoder 自己的 `~/.qoder/memories/**/task_summary_experience/*.md` 可以先导入 cwiki 的「待整理」，再人工整理为正式记忆；不会直接污染知识库。
+
+```bash
+# 先看将导入什么（默认 dry-run）
+python tasks.py import-qoder-memory --since-days 30
+
+# 确认后写入待整理
+python tasks.py import-qoder-memory --since-days 30 --apply
+```
+
+导入保留 Markdown 全文与标题，按 `Related files` 推断项目 workspace；无关联文件的进入 `qoder-auto`，由人工整理。
+
+Codex 当前以 MCP + `AGENTS.md` + `~/.codex/skills` 为主，不假设 hooks；无 hooks 时记忆仍可通过 `memory_search` / `memory_save` 使用。具体配置文件位置以各宿主官方文档为准。
 
 ## 3. HTTP API 直连
 
@@ -124,7 +191,7 @@ curl -X POST http://127.0.0.1:5172/v1/events \
 接入后按序验证，全部通过才算接入成功：
 
 1. **后端健康**：`curl http://127.0.0.1:5172/v1/health` 返回 `{"status": "healthy", "database": "ok"}`
-2. **MCP 工具注册**（仅 MCP 接入）：宿主中 `tools/list` 返回 14 个 `memory_*` 工具（`memory_search`、`memory_save`、`memory_status`、`memory_types`、`memory_history`、`memory_relations`、`memory_update`、`memory_retry_failed`、`memory_checkpoint`、`memory_export`、`memory_import`、`memory_review_due`、`memory_review_submit`、`memory_review_stats`）
+2. **MCP 工具注册**（仅 MCP 接入）：宿主中 `tools/list` 返回 17 个 `memory_*` 工具（`memory_search`、`memory_save`、`memory_status`、`memory_types`、`memory_history`、`memory_relations`、`memory_update`、`memory_feedback`、`memory_forget`、`memory_retry_failed`、`memory_checkpoint`、`memory_export`、`memory_import`、`memory_review_due`、`memory_review_submit`、`memory_review_stats`、`memory_tags`）
 3. **工作区连通**：调用 `memory_status`，应返回工作区统计与 outbox 积压信息
 4. **写入链路**：用 `memory_save`（或 `POST /v1/candidates`）提交一条标注「接入测试」的记忆，然后到 Web 控制台 `http://localhost:5173` 的**待审**页确认候选已出现，审核通过后到**记忆库**页确认可见
 
@@ -209,7 +276,7 @@ curl -X POST http://127.0.0.1:5172/v1/task-queue/retry \
 
 ## 相关文档
 
-- [MCP 工具参考（adapters/qoder）](../adapters/qoder/README.md) — 14 个工具的完整参数契约
+- [MCP 工具参考（adapters/qoder）](../adapters/qoder/README.md) — 17 个工具的完整参数契约
 - [开发指南 · Agent 接入配置](development.md#agent-接入配置) — setup.py 全流程、更新与内容保护、重载与验证
 - [API 参考](api-reference.md) — 20 个路由模块全量端点
 - [记忆系统 · 写入契约](memory-system.md#写入契约) — memory_save / memory_checkpoint 的行为约定

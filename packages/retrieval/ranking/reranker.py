@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from packages.domain.config import settings
 
@@ -25,21 +25,23 @@ class RerankInput:
     usage_score: float = 0.0
 
 
-# 默认权重和为 1：以相关性（RRF）为主导信号，置信度/重要度/新鲜度等
-# 元数据信号作微调；具体值可在 config.yaml 覆盖，for_intent 再按意图缩放。
+# 默认权重和为 1：相关性信号（RRF + 向量语义）为主导，置信度/重要度/
+# 新鲜度等元数据信号作微调；具体值可在 config.yaml 覆盖，for_intent 再按意图缩放。
 @dataclass
 class RerankerWeights:
     rrf: float = 0.38
-    confidence: float = 0.13
-    importance: float = 0.16
-    freshness: float = 0.13
-    usage: float = 0.08
-    intent: float = 0.12
+    semantic: float = 0.15
+    confidence: float = 0.10
+    importance: float = 0.12
+    freshness: float = 0.10
+    usage: float = 0.06
+    intent: float = 0.09
 
     @staticmethod
     def from_settings() -> RerankerWeights:
         return RerankerWeights(
             rrf=settings.reranker_rrf_weight,
+            semantic=settings.reranker_semantic_weight,
             confidence=settings.reranker_confidence_weight,
             importance=settings.reranker_importance_weight,
             freshness=settings.reranker_freshness_weight,
@@ -55,6 +57,7 @@ class RerankerWeights:
             return base
         w = RerankerWeights(
             rrf=base.rrf * adjustments.get("rrf", 1.0),
+            semantic=base.semantic * adjustments.get("semantic", 1.0),
             confidence=base.confidence * adjustments.get("confidence", 1.0),
             importance=base.importance * adjustments.get("importance", 1.0),
             freshness=base.freshness * adjustments.get("freshness", 1.0),
@@ -62,9 +65,10 @@ class RerankerWeights:
             intent=base.intent * adjustments.get("intent", 1.0),
         )
         # 按意图缩放后重新归一，保证权重和仍为 1，总分口径不变
-        total = w.rrf + w.confidence + w.importance + w.freshness + w.usage + w.intent
+        total = w.rrf + w.semantic + w.confidence + w.importance + w.freshness + w.usage + w.intent
         if total > 0:
             w.rrf /= total
+            w.semantic /= total
             w.confidence /= total
             w.importance /= total
             w.freshness /= total
@@ -156,16 +160,36 @@ def rerank(
     else:
         w = weights
 
-    for name in ("rrf", "confidence", "importance", "freshness", "usage", "intent"):
+    for name in ("rrf", "semantic", "confidence", "importance", "freshness", "usage", "intent"):
         val = getattr(w, name)
         if val < 0:
             logger.warning("Negative weight for %s=%s, clamping to 0", name, val)
             setattr(w, name, 0.0)
 
+    # 元数据信号总影响力不超过 RRF：元数据是绝对 0-1 分（候选间普遍同高、
+    # 方差可观），RRF 是池内相对名次分；若元数据权重之和更大，其方差会
+    # 系统性压过相关性名次差（如单路 rank1 的候选 norm_rrf 偏低即被挤出头部）。
+    # semantic 不参与封顶：它与 RRF 同属相关性信号——余弦相似度的候选间方差
+    # 跟随查询语义相关性而非元数据高低（W6-A 归因：语义无关候选凭 conf/imp
+    # 压过双路 rank1 的 gold，正是缺这个抗衡信号）。约束后总分口径变化无碍
+    # ——排序只看相对分。
+    non_rrf = w.confidence + w.importance + w.freshness + w.usage + w.intent
+    if w.rrf > 0 and non_rrf > w.rrf:
+        scale = w.rrf / non_rrf
+        w = replace(
+            w,
+            confidence=w.confidence * scale,
+            importance=w.importance * scale,
+            freshness=w.freshness * scale,
+            usage=w.usage * scale,
+            intent=w.intent * scale,
+        )
+
     if not candidates:
         return []
 
     raw_rrf = [c.rrf_score for c in candidates]
+    raw_vec = [c.vector_score for c in candidates]
     raw_conf = [c.confidence for c in candidates]
     raw_imp = [c.importance for c in candidates]
     raw_fresh = [c.freshness for c in candidates]
@@ -173,11 +197,12 @@ def rerank(
     raw_intent = [_intent_bonus(c.memory_type, query_intent) for c in candidates]
 
     # RRF 名次分是池内相对分（无量纲），必须 min-max 归一才能与其他信号同台加权；
-    # confidence/importance/freshness/usage/intent 本身就是 0-1 语义分，绝对值即含义
-    # （如 confidence 0.85 就该贡献 0.85×权重），直接用原始值。若对它们也做池内
-    # min-max，池内最小值会被强拉到 0（即使绝对值 0.85），而 RRF 头部名次间的
-    # 微小差距经归一后被压平，元数据信号反而主导排序，把元数据恰好最小的
-    # 相关记忆挤下去——这违背了「RRF 主导、元数据微调」的权重设计。
+    # vector/confidence/importance/freshness/usage/intent 本身就是 0-1 语义分，
+    # 绝对值即含义（如 confidence 0.85 就该贡献 0.85×权重），直接用原始值。
+    # 若对它们也做池内 min-max，池内最小值会被强拉到 0（即使绝对值 0.85），
+    # 而 RRF 头部名次间的微小差距经归一后被压平，元数据信号反而主导排序，
+    # 把元数据恰好最小的相关记忆挤下去——这违背了「相关性主导、元数据微调」
+    # 的权重设计。
     norm_rrf = _normalize_signal(raw_rrf)
 
     scored: list[tuple[str, float]] = []
@@ -185,6 +210,7 @@ def rerank(
     for i, c in enumerate(candidates):
         final = (
             w.rrf * norm_rrf[i]
+            + w.semantic * raw_vec[i]
             + w.confidence * raw_conf[i]
             + w.importance * raw_imp[i]
             + w.freshness * raw_fresh[i]

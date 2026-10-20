@@ -14,13 +14,15 @@ import time
 from pathlib import Path
 from typing import Any
 
-import yaml  # type: ignore[import-untyped]
+import yaml
 
 from packages.domain.config import skills_config
 
 PROJECT_SKILLS_DIR = Path(__file__).resolve().parents[3] / "skills"
 SOURCE_MARKER = ".cwiki-source.json"
-SKILL_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+# 与 dsh（@deepseek-ai/dsh-skill 的 SKILL_NAME）同款 kebab 语法：不允许
+# 前导/连续/尾随连字符——这类名字会被 dsh 以 invalid skill name 静默忽略。
+SKILL_NAME_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
 
 # --------------- 文件系统辅助函数 ---------------

@@ -136,6 +136,7 @@ const retrievalFields: EditableField[] = [
   'bm25_weight',
   'vector_weight',
   'reranker_rrf_weight',
+  'reranker_semantic_weight',
   'reranker_confidence_weight',
   'reranker_importance_weight',
   'reranker_freshness_weight',
@@ -272,7 +273,7 @@ function NumberInput({
 
 function ReadOnlyField({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="flex justify-between py-2.5 rounded-lg px-3 -mx-3 hover:bg-brand-50/25 transition-all duration-150">
+    <div className="flex justify-between py-2.5 rounded-lg px-3 -mx-3 hover:bg-brand-badge-bg transition-all duration-150">
       <span className="text-xs text-[var(--text-secondary)] font-medium">{label}</span>
       <span className="text-xs font-semibold text-[var(--text-primary)] font-mono bg-surface-elevated/40 px-2 py-0.5 rounded-lg ring-1 ring-[var(--border-default)]">
         {value}
@@ -348,7 +349,7 @@ function ConfigCard({
           {fields.map((field) => (
             <div
               key={field.key}
-              className="flex items-center justify-between py-2.5 rounded-lg px-3 -mx-3 hover:bg-brand-50/20 transition-all duration-150"
+              className="flex items-center justify-between py-2.5 rounded-lg px-3 -mx-3 hover:bg-brand-badge-bg transition-all duration-150"
             >
               <div className="flex-1 mr-3">
                 <span className="text-xs text-[var(--text-primary)] font-medium">

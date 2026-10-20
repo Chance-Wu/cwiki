@@ -1,4 +1,4 @@
-"""时态过滤纯函数测试（apply_stale_filter 三档行为）。"""
+"""时态过滤纯函数测试（apply_stale_filter 三档行为、temporal_score 豁免）。"""
 
 from datetime import UTC, datetime, timedelta
 
@@ -6,6 +6,7 @@ from packages.retrieval.ranking.temporal import (
     STALE_DEMOTE_FACTOR,
     apply_stale_filter,
     is_stale_item,
+    temporal_score,
 )
 
 NOW = datetime(2026, 10, 15, 12, 0, tzinfo=UTC)
@@ -75,3 +76,51 @@ class TestApplyStaleFilter:
             assert "unknown" in str(e)
         else:
             raise AssertionError("无效 mode 应抛 ValueError")
+
+
+class TestTemporalScoreIgnoreExpiry:
+    def test_expired_scores_floor_by_default(self):
+        # 默认行为：valid_to 已过期给 0.1 底分
+        assert temporal_score(None, NOW - timedelta(days=1), NOW, NOW, now=NOW) == 0.1
+
+    def test_ignore_expiry_falls_through_to_usage_tiers(self):
+        # 历史意图查询豁免：过期记忆不再吃底分，按 last_used 分档
+        score = temporal_score(
+            valid_from=None,
+            valid_to=NOW - timedelta(days=1),
+            created_at=None,
+            last_used_at=NOW - timedelta(days=3),
+            ignore_expiry=True,
+            now=NOW,
+        )
+        assert score == 0.95
+
+    def test_ignore_expiry_old_usage_tier(self):
+        score = temporal_score(
+            None,
+            NOW - timedelta(days=200),
+            NOW - timedelta(days=300),
+            NOW - timedelta(days=200),
+            ignore_expiry=True,
+            now=NOW,
+        )
+        assert score == 0.4
+
+    def test_ignore_expiry_keeps_not_yet_effective_branch(self):
+        # 豁免只针对过期：尚未生效（valid_from 在未来）仍走预置内容分档
+        score = temporal_score(
+            valid_from=NOW + timedelta(days=10),
+            valid_to=None,
+            created_at=None,
+            last_used_at=None,
+            ignore_expiry=True,
+            now=NOW,
+        )
+        assert score == 0.5
+
+    def test_no_expiry_unaffected_by_flag(self):
+        # 无有效期的记忆两种取值结果一致（豁免只改变过期分支）
+        args = (None, None, NOW - timedelta(days=3), None)
+        assert temporal_score(*args, ignore_expiry=False, now=NOW) == temporal_score(
+            *args, ignore_expiry=True, now=NOW
+        )

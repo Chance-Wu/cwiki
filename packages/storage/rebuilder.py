@@ -33,11 +33,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select, text, update
 from sqlalchemy.exc import DatabaseError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from packages.domain.models import (
+    AgentSession,
     CandidateMemory,
     Evidence,
     Memory,
@@ -50,6 +51,7 @@ from packages.domain.models import (
     Review,
     ReviewHistory,
     ReviewSchedule,
+    SessionNote,
     Workspace,
 )
 from packages.storage.file_store import FileStore, MemoryFile
@@ -78,6 +80,8 @@ class RebuildResult:
     skipped_files: list[str] = field(default_factory=list)
     candidate_count: int = 0
     review_count: int = 0
+    capture_session_count: int = 0
+    capture_note_count: int = 0
     elapsed_seconds: float = 0.0
 
 
@@ -92,6 +96,8 @@ class RebuildResult:
 # 运行时遥测（检索留痕与主动推送去重），依附会话生命周期而非知识本身，
 # 有意不随重建保留 —— 清空后不再重灌，重建后为空是预期行为。
 _MEMORY_TABLES_TO_CLEAR: list[str] = [
+    "session_note",
+    "agent_session",
     "retrieval_trace_item",
     "retrieval_trace",
     "proactive_push_record",
@@ -182,6 +188,27 @@ def indexed_active_count() -> int | None:
         return None
 
 
+def vector_meta_count() -> int | None:
+    """统计 vectors.json 中的向量条数；不可读时返回 None。
+
+    ``indexed_active_count()`` 只校验 index.db 一侧；vectors.npz/json
+    可能因旧版中断偏少（索引行在、向量缺失）。ids 数与 npz 向量数
+    不一致时 VectorIndex 会整体丢弃内容，因此 ids 长度即有效向量数。
+    """
+    from packages.storage import config as storage_config
+
+    path = Path(storage_config.vector_meta_path)
+    if not path.exists():
+        return None
+    try:
+        with open(path, encoding="utf-8") as f:
+            meta = json.load(f)
+        ids = meta.get("ids")
+        return len(ids) if isinstance(ids, list) else None
+    except (OSError, ValueError):
+        return None
+
+
 # ---------------------------------------------------------------------------
 # DatabaseRebuilder
 # ---------------------------------------------------------------------------
@@ -268,6 +295,14 @@ class DatabaseRebuilder:
                     result.review_count,
                 )
 
+                # 3.6 从 _meta/_capture_notes.json 恢复捕获会话与待整理笔记
+                await self._import_capture(session, result)
+                logger.info(
+                    "Imported capture: %d sessions, %d notes",
+                    result.capture_session_count,
+                    result.capture_note_count,
+                )
+
                 # 4. 从 _meta JSON 文件导入关系数据。
                 await self._import_relations(session, result)
                 logger.info(
@@ -309,22 +344,47 @@ class DatabaseRebuilder:
         memories = await asyncio.to_thread(self.file_store.list)
         embedding_service = get_embedding_service()
         indexed = 0
+        embedding_updates: list[tuple[str, list[float]]] = []
 
         logger.info("Rebuilding vector index for %d memories...", len(memories))
         for i, memory in enumerate(memories):
             if memory.status != "active":
                 continue
-            text = format_memory_for_embedding(memory.title, memory.content)
-            embedding = await embedding_service.generate_embedding(text)
+            emb_text = format_memory_for_embedding(memory.title, memory.content)
+            embedding = await embedding_service.generate_embedding(emb_text)
             await indexer.index_memory(memory, embedding=embedding, update_vector=True)
+            if embedding is not None:
+                embedding_updates.append((memory.id, embedding))
             indexed += 1
             if (indexed + 1) % 100 == 0:
                 logger.info("Vector index progress: %d / %d", indexed, len(memories))
 
         await indexer.save_vector_index()
         await indexer.close()
-        logger.info("Vector index rebuild complete: %d memories indexed", indexed)
+        backfilled = await self._backfill_memory_embeddings(embedding_updates)
+        logger.info(
+            "Vector index rebuild complete: %d memories indexed, %d embedding columns backfilled",
+            indexed,
+            backfilled,
+        )
         return indexed
+
+    async def _backfill_memory_embeddings(self, updates: list[tuple[str, list[float]]]) -> int:
+        """把重建生成的向量回填 DB ``memory.embedding`` 列。
+
+        score_candidate 的向量新颖度与重复概率都依赖该列；重建后若全
+        NULL，auto-approve 会因重复概率未知而全部跳过。DB 中不存在的
+        id（孤儿 MD）影响 0 行，无害。
+        """
+        if not updates:
+            return 0
+        async with self._session_factory() as session:
+            for mid, vec in updates:
+                await session.execute(
+                    update(Memory).where(Memory.id == uuid.UUID(mid)).values(embedding=vec)
+                )
+            await session.commit()
+        return len(updates)
 
     async def table_counts(self) -> tuple[int, int, int]:
         """重建后数据库的行数统计。
@@ -512,8 +572,14 @@ class DatabaseRebuilder:
         result: RebuildResult,
     ) -> list[MemoryFile]:
         """扫描 Markdown 文件并插入 Memory 行。"""
-        memories: list[MemoryFile] = await asyncio.to_thread(self.file_store.list)
+        memories, parse_skipped = await asyncio.to_thread(self.file_store.list_with_skipped)
+        for path, reason in parse_skipped:
+            logger.warning("Rebuild skips unparsable memory file: %s (%s)", path, reason)
+            result.skipped_files.append(f"{path} ({reason})")
         batch: list[Memory] = []
+        # 构造阶段跳过数与 parse_skipped 分开计数：后者不在 memories 里，
+        # 混入同一算式会重复扣减 memory_count。
+        construction_skipped = 0
 
         # 为 workspace 未知的记忆寻找或创建兜底 workspace。
         fallback_ws_id: str | None = None
@@ -567,6 +633,7 @@ class DatabaseRebuilder:
             except (ValueError, KeyError) as exc:
                 logger.warning("Skipping memory file %s: %s", mf.id, exc)
                 result.skipped_files.append(mf.id)
+                construction_skipped += 1
                 continue
 
             # 分批写入，控制单次 flush 的内存占用
@@ -579,8 +646,103 @@ class DatabaseRebuilder:
             session.add_all(batch)
             await session.flush()
 
-        result.memory_count = len(memories) - len(result.skipped_files)
+        result.memory_count = len(memories) - construction_skipped
         return memories
+
+    async def _import_capture(self, session: AsyncSession, result: RebuildResult) -> None:
+        """从 ``_meta/_capture_notes.json`` 恢复 Agent 会话与待整理笔记。
+
+        笔记是“未整理内容”的唯一副本；旧版导出没有该文件时只告警，
+        重建照常完成。逐行容错：坏行跳过，不让一条脏数据阻断整次重建。
+        """
+        payload = await asyncio.to_thread(self.meta_store.import_capture)
+        if payload is None:
+            logger.warning(
+                "_meta/_capture_notes.json not found — capture notes "
+                "will be empty after rebuild (old export?)"
+            )
+            return
+
+        sessions: list[AgentSession] = []
+        seen_sessions: set[str] = set()
+        for entry in payload.get("sessions") or []:
+            if not isinstance(entry, dict):
+                continue
+            try:
+                session_id = str(entry["id"])
+                if session_id in seen_sessions:
+                    continue
+                seen_sessions.add(session_id)
+                sessions.append(
+                    AgentSession(
+                        id=uuid.UUID(session_id),
+                        workspace_id=uuid.UUID(str(entry["workspace_id"])),
+                        agent=str(entry.get("agent") or "unknown"),
+                        agent_version=entry.get("agent_version"),
+                        repository=entry.get("repository"),
+                        branch=entry.get("branch"),
+                        task=entry.get("task"),
+                        event_session_id=(
+                            uuid.UUID(str(entry["event_session_id"]))
+                            if entry.get("event_session_id")
+                            else None
+                        ),
+                        started_at=_parse_dt(entry.get("started_at")) or datetime.now(UTC),
+                        ended_at=_parse_dt(entry.get("ended_at")),
+                        outcome=entry.get("outcome"),
+                        metadata_=entry.get("metadata_"),
+                        created_at=_parse_dt(entry.get("created_at")) or datetime.now(UTC),
+                    )
+                )
+            except (KeyError, ValueError, TypeError):
+                logger.warning("Skipping invalid capture session: %s", entry, exc_info=True)
+
+        if sessions:
+            session.add_all(sessions)
+            await session.flush()
+            result.capture_session_count = len(sessions)
+
+        notes: list[SessionNote] = []
+        seen_notes: set[str] = set()
+        for entry in payload.get("notes") or []:
+            if not isinstance(entry, dict):
+                continue
+            try:
+                note_id = str(entry["id"])
+                if note_id in seen_notes:
+                    continue
+                if str(entry.get("session_id")) not in seen_sessions:
+                    logger.warning("Skipping capture note with missing session: %s", note_id)
+                    continue
+                seen_notes.add(note_id)
+                notes.append(
+                    SessionNote(
+                        id=uuid.UUID(note_id),
+                        session_id=uuid.UUID(str(entry["session_id"])),
+                        workspace_id=uuid.UUID(str(entry["workspace_id"])),
+                        content=str(entry["content"]),
+                        signal_type=str(entry.get("signal_type") or "other"),
+                        formalized=bool(entry.get("formalized", False)),
+                        formalized_memory_id=(
+                            uuid.UUID(str(entry["formalized_memory_id"]))
+                            if entry.get("formalized_memory_id")
+                            else None
+                        ),
+                        candidate_id=(
+                            uuid.UUID(str(entry["candidate_id"]))
+                            if entry.get("candidate_id")
+                            else None
+                        ),
+                        created_at=_parse_dt(entry.get("created_at")) or datetime.now(UTC),
+                    )
+                )
+            except (KeyError, ValueError, TypeError):
+                logger.warning("Skipping invalid capture note: %s", entry, exc_info=True)
+
+        if notes:
+            session.add_all(notes)
+            await session.flush()
+            result.capture_note_count = len(notes)
 
     async def _import_candidates(self, session: AsyncSession, result: RebuildResult) -> None:
         """从 ``_meta/_review_queue.json`` 恢复候选记忆与评审留痕。

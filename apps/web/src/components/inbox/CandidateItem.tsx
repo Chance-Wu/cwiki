@@ -45,7 +45,7 @@ const CandidateItem = memo(function CandidateItem({
   return (
     <div
       data-candidate-index={idx}
-      className={`candidate-item-enter group bg-transparent px-4 py-3 cursor-pointer relative border-b border-[var(--border-default)] last:border-b-0 hover:bg-brand-50/40 ${
+      className={`candidate-item-enter group bg-transparent px-4 py-3 cursor-pointer relative border-b border-[var(--border-default)] last:border-b-0 hover:bg-brand-badge-bg ${
         selected
           ? 'bg-brand-50/30 border-l-[3px] border-l-brand-400'
           : focused

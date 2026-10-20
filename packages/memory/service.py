@@ -64,6 +64,13 @@ class MemoryVersionConflict(AppError):
         )
 
 
+class CandidateStateError(AppError):
+    """候选状态不允许该操作（如重复批准）；由 API 领域错误处理器映射为 409。"""
+
+    def __init__(self, message: str) -> None:
+        super().__init__("candidate_state_conflict", message, status_code=409)
+
+
 async def snapshot_and_advance(
     db: AsyncSession,
     memory: Memory,
@@ -373,7 +380,13 @@ async def approve_candidate(
     """批准候选并创建正式记忆。
 
     可选的 title/content/project_id 覆盖候选原值。
+    仅 pending_review 可批准：approved/merged/rejected 等终态候选
+    重复转正会创建重复记忆（任务队列 at-least-once 重放的主要风险面）。
     """
+    if candidate.status != "pending_review":
+        raise CandidateStateError(
+            f"Candidate is already in '{candidate.status}' status and cannot be approved"
+        )
     approved_title = validate_safe_content(title if title is not None else candidate.title)
     approved_content = validate_safe_content(content if content is not None else candidate.content)
     approved_content = normalize_memory_content(approved_content)

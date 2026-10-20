@@ -19,6 +19,16 @@ _embedding_service: EmbeddingService | None = None
 # 加载失败后的冷却间隔：期间内跳过重试，避免每个请求都触发加载尝试
 _LOAD_RETRY_INTERVAL_SECONDS = 60.0
 
+# 模型加载超时：网络不通时 TextEmbedding() 会永久卡在模型下载上
+# （huggingface 下载无超时），把调用方一起拖死。超过此时长后放弃本次加载，
+# 走哈希兜底并按冷却间隔重试；加载本身放在 daemon 线程里，超时后线程
+# 自生自灭，不会阻塞进程退出。
+_MODEL_LOAD_TIMEOUT_SECONDS = 30.0
+
+# 等待模型加载线程时的单次 join 时长：用小步长轮询代替单次长 join，
+# 规避部分平台上 join(timeout>=20) 不返回的问题（macOS + CPython 3.12 实测）
+_JOIN_POLL_SECONDS = 5.0
+
 # embedding 性能监控指标
 _embedding_metrics: dict[str, int | float] = {
     "total_calls": 0,
@@ -116,38 +126,81 @@ class EmbeddingService:
 
         self._model_loading = True
         self._loading_event.clear()
+        result: dict[str, Any] = {}
         try:
-            from fastembed import TextEmbedding
-
-            self._local_model = TextEmbedding(
-                model_name=settings.embedding_model,
-                cache_dir=storage_config.embedding_cache_dir,
-            )
-            self.dimensions = self._local_model.embedding_size
-            self._provider = "local"
-            self._model_loaded = True
-            self._last_load_error = None
-            self._next_load_retry_at = 0.0
-            logger.info(
-                "Loaded local embedding model on demand: %s (dim=%d)",
-                settings.embedding_model,
-                self.dimensions,
-            )
+            self._local_model = self._load_model_with_timeout(result)
+            if self._local_model is not None:
+                self.dimensions = self._local_model.embedding_size
+                self._provider = "local"
+                self._model_loaded = True
+                self._last_load_error = None
+                self._next_load_retry_at = 0.0
+                logger.info(
+                    "Loaded local embedding model on demand: %s (dim=%d)",
+                    settings.embedding_model,
+                    self.dimensions,
+                )
         except Exception as e:
-            self._load_failures += 1
-            self._last_load_error = f"{type(e).__name__}: {e}"
-            self._next_load_retry_at = time.monotonic() + _LOAD_RETRY_INTERVAL_SECONDS
-            logger.warning(
-                "Failed to load local embedding model '%s' (attempt %d): %s. "
-                "Using hash fallback; will retry in %.0fs.",
-                settings.embedding_model,
-                self._load_failures,
-                e,
-                _LOAD_RETRY_INTERVAL_SECONDS,
-            )
+            self._record_load_failure(e)
         finally:
             self._model_loading = False
             self._loading_event.set()
+
+    def _load_model_with_timeout(self, result: dict[str, Any]) -> Any:
+        """在 daemon 线程里加载模型并等待，超时返回 None 走兜底。
+
+        下载/构造失败由线程内捕获后写进 *result*；主线程只负责等待，
+        避免网络不通时 TextEmbedding() 永久阻塞调用方的事件循环。
+        """
+
+        def _load() -> None:
+            try:
+                from fastembed import TextEmbedding
+
+                result["model"] = TextEmbedding(
+                    model_name=settings.embedding_model,
+                    cache_dir=storage_config.embedding_cache_dir,
+                )
+            except BaseException as e:  # 原样存进 result，由主线程记录
+                result["error"] = e
+
+        worker = threading.Thread(target=_load, daemon=True)
+        worker.start()
+        # 用短 join 轮询等待，避免单次长 join 在某些平台上不返回
+        # （macOS + CPython 3.12 实测 join(timeout=20/30) 会一直阻塞）
+        deadline = time.monotonic() + _MODEL_LOAD_TIMEOUT_SECONDS
+        while worker.is_alive():
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            worker.join(timeout=min(remaining, _JOIN_POLL_SECONDS))
+        if worker.is_alive():
+            # 线程仍在跑（网络下载无超时）：放弃本次加载，走哈希兜底。
+            # daemon 线程不会阻塞进程退出。
+            self._record_load_failure(
+                TimeoutError(
+                    f"model load exceeded {_MODEL_LOAD_TIMEOUT_SECONDS:.0f}s "
+                    "(network download has no timeout); using hash fallback"
+                )
+            )
+            return None
+        if "error" in result:
+            raise result["error"]
+        return result.get("model")
+
+    def _record_load_failure(self, e: BaseException) -> None:
+        """记录加载失败并进入冷却期。"""
+        self._load_failures += 1
+        self._last_load_error = f"{type(e).__name__}: {e}"
+        self._next_load_retry_at = time.monotonic() + _LOAD_RETRY_INTERVAL_SECONDS
+        logger.warning(
+            "Failed to load local embedding model '%s' (attempt %d): %s. "
+            "Using hash fallback; will retry in %.0fs.",
+            settings.embedding_model,
+            self._load_failures,
+            e,
+            _LOAD_RETRY_INTERVAL_SECONDS,
+        )
 
     @property
     def is_fallback(self) -> bool:

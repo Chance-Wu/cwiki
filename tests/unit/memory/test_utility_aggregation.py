@@ -139,3 +139,38 @@ def test_latest_used_at_all_none_returns_none():
     """全部来源缺时间（从未使用）时返回 None，不伪造时间。"""
     assert latest_used_at(None, None) is None
     assert latest_used_at() is None
+
+
+async def test_aggregate_counts_outdated_and_wrong_as_negative(agg_env):
+    """outdated / wrong 反馈与 not_useful 一样压低 human_feedback 分量。"""
+    env = agg_env
+    env.db.add_all(
+        [
+            MemoryFeedback(
+                workspace_id=env.a.workspace_id,
+                memory_id=env.a.id,
+                feedback_type="outdated",
+                source_type="human",
+            ),
+            MemoryFeedback(
+                workspace_id=env.a.workspace_id,
+                memory_id=env.a.id,
+                feedback_type="wrong",
+                source_type="agent",
+            ),
+        ]
+    )
+    await env.db.commit()
+
+    result = await aggregate_utility_scores(env.db, [env.a])
+    expected = compute_utility_score(
+        retrieval_count=5,
+        used_count=2,
+        cited_count=0,
+        useful_votes=2,
+        # not_useful(1) + outdated(1) + wrong(1) 全部计入负票
+        not_useful_votes=3,
+        last_used_at=env.a_last_used,
+        evidence_count=2,
+    )
+    assert result[env.a_id] == round(expected.utility, 4)

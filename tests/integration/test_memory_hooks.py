@@ -201,17 +201,37 @@ runpy.run_module({MODULE!r}, run_name='__main__')
 
 def test_plugin_configuration_and_module_mode_launch() -> None:
     config = json.loads((ROOT / "adapters/qoder/hooks/hooks.json").read_text(encoding="utf-8"))
-    assert set(config["hooks"]) == {"SessionStart"}
-    # 验证 hooks 使用 python -m 模块方式启动（不依赖入口点脚本）。
-    for command, (event, _) in REMINDERS.items():
-        entries = config["hooks"][event]
-        assert len(entries) == 1
-        hook = entries[0]["hooks"][0]
-        assert hook["type"] == "command"
-        assert f"-m {MODULE}" in hook["command"]
-        assert "PYTHONPATH" in hook.get("env", {})
-        # 实际运行一次 hook，验证它确实可用。
-        _assert_reminder(_run(_payload(event), command), command)
+    assert set(config["hooks"]) == {
+        "SessionStart",
+        "UserPromptSubmit",
+        "PreToolUse",
+        "PostCompact",
+        "PostToolUseFailure",
+        "SessionEnd",
+    }
+    # PreToolUse 必须带 matcher 限定到 MCP 工具调用；注入需在工具执行前完成，
+    # 必须同步执行（async 会错过 updatedInput 时机）
+    pre_groups = config["hooks"]["PreToolUse"]
+    assert pre_groups and all("matcher" in g for g in pre_groups)
+    assert all(not h.get("async") for g in pre_groups for h in g["hooks"])
+    # 验证 hooks 使用 host-neutral 的 adapters.hooks 模块启动，
+    # 且每个事件保留自己的参数（setup 只替换解释器前缀）。
+    for entries in config["hooks"].values():
+        assert entries
+        for entry in entries:
+            for hook in entry.get("hooks", []):
+                assert hook["type"] == "command"
+                assert "-m adapters.hooks qoder" in hook["command"]
+                assert "PYTHONPATH" in hook.get("env", {})
+    result = _run(
+        _payload("SessionStart", session_id="hook-test"),
+        "qoder",
+        "session-start",
+        launcher=["-m", "adapters.hooks"],
+    )
+    data = json.loads(result.stdout.decode("ascii"))
+    assert data["hookSpecificOutput"]["hookEventName"] == "SessionStart"
+    assert "memory_search" in data["hookSpecificOutput"]["additionalContext"]
     # 验证 pyproject.toml 不再声明 console scripts。
     project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     assert "scripts" not in project.get("project", {})

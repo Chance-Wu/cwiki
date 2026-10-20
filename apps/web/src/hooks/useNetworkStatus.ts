@@ -10,7 +10,7 @@ import { api } from '../lib/api'
  */
 export function useNetworkStatus() {
   const queryClient = useQueryClient()
-  const { isSuccess, isError, refetch } = useQuery({
+  const { isError, refetch } = useQuery({
     queryKey: ['health'],
     queryFn: () => api.getHealth(),
     staleTime: 10_000,
@@ -35,8 +35,10 @@ export function useNetworkStatus() {
     }
   }, [refetch, queryClient])
 
-  // 判定离线：查询失败，或浏览器报告离线
+  // 判定离线：查询失败，或浏览器报告离线。
+  // pending（首次结果未到）视为在线——把"加载中"当"离线"会让横幅
+  // 在每次冷加载时误闪一次
   if (!navigator.onLine) return false
   if (isError) return false
-  return isSuccess
+  return true
 }

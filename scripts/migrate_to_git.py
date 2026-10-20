@@ -34,6 +34,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from packages.domain.config import settings
 from packages.domain.models import (
+    AgentSession,
     CandidateMemory,
     Evidence,
     Memory,
@@ -46,6 +47,7 @@ from packages.domain.models import (
     Review,
     ReviewHistory,
     ReviewSchedule,
+    SessionNote,
     Workspace,
 )
 from packages.storage import config as storage_config
@@ -188,6 +190,8 @@ async def export_all(db_url: str, data_dir: str) -> dict[str, int]:
         "workspace_count": 0,
         "candidate_count": 0,
         "review_count": 0,
+        "capture_session_count": 0,
+        "capture_note_count": 0,
         "orphan_meta_deleted": 0,
         "errors": 0,
     }
@@ -218,6 +222,14 @@ async def export_all(db_url: str, data_dir: str) -> dict[str, int]:
             await _export_review_queue(session, meta_store, stats)
         except Exception:
             logger.exception("Failed to write _meta/_review_queue.json")
+            stats["errors"] += 1
+
+        # 1c. 导出 Agent 捕获会话与待整理笔记。笔记同样不经 Markdown
+        #     承载；不导出会导致重建/换设备后“待整理内容”丢失。
+        try:
+            await _export_capture(session, meta_store, stats)
+        except Exception:
+            logger.exception("Failed to write _meta/_capture_notes.json")
             stats["errors"] += 1
 
         # 2. 拉取全部记忆。
@@ -276,6 +288,8 @@ async def export_all(db_url: str, data_dir: str) -> dict[str, int]:
     print_message(f"  Workspaces exported: {stats['workspace_count']}")
     print_message(f"  Candidates exported: {stats['candidate_count']}")
     print_message(f"  Reviews exported:    {stats['review_count']}")
+    print_message(f"  Capture sessions:    {stats['capture_session_count']}")
+    print_message(f"  Capture notes:       {stats['capture_note_count']}")
     print_message(f"  Orphan _meta removed: {stats['orphan_meta_deleted']}")
     print_message(f"  Errors:              {stats['errors']}")
 
@@ -323,6 +337,58 @@ async def _export_review_queue(
     meta_store.export_review_queue(payload)
     stats["candidate_count"] = len(entries)
     stats["review_count"] = sum(len(e["reviews"]) for e in entries)
+
+
+async def _export_capture(
+    session: AsyncSession,
+    meta_store: MetaStore,
+    stats: dict[str, int],
+) -> None:
+    """导出 Agent 会话与待整理笔记全文到 ``_capture_notes.json``。"""
+    sessions = (await session.execute(select(AgentSession))).scalars().all()
+    notes = (await session.execute(select(SessionNote))).scalars().all()
+
+    session_fields = [
+        "id",
+        "workspace_id",
+        "agent",
+        "agent_version",
+        "repository",
+        "branch",
+        "task",
+        "event_session_id",
+        "started_at",
+        "ended_at",
+        "outcome",
+        "metadata_",
+        "created_at",
+    ]
+    note_fields = [
+        "id",
+        "session_id",
+        "workspace_id",
+        "content",
+        "signal_type",
+        "formalized",
+        "formalized_memory_id",
+        "candidate_id",
+        "created_at",
+    ]
+    payload = {
+        "schema_version": 1,
+        "exported_at": datetime.now(UTC).isoformat(),
+        "sessions": [
+            _serialize_row(row, session_fields)
+            for row in sorted(sessions, key=lambda r: (r.started_at, str(r.id)))
+        ],
+        "notes": [
+            _serialize_row(row, note_fields)
+            for row in sorted(notes, key=lambda r: (r.created_at, str(r.id)))
+        ],
+    }
+    meta_store.export_capture(payload)
+    stats["capture_session_count"] = len(payload["sessions"])
+    stats["capture_note_count"] = len(payload["notes"])
 
 
 async def _collect_relations(session: AsyncSession, memory_id: uuid.UUID) -> dict[str, Any]:

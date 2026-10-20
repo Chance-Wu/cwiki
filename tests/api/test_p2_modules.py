@@ -565,7 +565,7 @@ class TestMemoryUpdate:
     async def test_update_confidence_only(self):
         from unittest.mock import AsyncMock
 
-        from adapters.qoder.client import CwikiClient
+        from adapters.mcp.client import CwikiClient
 
         client = CwikiClient("http://test:5172")
         client._request = AsyncMock(return_value={"id": "test-id", "confidence": 0.9})
@@ -585,7 +585,7 @@ class TestMemoryUpdate:
     async def test_update_multiple_fields(self):
         from unittest.mock import AsyncMock
 
-        from adapters.qoder.client import CwikiClient
+        from adapters.mcp.client import CwikiClient
 
         client = CwikiClient("http://test:5172")
         client._request = AsyncMock(return_value={"id": "test-id"})
@@ -609,7 +609,7 @@ class TestMemoryUpdate:
     async def test_update_with_none_fields_excluded(self):
         from unittest.mock import AsyncMock
 
-        from adapters.qoder.client import CwikiClient
+        from adapters.mcp.client import CwikiClient
 
         client = CwikiClient("http://test:5172")
         client._request = AsyncMock(return_value={"id": "test-id"})
@@ -1047,7 +1047,7 @@ class TestMemoryLifecycle:
     """记忆生命周期管理测试（P4-37）。"""
 
     async def test_client_get_lifecycle(self):
-        from adapters.qoder.client import CwikiClient
+        from adapters.mcp.client import CwikiClient
 
         client = CwikiClient("http://test:5172")
         expected = {
@@ -1073,7 +1073,7 @@ class TestMemoryLifecycle:
         assert len(result["timeline"]) == 2
 
     async def test_client_get_lifecycle_empty(self):
-        from adapters.qoder.client import CwikiClient
+        from adapters.mcp.client import CwikiClient
 
         client = CwikiClient("http://test:5172")
         client._request = AsyncMock(
@@ -1379,7 +1379,7 @@ class TestNoteSummarization:
     """笔记智能摘要测试（P4-39）。"""
 
     def test_extract_keywords_chinese(self):
-        from adapters.qoder.content_processing import extract_keywords
+        from adapters.mcp.content_processing import extract_keywords
 
         texts = [
             "配置 database_connection 参数",
@@ -1390,7 +1390,7 @@ class TestNoteSummarization:
         assert "database_connection" in keywords
 
     def test_extract_keywords_english(self):
-        from adapters.qoder.content_processing import extract_keywords
+        from adapters.mcp.content_processing import extract_keywords
 
         texts = [
             "AuthService handles authentication",
@@ -1400,7 +1400,7 @@ class TestNoteSummarization:
         assert "authservice" in keywords
 
     def test_extract_keywords_filters_stopwords(self):
-        from adapters.qoder.content_processing import extract_keywords
+        from adapters.mcp.content_processing import extract_keywords
 
         texts = ["这是一个关于配置数据库的测试"]
         keywords = extract_keywords(texts)
@@ -1408,7 +1408,7 @@ class TestNoteSummarization:
             assert sw not in keywords
 
     def test_extract_keywords_empty_input(self):
-        from adapters.qoder.content_processing import extract_keywords
+        from adapters.mcp.content_processing import extract_keywords
 
         assert extract_keywords([]) == []
         assert extract_keywords([""]) == []
@@ -2111,7 +2111,7 @@ class TestMemoryVersionTracking:
         assert config.memory_version_tracking_enabled is True
 
     async def test_client_get_memory_versions(self):
-        from adapters.qoder.client import CwikiClient
+        from adapters.mcp.client import CwikiClient
 
         client = CwikiClient("http://test:5172")
         versions = [
@@ -2154,7 +2154,7 @@ class TestMemoryVersionTracking:
         assert result[1]["version"] == 2
 
     async def test_client_get_memory_versions_default_limit(self):
-        from adapters.qoder.client import CwikiClient
+        from adapters.mcp.client import CwikiClient
 
         client = CwikiClient("http://test:5172")
         client._request = AsyncMock(return_value=[])

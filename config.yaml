@@ -5,6 +5,9 @@ app:
   # CORS 默认只放行前端 Vite dev 源（dev 经 proxy 同源访问，正常不触发跨域）
   cors_origins: ["http://localhost:5173", "http://127.0.0.1:5173", "http://192.168.1.223:5173"]
   debug: true
+  # API 鉴权 token：默认空 = 不鉴权。监听 0.0.0.0 等非回环地址时建议配置；
+  # token 生成后写在本文件或 config.local.yaml（优先级更高、不入代码仓库）
+  auth_token: ''
   embedding_dimensions: 512
   embedding_model: BAAI/bge-small-zh-v1.5
   openai_api_key: ''
@@ -43,16 +46,24 @@ parasitic_evolution:
   proactive_push_enabled: true
   review_reminders_enabled: true
   write_time_conflict_enabled: true
+# 周期调度器：在 API 进程内按固定间隔触发后台任务
+scheduler:
+  auto_consolidate_interval_hours: 6
+  review_reminders_interval_hours: 24
+  meta_export_interval_hours: 12
 retrieval:
   bm25_weight: 0.6
   vector_weight: 0.4
-  reranker_confidence_weight: 0.13
-  reranker_freshness_weight: 0.13
-  reranker_importance_weight: 0.16
-  reranker_intent_weight: 0.12
+  reranker_confidence_weight: 0.10
+  reranker_freshness_weight: 0.10
+  reranker_importance_weight: 0.12
+  reranker_intent_weight: 0.09
   reranker_key_term_bonus: 0.08
   reranker_rrf_weight: 0.38
-  reranker_usage_weight: 0.08
+  reranker_usage_weight: 0.06
+  # 语义相似度权重：向量余弦是相关性信号（与 RRF 同类，不参与元数据封顶），
+  # 用于制衡「元数据占优但语义无关」的候选挤掉双路命中的相关记忆
+  reranker_semantic_weight: 0.15
   # 效用分权重：上下文组装排序中同优先级内按 score + utility_weight × utility_score 排序，
   # utility 缺省 0 时退化为纯 score 排序（向后兼容）
   utility_weight: 0.15
@@ -81,9 +92,13 @@ performance:
   auto_consolidate_limit: 200
   auto_consolidate_top_k: 20
 skills:
+  # skills/import 允许导入的源路径前缀（空 = 不限制，单用户本地部署默认不限制）
+  import_allowed_paths: []
   agents:
     codex:
       skills_dir: ~/.codex/skills
+    dsh:
+      skills_dir: ~/.dsh/skills
     qoder:
       plugins_dir: ~/.qoder/plugins/cache
       skills_dir: ~/.qoder/skills

@@ -71,6 +71,34 @@ class TestHardOnlyEarlyRemoval:
 
         assert [mid for mid, _ in result] == ["fresh"]
 
+    def test_skip_stale_keeps_expired_for_historical_query(self, monkeypatch):
+        # 历史意图查询豁免：hard 档过期候选不再被早删
+        _patch(monkeypatch, stale="hard")
+        expired = datetime.now(UTC) - timedelta(days=1)
+        mem_map = {"old": _mem(valid_to=expired), "fresh": _mem()}
+
+        result = RetrievalEngine()._apply_candidate_filters(
+            [("old", 0.9), ("fresh", 0.8)], mem_map, skip_stale=True
+        )
+
+        assert result == [("old", 0.9), ("fresh", 0.8)]
+
+    def test_skip_stale_does_not_affect_confidence_hard(self, monkeypatch):
+        # 豁免只作用于 stale，低置信早删除照常
+        _patch(monkeypatch, stale="hard", conf="hard", conf_floor=0.3)
+        expired = datetime.now(UTC) - timedelta(days=1)
+        mem_map = {
+            "old": _mem(valid_to=expired, confidence=0.1),
+            "fresh_weak": _mem(confidence=0.1),
+            "solid": _mem(confidence=0.8),
+        }
+
+        result = RetrievalEngine()._apply_candidate_filters(
+            [("old", 0.9), ("fresh_weak", 0.7), ("solid", 0.8)], mem_map, skip_stale=True
+        )
+
+        assert [mid for mid, _ in result] == ["solid"]
+
     def test_confidence_hard_removes_low_confidence(self, monkeypatch):
         _patch(monkeypatch, conf="hard", conf_floor=0.3)
         mem_map = {"weak": _mem(confidence=0.2), "solid": _mem(confidence=0.8)}

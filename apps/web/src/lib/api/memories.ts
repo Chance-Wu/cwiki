@@ -34,6 +34,7 @@ export const getMemories = (opts?: {
   workspace_id?: string
   type?: string
   status?: string
+  tags?: string[]
   limit?: number
   offset?: number
 }) => {
@@ -41,6 +42,7 @@ export const getMemories = (opts?: {
   if (opts?.workspace_id) params.set('workspace_id', opts.workspace_id)
   if (opts?.type) params.set('type', opts.type)
   if (opts?.status) params.set('status', opts.status)
+  if (opts?.tags?.length) params.set('tags', opts.tags.join(','))
   if (opts?.limit) params.set('limit', String(opts.limit))
   if (opts?.offset) params.set('offset', String(opts.offset))
   const qs = params.toString()
@@ -103,21 +105,27 @@ export const hybridSearch = (
   workspaceId: string,
   opts?: { memory_type?: string; limit?: number; offset?: number },
 ) =>
-  request<{ results: SearchResult[]; total: number; query: string }>('/search', {
-    method: 'POST',
-    body: JSON.stringify({
-      keyword: query,
-      workspace_id: workspaceId,
-      limit: 20,
-      offset: 0,
-      ...opts,
-    }),
-  })
+  request<{ results: SearchResult[]; total: number; query: string; insufficient?: boolean }>(
+    '/search',
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        keyword: query,
+        workspace_id: workspaceId,
+        limit: 20,
+        offset: 0,
+        // 最低向量相似度门槛：拦截乱码/无关查询的凑数结果
+        threshold: 0.3,
+        ...opts,
+      }),
+    },
+  )
 
 export const semanticSearch = (query: string, limit = 10) =>
   request<{ results: FileMemory[]; total: number }>('/file-memories/search/semantic', {
     method: 'POST',
-    body: JSON.stringify({ keyword: query, limit }),
+    // 最低余弦相似度门槛：完全无关的记忆不再返回高分凑数
+    body: JSON.stringify({ keyword: query, limit, threshold: 0.3 }),
   })
 
 // --- Versions ---
@@ -156,6 +164,37 @@ export const getMemoryRelations = (memoryId: string, depth = 1) =>
     total_relations: number
   }>(`/memories/${memoryId}/relations?depth=${depth}`)
 
+export const createMemoryRelation = (
+  memoryId: string,
+  targetMemoryId: string,
+  relationType: string,
+  confidence = 1.0,
+) =>
+  request<Relation>(`/memories/${memoryId}/relations`, {
+    method: 'POST',
+    body: JSON.stringify({
+      target_memory_id: targetMemoryId,
+      relation_type: relationType,
+      confidence,
+    }),
+  })
+
+export const deleteMemoryRelation = (memoryId: string, relationId: string) =>
+  request<{ status: string; id: string }>(
+    `/memories/${memoryId}/relations/${relationId}`,
+    { method: 'DELETE' },
+  )
+
+export const updateMemoryRelation = (
+  memoryId: string,
+  relationId: string,
+  patch: { relation_type?: string; confidence?: number },
+) =>
+  request<Relation>(`/memories/${memoryId}/relations/${relationId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(patch),
+  })
+
 export const getMergeSuggestions = (workspaceId: string, limit = 10) =>
   request<{ items: MergeSuggestion[]; total: number; generated_at: string | null }>(
     `/memories/merge-suggestions?workspace_id=${workspaceId}&limit=${limit}`,
@@ -175,6 +214,66 @@ export const mergeMemories = (sourceId: string, targetId: string, mergedContent:
       merged_content: mergedContent,
     }),
   })
+
+// --- Tags ---
+
+export interface TagInfo {
+  name: string
+  count: number
+}
+
+export const listTags = (workspaceId?: string) => {
+  const params = new URLSearchParams()
+  if (workspaceId) params.set('workspace_id', workspaceId)
+  const qs = params.toString()
+  return request<{ tags: TagInfo[]; total: number }>(`/tags${qs ? `?${qs}` : ''}`)
+}
+
+export const updateMemoryTags = (memoryId: string, tags: string[]) =>
+  request<Memory>(`/memories/${memoryId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ tags }),
+  })
+
+export const renameTag = (tagName: string, newName: string, workspaceId?: string) => {
+  const params = new URLSearchParams()
+  if (workspaceId) params.set('workspace_id', workspaceId)
+  const qs = params.toString()
+  return request<{ old_name: string; new_name: string; updated_count: number }>(
+    `/tags/${encodeURIComponent(tagName)}${qs ? `?${qs}` : ''}`,
+    {
+      method: 'PUT',
+      body: JSON.stringify({ new_name: newName }),
+    },
+  )
+}
+
+export const mergeTags = (
+  sourceTags: string[],
+  targetTag: string,
+  workspaceId?: string,
+) => {
+  const params = new URLSearchParams()
+  if (workspaceId) params.set('workspace_id', workspaceId)
+  const qs = params.toString()
+  return request<{ source_tags: string[]; target_tag: string; updated_count: number }>(
+    `/tags/merge${qs ? `?${qs}` : ''}`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ source_tags: sourceTags, target_tag: targetTag }),
+    },
+  )
+}
+
+export const deleteTag = (tagName: string, workspaceId?: string) => {
+  const params = new URLSearchParams()
+  if (workspaceId) params.set('workspace_id', workspaceId)
+  const qs = params.toString()
+  return request<{ tag: string; updated_count: number }>(
+    `/tags/${encodeURIComponent(tagName)}${qs ? `?${qs}` : ''}`,
+    { method: 'DELETE' },
+  )
+}
 
 // --- 详情增强（P2-F2）：来源证据 / 反馈明细 / 检索命中历史 ---
 

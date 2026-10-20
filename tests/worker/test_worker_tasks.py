@@ -47,10 +47,10 @@ class TestJaccardFromSets:
 
 
 class TestRegisterTasks:
-    def test_registers_all_eight_tasks(self):
+    def test_registers_all_nine_tasks(self):
         queue = MagicMock()
         register_tasks(queue)
-        assert queue.register.call_count == 8
+        assert queue.register.call_count == 9
 
     def test_registers_expected_task_names(self):
         queue = MagicMock()
@@ -65,6 +65,7 @@ class TestRegisterTasks:
             "dedup_check",
             "auto_consolidate_similar",
             "check_review_reminders",
+            "periodic_meta_export",
         ]
         assert registered_names == expected
 

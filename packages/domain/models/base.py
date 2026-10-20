@@ -35,9 +35,14 @@ class UUIDType(TypeDecorator[str]):
 
 
 class JSONBType(TypeDecorator[Any]):
-    """跨数据库 JSON 类型。"""
+    """跨数据库 JSON 类型。
 
-    impl = JSON
+    ``none_as_null=True`` 保证 Python ``None`` 落库为 SQL NULL 而非 JSON
+    'null' 文本——否则 ORM flush 会把 None 序列化为 'null' 字符串，与
+    列默认 NULL 混存，重建对账时两者无法直接比较。
+    """
+
+    impl = JSON(none_as_null=True)
     cache_ok = True
 
 

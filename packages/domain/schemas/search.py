@@ -18,11 +18,22 @@ class SearchRequest(BaseModel):
     keyword: str = Field(description="Search keyword text")
     project_id: UUID | None = None
     memory_type: str | None = Field(default=None, max_length=64)
+    tags: list[str] | None = Field(
+        default=None,
+        description="Filter by tags; only memories containing all specified tags are returned",
+    )
     status: str | None = Field(default=None, max_length=32)
     filters: dict[str, Any] | None = None
     limit: int = Field(default=20, ge=1, le=100)
     offset: int = Field(default=0, ge=0)
     min_confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+    # 最低向量相似度门槛：低于该值的候选被剔除（无 embedding 的候选视同 0），
+    # 用于拦截乱码/无关查询的凑数结果；不传则不过滤
+    threshold: float | None = Field(default=None, ge=0.0, le=1.0)
+    # 关联的 Agent 会话；用于把召回命中归因到会话（可选）
+    session_id: UUID | None = None
+    # 自动召回等隐私敏感场景可关闭 trace；默认记录，保持现有诊断能力
+    record_trace: bool = Field(default=True, description="是否记录检索 trace")
 
 
 class SearchResult(BaseModel):
@@ -32,8 +43,12 @@ class SearchResult(BaseModel):
     title: str
     content: str
     type: str
+    tags: list[str] = Field(default_factory=list)
     version: int = 1
     score: float | None = Field(default=None, description="Similarity score")
+    confidence: float | None = Field(default=None, description="Memory confidence (0-1)")
+    valid_to: str | None = Field(default=None, description="Expiry timestamp (ISO 8601)")
+    is_stale: bool = Field(default=False, description="Whether the memory has expired")
 
 
 class SearchResponse(BaseModel):
@@ -42,6 +57,14 @@ class SearchResponse(BaseModel):
     results: list[SearchResult] = Field(default_factory=list)
     total: int
     keyword: str
+    insufficient: bool = Field(
+        default=False,
+        description="True 表示无相关性候选，results 为按重要度返回的兜底列表（score 恒为 0）",
+    )
+    insufficient_reason: str | None = Field(
+        default=None,
+        description="insufficient 为 true 时的原因说明",
+    )
 
 
 class ContextRequest(BaseModel):

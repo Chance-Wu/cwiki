@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { EmptyHealth } from '../EmptyIllustrations'
 import { api, type MemoryHealth } from '../../lib/api'
+import { translateBackendReason } from '../../lib/backendReason'
 import { useTranslation } from '../../i18n/I18nProvider'
 import { TabContentSkeleton } from '../Skeleton'
 import ErrorAlert from '../ErrorAlert'
@@ -12,7 +13,7 @@ interface Props {
 }
 
 export default function MemoryHealthTab({ memoryId }: Props) {
-  const { t } = useTranslation()
+  const { t, locale } = useTranslation()
   const [data, setData] = useState<MemoryHealth | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
@@ -73,7 +74,7 @@ export default function MemoryHealthTab({ memoryId }: Props) {
                 className="text-sm text-[var(--text-secondary)] flex items-start gap-2 px-2 py-1 -mx-2 rounded-lg hover:bg-surface-inset transition-all duration-150 active:scale-[0.98]"
               >
                 <span className="w-1.5 h-1.5 rounded-full bg-[var(--text-tertiary)] mt-1.5 shrink-0" />
-                {reason}
+                {translateBackendReason(reason, t, locale)}
               </li>
             ))}
           </ul>

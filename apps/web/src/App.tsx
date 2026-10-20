@@ -9,7 +9,6 @@ import CommandPalette from './components/CommandPalette'
 import { ToastProvider } from './components/Toast'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { ListSkeleton } from './components/Skeleton'
-import { ease, duration } from './lib/motion'
 import { supportsViewTransition } from './lib/history'
 
 const queryClient = new QueryClient({
@@ -30,6 +29,7 @@ const queryClient = new QueryClient({
 
 const HomePage = lazy(() => import('./pages/HomePage'))
 const InboxPage = lazy(() => import('./pages/InboxPage'))
+const NotesPage = lazy(() => import('./pages/NotesPage'))
 const MemoriesPage = lazy(() => import('./pages/MemoriesPage'))
 const SkillsPage = lazy(() => import('./pages/SkillsPage'))
 const ReviewPage = lazy(() => import('./pages/ReviewPage'))
@@ -84,6 +84,7 @@ function AnimatedRoutes() {
     <Routes location={location}>
       <Route path="/" element={<HomePage />} />
       <Route path="/pending" element={<InboxPage />} />
+      <Route path="/notes" element={<NotesPage />} />
       <Route path="/memories" element={<MemoriesPage />} />
       <Route path="/skills" element={<SkillsPage />} />
       <Route path="/review" element={<ReviewPage />} />
@@ -102,10 +103,10 @@ function AnimatedRoutes() {
       <motion.div
         key={location.pathname}
         className="flex-1 min-h-0 flex flex-col"
-        initial={{ opacity: 0, y: 16, scale: 0.99 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        exit={{ opacity: 0, y: -12, scale: 0.995 }}
-        transition={{ duration: duration.stagger, ease: ease.bounce }}
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -8 }}
+        transition={{ duration: 0.2, ease: 'easeOut' }}
       >
         {routes}
       </motion.div>

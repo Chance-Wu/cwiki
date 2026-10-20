@@ -1,32 +1,23 @@
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { spring, duration } from '../../lib/motion'
-
-const MotionLink = motion.create(Link)
-import {
-  Lightbulb,
-  Clock,
-  AlertTriangle,
-  Database,
-  ExternalLink,
-  ArrowRight,
-  BookOpen,
-} from 'lucide-react'
+import { Lightbulb, Clock, AlertTriangle, BookOpen, ArrowRight } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { api } from '../../lib/api'
 import { typeLabel, MASTERY_COLORS } from '../../lib/labels'
 import { useTranslation, translate } from '../../i18n/I18nProvider'
-import { Badge } from '../ui/Badge'
 import { Button } from '../ui/Button'
 import { useToast } from '../Toast'
 import { useLearningSuggestions } from '../../hooks/useDashboard'
 import { useReviewStats, useDueReviews } from '../../hooks/useReview'
+import { Badge } from '../ui/Badge'
 import { Card } from '../ui/Card'
+
+const MotionLink = motion.create(Link)
 
 export default function LearningPanel({ workspaceId }: { workspaceId?: string }) {
   const { t } = useTranslation()
-  const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { toast } = useToast()
   const [processing, setProcessing] = useState<Set<string>>(new Set())
@@ -73,32 +64,29 @@ export default function LearningPanel({ workspaceId }: { workspaceId?: string })
   const hasSuggestions = suggestions && suggestions.total_suggestions > 0
   const hasDueReviews =
     (reviewStatsQuery.data?.due_now ?? 0) > 0 &&
-    dueReviewsQuery.data &&
+    dueReviewsQuery.data != null &&
     dueReviewsQuery.data.length > 0
-  const suggestionSectionCount = [
-    suggestions?.stale?.length,
-    suggestions?.low_confidence?.length,
-    suggestions?.memory_gaps?.length,
-  ].filter((count) => (count ?? 0) > 0).length
-  const suggestionGridColumns =
-    suggestionSectionCount === 1
-      ? 'md:grid-cols-1'
-      : suggestionSectionCount === 2
-        ? 'md:grid-cols-2'
-        : 'md:grid-cols-3'
 
   if (!hasSuggestions && !hasDueReviews) return null
 
+  // 仅两类建议（过时 / 低置信）时半栏两列排得开；单一分区时一列铺满
+  const suggestionSectionCount = [
+    suggestions?.stale?.length,
+    suggestions?.low_confidence?.length,
+  ].filter((count) => (count ?? 0) > 0).length
+  const suggestionGridColumns = suggestionSectionCount >= 2 ? 'md:grid-cols-2' : 'md:grid-cols-1'
+
   return (
-    <>
-      {/* 学习助手建议 */}
-      {hasSuggestions && (
-        <motion.div
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ ...spring.snappy, delay: 0.4 }}
-        >
-          <Card className="p-5 md:p-6">
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ ...spring.snappy, delay: 0.4 }}
+      className="flex min-w-0 flex-1"
+    >
+      <Card className="flex min-w-0 flex-1 flex-col p-5 md:p-6">
+        {/* ═══ 分区一：学习助手（过时记忆 / 低置信建议，不含新建入口） ═══ */}
+        {hasSuggestions && (
+          <>
             <div className="flex items-center gap-3 mb-4">
               <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-gradient-to-br from-warning/25 to-warning/10 shrink-0 ring-1 ring-warning/30 border border-warning/25 shadow-warm-xs">
                 <Lightbulb size={15} className="text-warning-fg" aria-hidden="true" />
@@ -188,7 +176,7 @@ export default function LearningPanel({ workspaceId }: { workspaceId?: string })
                           disabled={processing.has(item.memory_id)}
                           variant="ghost"
                           size="xs"
-                          className="text-danger-fg hover:bg-danger/10 md:opacity-0 md:group-hover:opacity-100"
+                          className="text-danger-fg hover:bg-warning/10 md:opacity-0 md:group-hover:opacity-100"
                         >
                           {processing.has(item.memory_id) ? t.common.loading : t.home.confirmed}
                         </Button>
@@ -197,59 +185,15 @@ export default function LearningPanel({ workspaceId }: { workspaceId?: string })
                   </div>
                 </div>
               )}
-
-              {(suggestions.memory_gaps?.length ?? 0) > 0 && (
-                <div className="bg-info-subtle-bg rounded-2xl p-4 border border-info-subtle-border transition-all duration-150 hover:bg-info-subtle-hover">
-                  <div className="flex items-center gap-2 mb-3">
-                    <Database size={14} className="text-info-fg" aria-hidden="true" />
-                    <h4 className="text-sm font-semibold text-info-fg">{t.home.memoryGaps}</h4>
-                    <span className="ml-auto text-sm text-info-fg font-semibold tabular-nums">
-                      {suggestions.memory_gaps.length}
-                    </span>
-                  </div>
-                  <p className="text-xs text-info-fg/80 mb-3 font-medium">{t.home.gapHint}</p>
-                  <div className="space-y-3">
-                    {suggestions.memory_gaps.slice(0, 4).map((gap, i) => (
-                      <motion.div
-                        key={gap.type}
-                        className="flex items-center gap-2 text-sm group"
-                        initial={{ opacity: 0, x: -6 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ delay: 0.5 + i * 0.08, duration: duration.stagger }}
-                      >
-                        <span className="text-[var(--text-secondary)] flex-1 min-w-0 truncate font-medium">
-                          {typeLabel(t.common, gap.type)}
-                        </span>
-                        <span className="text-info-fg text-xs font-semibold tabular-nums">
-                          {gap.count} / {(gap.expected_ratio * 100).toFixed(0)}%
-                        </span>
-                        <Button
-                          onClick={() => navigate(`/memories?type=${gap.type}&create=1`)}
-                          variant="ghost"
-                          size="xs"
-                          className="text-info-fg hover:bg-info/10 md:opacity-0 md:group-hover:opacity-100"
-                        >
-                          <ExternalLink size={12} aria-hidden="true" />
-                          {t.home.createMemory}
-                        </Button>
-                      </motion.div>
-                    ))}
-                  </div>
-                </div>
-              )}
             </div>
-          </Card>
-        </motion.div>
-      )}
+          </>
+        )}
 
-      {/* 到期复习 */}
-      {hasDueReviews && (
-        <motion.div
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ ...spring.snappy, delay: 0.48 }}
-        >
-          <Card className="p-5 md:p-6 mt-4">
+        {/* ═══ 分区二：到期复习（卡内分区，非独立卡片） ═══ */}
+        {hasDueReviews && (
+          <div
+            className={`flex flex-1 flex-col${hasSuggestions ? ' mt-5 border-t border-[var(--border-default)] pt-4' : ''}`}
+          >
             <div className="flex items-center gap-3 mb-4">
               <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-gradient-to-br from-info/25 to-info/10 shrink-0 ring-1 ring-info/30 border border-info/25 shadow-warm-xs">
                 <BookOpen size={15} className="text-info-fg" aria-hidden="true" />
@@ -266,22 +210,22 @@ export default function LearningPanel({ workspaceId }: { workspaceId?: string })
               {t.home.dueReviewSubtitle}
             </p>
 
-            <div className="space-y-2">
-              {dueReviewsQuery.data!.slice(0, 4).map((item, i) => (
+            <div className="flex flex-1 flex-col justify-center space-y-1.5">
+              {dueReviewsQuery.data!.slice(0, 3).map((item, i) => (
                 <MotionLink
                   key={item.memory_id}
                   to={`/review?id=${item.memory_id}`}
-                  className="relative flex items-center gap-3 p-4 rounded-2xl border border-[var(--glass-border)] hover:border-info/40 hover:bg-info/5 transition-all duration-150 group"
+                  className="relative flex items-center gap-3 px-3 py-2.5 rounded-xl border border-[var(--glass-border)] hover:border-info/40 hover:bg-info/5 transition-all duration-150 group"
                   initial={{ opacity: 0, x: -6 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: 0.5 + i * 0.08, duration: duration.stagger }}
                 >
                   <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-full bg-info opacity-40 transition-opacity duration-150" />
                   <div className="flex-1 min-w-0">
-                    <p className="text-base text-[var(--text-primary)] truncate font-semibold">
+                    <p className="text-sm text-[var(--text-primary)] truncate font-semibold leading-5">
                       {item.title}
                     </p>
-                    <div className="flex items-center gap-2 mt-1.5">
+                    <div className="flex items-center gap-2 mt-1">
                       <span
                         className={`text-xs px-2 py-0.5 rounded-lg font-semibold ${MASTERY_COLORS[item.mastery_level] ?? 'bg-surface-elevated/50 text-[var(--text-secondary)] border border-[var(--border-default)]'}`}
                       >
@@ -309,7 +253,7 @@ export default function LearningPanel({ workspaceId }: { workspaceId?: string })
 
             <Link
               to="/review"
-              className="group flex items-center justify-center gap-2 mt-5 pt-3 border-t border-[var(--border-default)] text-base text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-surface-inset/30 font-semibold transition-all duration-150 rounded-b-lg -mx-2 px-2"
+              className="group flex items-center justify-center gap-2 mt-4 pt-2.5 border-t border-[var(--border-default)] text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-surface-inset/30 font-semibold transition-all duration-150 rounded-b-lg -mx-2 px-2"
             >
               {t.home.startReview}
               <ArrowRight
@@ -318,9 +262,9 @@ export default function LearningPanel({ workspaceId }: { workspaceId?: string })
                 aria-hidden="true"
               />
             </Link>
-          </Card>
-        </motion.div>
-      )}
-    </>
+          </div>
+        )}
+      </Card>
+    </motion.div>
   )
 }

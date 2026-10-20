@@ -340,6 +340,7 @@ export default function CommandPalette() {
     () => ({
       '/': t.commandPalette.pageHome,
       '/pending': t.commandPalette.pagePending,
+      '/notes': t.commandPalette.pageNotes,
       '/memories': t.commandPalette.pageMemories,
       '/config': t.commandPalette.pageConfig,
       '/skills': t.commandPalette.pageSkills,

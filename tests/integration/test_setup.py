@@ -296,7 +296,21 @@ def _write_sync_source(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     (source / ".qoder-plugin" / "plugin.json").write_text(
         json.dumps({"name": setup.PLUGIN_NAME, "version": "9.9.9"}), encoding="utf-8"
     )
-    (source / ".mcp.json").write_text('{"mcpServers": {}}', encoding="utf-8")
+    # 模板与真实 adapters/qoder/.mcp.json 同构：不含注入字段，env 带占位 PYTHONPATH
+    (source / ".mcp.json").write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    "cwiki": {
+                        "type": "stdio",
+                        "args": ["-m", "adapters.qoder.mcp_server"],
+                        "env": {"PYTHONPATH": ".", "CWIKI_HOST": "qoder"},
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
     (source / "hooks").mkdir()
     (source / "hooks" / "hooks.json").write_text('{"hooks": {}}', encoding="utf-8")
     monkeypatch.setattr(setup, "PLUGIN_SOURCE_DIR", source)
@@ -312,8 +326,22 @@ def test_sync_plugin_cache_updates_stale_content_and_seeds_missing_configs(
     (cache / "skills" / "memory-recall").mkdir(parents=True)
     (cache / "skills" / "memory-recall" / "SKILL.md").write_text("old skill", encoding="utf-8")
     (cache / "README.md").write_text("same readme", encoding="utf-8")
+    # 缓存 .mcp.json 是"已修补"形态：模板结构 + 注入的绝对路径字段，规范化后与模板一致
     (cache / ".mcp.json").write_text(
-        json.dumps({"mcpServers": {"cwiki": {"command": "patched-python"}}}), encoding="utf-8"
+        json.dumps(
+            {
+                "mcpServers": {
+                    "cwiki": {
+                        "type": "stdio",
+                        "args": ["-m", "adapters.qoder.mcp_server"],
+                        "env": {"CWIKI_HOST": "qoder", "PYTHONPATH": "/repo/root"},
+                        "command": "patched-python",
+                        "cwd": "/repo/root",
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
     )
 
     setup.sync_plugin_cache("qoder")
@@ -324,13 +352,125 @@ def test_sync_plugin_cache_updates_stale_content_and_seeds_missing_configs(
     assert (cache / ".qoder-plugin" / "plugin.json").read_bytes() == (
         setup.PLUGIN_SOURCE_DIR / ".qoder-plugin" / "plugin.json"
     ).read_bytes()
-    # 已存在的 .mcp.json 不被模板覆盖（绝对路径注入保持有效）
+    # 结构一致的已修补 .mcp.json 不被模板覆盖（绝对路径注入保持有效）
     assert "patched-python" in (cache / ".mcp.json").read_text(encoding="utf-8")
     # 缺失的 hooks 目录从模板补齐
     assert (cache / "hooks" / "hooks.json").read_text(encoding="utf-8") == '{"hooks": {}}'
     out = capsys.readouterr().out
     assert "更新 2 个文件" in out
     assert "补齐 1 项" in out
+
+
+def test_sync_plugin_cache_refreshes_stale_hooks_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """旧快照只注册 session-start（且用旧 shim 模块），模板已含 5 个事件 → 必须刷新。
+
+    曾导致 Qoder 的 UserPromptSubmit/PostCompact hooks 永不进缓存：
+    hook 不写动态工作区注册表，捕获链路也整体失效。
+    """
+    cache = _write_sync_source(tmp_path, monkeypatch)
+    source = setup.PLUGIN_SOURCE_DIR
+    # 模板改为多事件新版（模拟仓库真实 hooks.json 的演进）
+    template_hooks = {
+        "hooks": {
+            "SessionStart": [
+                {
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": "python -m adapters.hooks qoder session-start",
+                            "env": {"PYTHONPATH": "."},
+                        }
+                    ]
+                }
+            ],
+            "UserPromptSubmit": [
+                {
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": "python -m adapters.hooks qoder user-prompt-submit",
+                            "env": {"PYTHONPATH": "."},
+                        }
+                    ]
+                }
+            ],
+        }
+    }
+    (source / "hooks" / "hooks.json").write_text(json.dumps(template_hooks), encoding="utf-8")
+    # 缓存是安装期旧快照：仅 session-start，旧模块 adapters.qoder.hooks，且已注入绝对路径
+    (cache / "hooks").mkdir(parents=True)
+    stale = {
+        "hooks": {
+            "SessionStart": [
+                {
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": "/venv/python -m adapters.qoder.hooks session-start",
+                            "env": {"PYTHONPATH": "/repo/root"},
+                        }
+                    ]
+                }
+            ]
+        }
+    }
+    (cache / "hooks" / "hooks.json").write_text(json.dumps(stale), encoding="utf-8")
+
+    setup.sync_plugin_cache("qoder")
+
+    refreshed = json.loads((cache / "hooks" / "hooks.json").read_text(encoding="utf-8"))
+    assert "UserPromptSubmit" in refreshed["hooks"]
+    assert "adapters.qoder.hooks" not in json.dumps(refreshed)
+    assert "刷新 1 项配置" in capsys.readouterr().out
+
+    # 刷新后 patch 重新注入绝对路径：模拟真实 setup 顺序（sync → patch）
+    setup.patch_plugin_hooks("qoder")
+    final = json.loads((cache / "hooks" / "hooks.json").read_text(encoding="utf-8"))
+    cmd = final["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"]
+    assert cmd.startswith(setup.sys.executable)
+    assert "-m adapters.hooks qoder user-prompt-submit" in cmd
+    assert final["hooks"]["UserPromptSubmit"][0]["hooks"][0]["env"]["PYTHONPATH"] == str(
+        setup.PROJECT_ROOT
+    )
+
+    # 再跑一次：注入后的缓存规范化与模板一致 → 幂等保留，不再反复刷新
+    capsys.readouterr()
+    setup.sync_plugin_cache("qoder")
+    assert "已是最新" in capsys.readouterr().out
+
+
+def test_sync_plugin_cache_keeps_user_added_mcp_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """缓存中带额外 env（如 CWIKI_WORKSPACE 项目绑定）→ 规范化后与模板不一致会被刷新。
+
+    这是配置项同步的代价：patch 注入可再生，用户手动加的 env 键不可再生——
+    因此模板即权威，setup --project 负责重新写入项目绑定。
+    本测试锁定该语义：额外键被模板覆盖。
+    """
+    cache = _write_sync_source(tmp_path, monkeypatch)
+    cache.mkdir(parents=True, exist_ok=True)
+    (cache / ".mcp.json").write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    "cwiki": {
+                        "type": "stdio",
+                        "args": ["-m", "adapters.qoder.mcp_server"],
+                        "env": {"CWIKI_HOST": "qoder", "CWIKI_WORKSPACE": "manual-ws"},
+                        "command": "python",
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    setup.sync_plugin_cache("qoder")
+
+    assert "CWIKI_WORKSPACE" not in (cache / ".mcp.json").read_text(encoding="utf-8")
 
 
 def test_sync_plugin_cache_repeat_run_reports_up_to_date(
@@ -416,14 +556,13 @@ def test_agents_md_new_file_uses_global_defaults(
     assert content.count(setup.CWIKI_AGENTS_START) == 1
     assert content.count(setup.CWIKI_AGENTS_END) == 1
     assert _cwiki_agents_block() in content
-    assert "按需" in content
+    assert "会话开始" in content
     assert "memory_search" in content
     assert "memory_save" in content
     assert "memory_update" in content
-    assert "无真实信号就跳过" in content
+    assert "无真实信号跳过" in content
     assert "workspace_name" in content
     assert "mwk_agent_" not in content
-    assert "candidate_id" in content
     assert "标题可选" not in content
     assert "至少 5 个字符" not in content
     assert not list(agents_md_path.parent.glob("AGENTS.md.cwiki-*.bak"))

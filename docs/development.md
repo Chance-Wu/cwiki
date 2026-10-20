@@ -8,12 +8,28 @@
 ## 安装
 
 ```bash
-# 安装依赖（pip editable 安装）
+# 一站式安装：环境预检 → .venv → Python/前端依赖 → 数据库 → Agent 接入
 python tasks.py install
 
-# Agent 接入配置（注册 MCP Server、更新 AGENTS.md、安装 skill）
-python tasks.py setup
+# 只打印将要执行的操作，不实际修改系统
+python tasks.py install --dry-run
+
+# 只开发后端：跳过前端依赖、跳过 Agent 接入配置
+python tasks.py install --skip-web --skip-setup
 ```
+
+`install` 会按阶段推进，每一步失败都会给出可独立重跑的兜底命令：
+
+| 阶段 | 内容 | 失败兜底 |
+|------|------|----------|
+| 1. 环境预检 | Python >= 3.11、Node.js >= 18、npm、git | 按提示安装缺失项 |
+| 2. 虚拟环境 | 缺失时自动 `python -m venv .venv` 并切换解释器 | `python -m venv .venv` |
+| 3. Python 依赖 | `pip install -e .[dev]` + 核心模块导入验证 | `python tasks.py install-deps` |
+| 4. 前端依赖 | `npm install`（apps/web） | 在 `apps/web/` 下手动 `npm install` |
+| 5. 数据与数据库 | 创建 `cwiki-data/` + Alembic 迁移 | `python tasks.py migrate-init` |
+| 6. Agent 接入 | 调用 `setup.py --sync-instructions` | `python scripts/setup.py` |
+
+> 旧命令 `python tasks.py install` 的等价子集保留为 `install-deps`（仅装 Python 依赖 + 验证）。
 
 ---
 
@@ -65,6 +81,7 @@ python start.py --restart
 |------|------|------|
 | 后端 API | `python tasks.py serve` | 端口 5172 |
 | 前端界面 | `python tasks.py web` | 端口 5173 |
+| 前端生产模式 | `python tasks.py preview` | 构建 + :4173，日常浏览用，内存约为 dev 一半 |
 
 **重启单个服务：**
 
@@ -184,13 +201,30 @@ python scripts/setup.py --check               # 只读诊断（不启动 MCP、�
 ### 服务管理
 
 ```bash
+python tasks.py install            # 一站式安装（环境预检 → 依赖 → 数据库 → Agent 接入）
+python tasks.py install-deps       # 仅安装 Python 依赖 + 核心模块验证
 python tasks.py start              # 一键启动前后端
 python tasks.py restart            # 一键重启（强制释放端口）
 python tasks.py serve              # 仅启动 API
 python tasks.py restart-serve      # 仅重启 API
 python tasks.py web                # 仅启动前端
 python tasks.py restart-web        # 仅重启前端
+python tasks.py preview            # 前端生产模式（构建 + :4173，日常浏览用）
 ```
+
+### Agent 接入与捕获
+
+```bash
+python tasks.py setup-dsh --project /path/to/project        # DeepSeek Harness
+python tasks.py setup-agent --host claude --project /path/to/project --dry-run
+python tasks.py setup-agent --host claude --project /path/to/project
+python tasks.py setup-agent --host cursor --project /path/to/project
+python tasks.py setup-agent --host codex  --project /path/to/project
+python tasks.py import-qoder-memory --since-days 30          # dry-run
+python tasks.py import-qoder-memory --since-days 30 --apply  # 写入待整理
+```
+
+`setup-agent` 只管理 `cwiki` 配置条目与 `<!-- cwiki:begin -->` 区块，保留用户已有 hooks/MCP/指令。Qoder 仍使用 `python scripts/setup.py`。
 
 ### 数据库迁移
 
@@ -282,9 +316,44 @@ python tasks.py test               # 运行测试（通过 scripts/run_pytest.py
 
 P0-P4 分级开关，控制各阶段功能启用。详见 `config.yaml`。
 
+### 技能管理（`skills`）
+
+| 配置项 | 默认值 | 说明 |
+|--------|--------|------|
+| `skills.agents.<name>.skills_dir` | `codex`/`dsh`/`qoder` 各一条 | 该 Agent 的技能根目录；列表顺序即「技能管理」页的 Agent 标签与发布目标 |
+| `skills.agents.<name>.plugins_dir` | 仅 `qoder` | 可选，插件缓存目录，扫描时递归找 `SKILL.md` |
+| `skills.import_allowed_paths` | `[]`（不限制） | `POST /v1/skills/import` 的源路径白名单前缀 |
+
+`dsh` 目标为 `~/.dsh/skills`（dsh 用户级根；项目级 `<projectRoot>/.dsh/skills` 由 `setup-dsh` 安装器单独管理）。发布用目录 symlink，dsh 扫描器会解引用跟随；技能名按 dsh 同款 kebab 校验（`^[a-z0-9]+(?:-[a-z0-9]+)*$`）。
+
 ### MCP 适配器环境变量
 
 Qoder MCP 适配器另有独立环境变量：`CWIKI_API_URL`、`CWIKI_WORKSPACE`、`CWIKI_TIMEOUT`（见 `adapters/qoder/README.md`）。API 为单用户本地部署，不做 token 认证（见 `apps/api/auth.py`）。
+
+### 版本号管理
+
+**唯一权威源是 `pyproject.toml` 的 `[project] version`。** 其余任何位置都不许写版本号字面量，一律调用 `packages/domain/version.py` 的 `app_version()`：
+
+```python
+from packages.domain.version import app_version
+
+FastAPI(version=app_version())      # apps/api/main.py
+APP_VERSION = app_version()         # packages/domain/schemas/common.py → /v1/health
+```
+
+| 消费方 | 取法 | 说明 |
+|--------|------|------|
+| `/openapi.json` `info.version` | `FastAPI(version=app_version())` | OpenAPI 文档与客户端生成 |
+| `/v1/health` `version` | `HealthResponse.version` 默认值 `APP_VERSION` | schema 默认值 |
+| MCP `initialize` `serverInfo.version` | `_plugin_version()` → 优先 `app_version()` | 宿主握手时判断版本 |
+
+**降级链**（三级，任何一级失败都不抛异常）：`importlib.metadata.version("cwiki")`（已安装，与 pyproject 同步）→ 直接解析 `pyproject.toml` → `"0.0.0"`。函数带 `functools.cache`，进程内只算一次。
+
+**`plugin.json` 的 version 是另一回事**：它是 Qoder 插件资产版本，决定插件缓存路径 `plugins/cache/local/cwiki-qoder/<version>/`（见 `scripts/setup.py:plugin_cache_dir`），与 cwiki 包版本**有意解耦**——将来插件缓存需要重新安装时 bump 它即可，不必发布新包版本。`_plugin_version()` 仅在包元数据完全不可读时才回落读它。
+
+> **踩坑记录**：历史上四个位置各自维护版本号（pyproject `0.1.0` / `APP_VERSION` `0.3.0` / `FastAPI` `0.4.1` / `plugin.json` `0.1.0`），导致同一服务在 MCP 握手、health、openapi 三个口径报出三个不同版本，宿主侧排查「连的到底是哪个版本」时无解。改动前请先确认有没有新引入第五处版本号。
+
+发版流程：改 `pyproject.toml` 的 `version` → `pip install -e .`（刷新 dist-info）→ 跑 `pytest tests/unit/test_version_authority.py`（其中 `test_matches_pyproject_toml` 会校验 metadata 与 pyproject 未分叉）。
 
 ---
 

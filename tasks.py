@@ -167,7 +167,13 @@ def setup():
 
 @task("install")
 def install():
-    """安装项目（含开发依赖）并验证核心模块可导入。"""
+    """一站式安装（环境预检 → 依赖 → 数据库 → Agent 接入）。透传 --dry-run/--skip-*。"""
+    return _py("scripts/install.py", *sys.argv[2:])
+
+
+@task("install-deps")
+def install_deps():
+    """仅安装 Python 依赖并验证核心模块可导入（install 的子集，向后兼容）。"""
     r = _py("-m", "pip", "install", "-e", ".[dev]")
     if r != 0:
         return r
@@ -238,7 +244,9 @@ def serve():
     host = _api_host()
     if not _ensure_port(port):
         return 1
-    return _py("-m", "uvicorn", "apps.api.main:app", "--reload", "--host", host, "--port", str(port))
+    return _py(
+        "-m", "uvicorn", "apps.api.main:app", "--reload", "--host", host, "--port", str(port)
+    )
 
 
 @task("restart-serve")
@@ -250,7 +258,9 @@ def restart_serve():
         print("正在停止旧服务...")
         if not _force_free_port(port):
             return 1
-    return _py("-m", "uvicorn", "apps.api.main:app", "--reload", "--host", host, "--port", str(port))
+    return _py(
+        "-m", "uvicorn", "apps.api.main:app", "--reload", "--host", host, "--port", str(port)
+    )
 
 
 @task("restart-mcp")
@@ -302,6 +312,24 @@ def migrate_to_git():
     return _py("scripts/migrate_to_git.py")
 
 
+@task("setup-dsh")
+def setup_dsh():
+    """为 DeepSeek Harness 注册 cwiki MCP 并绑定当前项目工作区。"""
+    return _py("scripts/setup_dsh.py", *sys.argv[2:])
+
+
+@task("setup-agent")
+def setup_agent():
+    """为 Claude Code / Cursor / Codex 写入 cwiki MCP、hooks 与指令。"""
+    return _py("scripts/setup_agent.py", *sys.argv[2:])
+
+
+@task("import-qoder-memory")
+def import_qoder_memory():
+    """导入 Qoder Auto-Memory 到 cwiki 待整理（默认 dry-run，--apply 落库）。"""
+    return _py("scripts/import_qoder_memory.py", *sys.argv[2:])
+
+
 @task("rebuild-db")
 def rebuild_db():
     """从 Markdown + _meta 文件重建 SQLite（Phase 1.3）。
@@ -333,6 +361,21 @@ def web():
     if not _ensure_port(5173):
         return 1
     return _web_dev()
+
+
+@task("preview")
+def preview():
+    """构建并以前端生产模式启动（内存约为 dev 模式一半，适合日常浏览）。"""
+    web_dir = ROOT / "apps" / "web"
+    r = _run("npm", "install", cwd=web_dir)
+    if r != 0:
+        return r
+    r = _run("npm", "run", "build", cwd=web_dir)
+    if r != 0:
+        return r
+    if not _ensure_port(4173):
+        return 1
+    return _run("npm", "run", "preview", cwd=web_dir)
 
 
 @task("restart-web")

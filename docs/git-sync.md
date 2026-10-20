@@ -26,7 +26,9 @@ cwiki/                      # 代码仓库（cwiki.git）
     └── _meta/
         ├── <memory_id_1>.json   # 关系数据：feedback, usage, review_schedule 等
         ├── <memory_id_2>.json
-        └── _workspaces.json     # workspace 元数据（name/id/时间戳，含无记忆的空 workspace）
+        ├── _workspaces.json     # workspace 元数据（name/id/时间戳，含无记忆的空 workspace）
+        ├── _review_queue.json   # 候选 + 评审留痕（候选不经 Markdown 承载）
+        └── _capture_notes.json  # Agent 会话 + 待整理笔记全文（不经 Markdown 承载）
 ```
 
 ## 首次 Setup
@@ -288,7 +290,7 @@ python tasks.py rebuild-db
 python scripts/verify_rebuild.py
 ```
 
-DB 文件缺失或损坏时，重建会经 Alembic 自动创建完整 schema（含非记忆表），无需手工建表或先执行迁移。workspace 表从 `_meta/_workspaces.json` 恢复（保留原 id 与时间戳，含无记忆的空 workspace）；该文件缺失时（旧版本导出）回退为从 MD frontmatter 恢复有记忆的 workspace，记忆的 workspace 归属不会丢失。
+DB 文件缺失或损坏时，重建会经 Alembic 自动创建完整 schema（含非记忆表），无需手工建表或先执行迁移。workspace 表从 `_meta/_workspaces.json` 恢复（保留原 id 与时间戳，含无记忆的空 workspace）；该文件缺失时（旧版本导出）回退为从 MD frontmatter 恢复有记忆的 workspace，记忆的 workspace 归属不会丢失。候选与待整理笔记分别从 `_meta/_review_queue.json`、`_meta/_capture_notes.json` 恢复；旧版导出缺这两个文件时对应表为空，不影响记忆本体重建。
 
 若只是索引文件丢失（DB 完好），无需任何手工操作：`python tasks.py start` 检测到后会只重建索引（不重建 DB，日志 `[sync] index files missing ..., rebuilding index only ...`）；手动等价命令：
 

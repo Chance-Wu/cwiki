@@ -144,6 +144,85 @@ class TestAggregateReport:
         assert report.total_queries == 0
 
 
+class TestNegativeProbe:
+    def test_probe_detection(self):
+        # 全部判定为 0 分 → 负例探针
+        judgment = QueryJudgment("n1", "无相关的查询", {"m1": 0, "m2": 0})
+        result = RetrievalResult("n1", ["m1", "m2"], 10)
+        qm = evaluate_query(result, judgment)
+        assert qm.is_negative_probe is True
+        assert qm.negative_fp_at_10 is False  # 返回的都是 0 分记忆，不算误召回
+
+    def test_hard_negative_with_weak_distractor(self):
+        # 困难负例：只有 1 分弱相关干扰、无 ≥2 分判定 → 探针；干扰项进 top-10 记误召回
+        judgment = QueryJudgment("n3", "困难负例", {"m1": 1})
+        result = RetrievalResult("n3", ["m1"], 10)
+        qm = evaluate_query(result, judgment)
+        assert qm.is_negative_probe is True
+        assert qm.negative_fp_at_10 is True
+
+    def test_probe_fp_when_weak_result_returned(self):
+        # 探针 top-10 出现 ≥1 分结果 → 误召回
+        judgment = QueryJudgment("n2", "无相关的查询", {"m1": 0, "m2": 0, "x1": 1})
+        result = RetrievalResult("n2", ["x1", "m1"], 10)
+        qm = evaluate_query(result, judgment)
+        assert qm.is_negative_probe is True
+        assert qm.negative_fp_at_10 is True
+
+    def test_normal_query_not_probe(self):
+        judgment = QueryJudgment("q1", "test", {"m1": 3, "m2": 0})
+        result = RetrievalResult("q1", ["m1"], 10)
+        qm = evaluate_query(result, judgment)
+        assert qm.is_negative_probe is False
+
+    def test_grade2_only_query_not_probe(self):
+        # 有 ≥2 分判定 → 正常查询（哪怕只有一条）
+        judgment = QueryJudgment("q2", "test", {"m1": 2})
+        result = RetrievalResult("q2", ["m1"], 10)
+        qm = evaluate_query(result, judgment)
+        assert qm.is_negative_probe is False
+
+    def test_probe_excluded_from_main_average(self):
+        # 探针的 recall/rr 全为 0，若不剔除会把主指标拉低——主平均只算非探针
+        probe_judgment = QueryJudgment("n1", "无相关", {"m1": 0})
+        probe_result = RetrievalResult("n1", ["m1"], 5)
+        main_judgment = QueryJudgment("q1", "test", {"m1": 3})
+        main_result = RetrievalResult("q1", ["m1"], 5)
+        qms = [
+            evaluate_query(probe_result, probe_judgment),
+            evaluate_query(main_result, main_judgment),
+        ]
+        report = aggregate_report("test", qms)
+        assert report.total_queries == 2
+        assert report.negative_probes == 1
+        assert report.mrr == 1.0
+        assert report.recall_at_10 == 1.0
+        assert report.negative_fp_rate_at_10 == 0.0
+
+    def test_probe_fp_rate_aggregation(self):
+        judgments_list = [
+            QueryJudgment("n1", "无相关", {"m1": 0}),
+            QueryJudgment("n2", "无相关", {"m1": 0, "x1": 1}),
+        ]
+        results = [
+            RetrievalResult("n1", ["m1"], 5),
+            RetrievalResult("n2", ["x1", "m1"], 5),
+        ]
+        qms = [evaluate_query(r, j) for r, j in zip(results, judgments_list)]
+        report = aggregate_report("test", qms)
+        assert report.negative_probes == 2
+        assert report.negative_fp_rate_at_10 == 0.5
+
+    def test_report_md_contains_probe_section(self):
+        judgment = QueryJudgment("n1", "无相关", {"m1": 0, "x1": 1})
+        result = RetrievalResult("n1", ["x1", "m1"], 5)
+        qm = evaluate_query(result, judgment)
+        report = aggregate_report("test", [qm])
+        md = format_report_md(report)
+        assert "Negative Probes" in md
+        assert "Negative FP@10" in md
+
+
 class TestFormatReport:
     def test_markdown_output(self):
         judgment = QueryJudgment("q1", "test", {"m1": 3})

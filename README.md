@@ -47,7 +47,7 @@ cwiki 为 AI Agent 提供知识的持久化存储、智能检索和持续进化�
 | 运维诊断 | 队列状态快照 + FAILED 死信重放、DB/MD/索引四方一致性对账端点 |
 | 内容安全 | MCP 提交时自动检测 Prompt 注入等恶意内容 |
 | Web 控制台 | 记忆浏览、搜索、审核、状态监控，响应式布局 + 亮暗主题 |
-| 通用适配 | 通过 MCP 协议接入任意 Agent（Qoder 已内置 14 个工具） |
+| 通用适配 | 通过 MCP 协议接入任意 Agent（Qoder 已内置 17 个工具） |
 
 ---
 
@@ -56,16 +56,21 @@ cwiki 为 AI Agent 提供知识的持久化存储、智能检索和持续进化�
 ```mermaid
 graph TB
     subgraph "Agent Layer"
-        Qoder[Qoder Agent]
+        Qoder[Qoder]
+        Claude[Claude Code]
+        Cursor[Cursor]
+        Codex[Codex]
     end
 
     subgraph "Adapter Layer"
-        QAdapter[Qoder Adapter<br/>MCP + Skills]
+        MCP[Host-neutral MCP Server<br/>tools / outbox / recall]
+        Hooks[Hook Runtime<br/>recall / capture / spool]
+        Skills[Skills & Instructions<br/>per-host install]
     end
 
     subgraph "API Layer"
-        API[FastAPI Server :5172<br/>20 路由模块]
-        Worker[Background Worker<br/>8 异步任务]
+        API[FastAPI Server :5172<br/>24 路由模块]
+        Worker[Background Worker<br/>9 异步任务]
     end
 
     subgraph "Core Services"
@@ -78,7 +83,7 @@ graph TB
     end
 
     subgraph "Storage Layer"
-        DB[(SQLite<br/>25 Tables)]
+        DB[(SQLite<br/>24 Tables)]
         Vector[Vector Index<br/>numpy]
         BM25[BM25 Index<br/>custom BM25]
         Files[Markdown Files<br/>cwiki-data/]
@@ -88,9 +93,16 @@ graph TB
         WebUI[Web Console :5173<br/>React 18 + Vite]
     end
 
-    Qoder --> QAdapter
-
-    QAdapter --> API
+    Qoder --> MCP
+    Claude --> MCP
+    Cursor --> MCP
+    Codex --> MCP
+    Qoder --> Hooks
+    Claude --> Hooks
+    Cursor --> Hooks
+    Hooks --> API
+    MCP --> API
+    Skills -.-> Qoder
 
     API --> Worker
     Worker --> Memory
@@ -117,7 +129,7 @@ graph TB
 ## 快速开始
 
 ```bash
-# 安装依赖
+# 一站式安装（环境预检 → .venv → Python/前端依赖 → 数据库 → Agent 接入）
 python tasks.py install
 
 # 一键启动后端 + 前端
@@ -134,11 +146,13 @@ python tasks.py serve
 python tasks.py web
 ```
 
-> 环境要求：Python >= 3.11，Node.js >= 18
+> 日常浏览建议用生产模式（内存占用约为 dev 模式一半）：`python tasks.py preview`（构建并以 :4173 启动）。`web` 的 dev 服务器留给开发调试。
+
+> 环境要求：Python >= 3.11，Node.js >= 18。`install` 会自动检测并提示缺失项；未装 Node.js 时传 `--skip-web` 跳过前端。
 
 ## 30 秒体验路径
 
-1. `python tasks.py install` — 安装依赖
+1. `python tasks.py install` — 一站式安装（自动预检环境、创建 .venv、装依赖、初始化 DB）
 2. `python tasks.py start` — 一键启动后端（:5172）与控制台（:5173）
 3. 打开 [http://localhost:5173](http://localhost:5173) 进入控制台
 4. 在「记忆库」页新建一条记忆；Agent 经 MCP 提交的候选会出现在「待审」页，等待人工审核
@@ -224,7 +238,7 @@ setup 仅更新 `<!-- cwiki:begin -->` / `<!-- cwiki:end -->` 管理的区块，
 
 接入后获得：
 
-- **14 个 MCP 工具** — `memory_search`、`memory_save`、`memory_history`、`memory_review_due`、`memory_review_submit`、`memory_review_stats` 等
+- **17 个 MCP 工具** — `memory_search`、`memory_save`、`memory_tags`、`memory_history`、`memory_review_due`、`memory_review_submit`、`memory_review_stats` 等
 - **cwiki-save skill** — 按需提取与保存记忆
 - **3 个斜杠命令** — `/memory-status`、`/memory-search`、`/memory-review`
 
@@ -288,7 +302,7 @@ python tasks.py recompute
 | [检索引擎](docs/retrieval.md) | 检索流程、Rerank 信号权重、各阶段详解 |
 | [Agent 接入指南](docs/agent-onboarding.md) | MCP 最小配置、HTTP API 直连、兼容性验证清单、故障排查 |
 | [Git 同步](docs/git-sync.md) | 多设备同步、冲突处理、数据库重建与故障排查 |
-| [API 参考](docs/api-reference.md) | 20 个路由模块、核心接口、反馈与冲突 |
+| [API 参考](docs/api-reference.md) | 23 个路由模块、核心接口、反馈与冲突 |
 | [开发指南](docs/development.md) | 安装配置、开发命令、config.yaml 完整参考 |
 | [学习文档](docs/dev-learning-guide.md) | 架构与实现原理逐层讲解 |
 

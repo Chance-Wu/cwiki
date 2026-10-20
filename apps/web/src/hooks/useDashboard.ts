@@ -13,9 +13,13 @@ export function useDashboardStats() {
   return useQuery({
     queryKey: ['dashboardStats'],
     queryFn: () =>
-      api
-        .getDashboardStats()
-        .catch(() => ({ candidates: 0, high_value: 0, conflicts: 0, approved: 0 })),
+      api.getDashboardStats().catch(() => ({
+        candidates: 0,
+        high_value: 0,
+        conflicts: 0,
+        approved: 0,
+        pending_notes: 0,
+      })),
     staleTime: 60_000,
   })
 }

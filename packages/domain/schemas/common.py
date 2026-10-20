@@ -6,10 +6,14 @@ from typing import Generic, Literal, TypeVar
 
 from pydantic import BaseModel, Field
 
+from packages.domain.version import app_version
+
 T = TypeVar("T")
 
-# 应用版本号，供健康检查端点和 schema 默认值统一引用
-APP_VERSION = "0.3.0"
+# 应用版本号，供健康检查端点和 schema 默认值统一引用。
+# 权威源是 pyproject.toml 的 [project] version，见 packages/domain/version.py；
+# 此处是函数调用结果而非字面量，保证版本号只在一处维护。
+APP_VERSION = app_version()
 
 # ── 枚举类型别名，供路由 Query 参数校验 ──────────────────────────
 MemoryType = Literal[
@@ -26,22 +30,22 @@ MemoryType = Literal[
     "rule",
 ]
 MemoryStatus = Literal[
-    "active",       # 正常检索
-    "superseded",   # 已被新版取代，保留历史
-    "conflicted",   # 存在未解决的有效冲突
-    "archived",     # 不再作为主要检索结果，保留记录
-    "deprecated",   # 明确不再推荐使用
+    "active",  # 正常检索
+    "superseded",  # 已被新版取代，保留历史
+    "conflicted",  # 存在未解决的有效冲突
+    "archived",  # 不再作为主要检索结果，保留记录
+    "deprecated",  # 明确不再推荐使用
 ]
 # 候选状态机（MQ-102/302 改造后）
 CandidateStatus = Literal[
-    "pending_review",     # 待人工审核
-    "approved",           # 已批准，转为正式记忆
-    "rejected",           # 已拒绝，隔离留存
-    "merged",             # 并入既有记忆
-    "deferred",           # 暂缓审核
-    "needs_enrichment",   # 低分/缺失维度，需补全后再审
-    "quarantined",        # 质量闸门隔离（历史兼容）
-    "discarded",          # 历史值兼容
+    "pending_review",  # 待人工审核
+    "approved",  # 已批准，转为正式记忆
+    "rejected",  # 已拒绝，隔离留存
+    "merged",  # 并入既有记忆
+    "deferred",  # 暂缓审核
+    "needs_enrichment",  # 低分/缺失维度，需补全后再审
+    "quarantined",  # 质量闸门隔离（历史兼容）
+    "discarded",  # 历史值兼容
 ]
 
 

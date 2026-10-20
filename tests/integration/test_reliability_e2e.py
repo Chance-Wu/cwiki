@@ -12,9 +12,9 @@ from unittest.mock import AsyncMock, Mock, patch
 import httpx
 import pytest
 
-from adapters.qoder.client import CwikiClient
-from adapters.qoder.mcp_server import MCPServer
-from adapters.qoder.outbox import WriteAheadOutbox
+from adapters.mcp.client import CwikiClient
+from adapters.mcp.mcp_server import MCPServer
+from adapters.mcp.outbox import WriteAheadOutbox
 from packages.domain.config import settings
 from packages.domain.text_utils import normalize_memory_content
 from packages.domain.types import TYPE_DEFINITIONS
@@ -25,7 +25,15 @@ from packages.storage.file_store import FileStore
 async def reliability_env(
     client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> tuple[MCPServer, dict]:
-    """搭建可靠性测试环境。"""
+    """搭建可靠性测试环境。
+
+    工作区路由断言依赖"未传 workspace 时落到哪个区"：动态注册表
+    （hook 写入的当前项目）会让该值漂移。隔离 CWIKI_STATE_DIR，
+    使 omitted/empty 走静态推导（测试 CWD=cwiki 仓库 → default）。
+    """
+    monkeypatch.setenv("CWIKI_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setattr("adapters.mcp.mcp_server._DYNAMIC_WS_FILE",
+                        tmp_path / "state" / "current-workspace.json")
     workspace = await client.post("/v1/workspaces", json={"name": f"reliability-{uuid.uuid4()}"})
     assert workspace.status_code == 201
     workspace_id = workspace.json()["id"]
@@ -652,7 +660,7 @@ class TestCheckpointIncremental:
         session_id = server.client.agent_session_id
 
         # 手动设置一个很旧的 checkpoint 时间戳
-        from adapters.qoder.outbox import _atomic_write_json
+        from adapters.mcp.outbox import _atomic_write_json
 
         checkpoint_path = server.outbox._state_dir / "checkpoints.json"
         old_timestamp = "2020-01-01T00:00:00+00:00"
@@ -837,7 +845,7 @@ class TestFreeContentDelivery:
             f"测试内容：{memory_type} 类型的示例记忆，用于验证类型推断和内容保留。"
             "推断只决定分类字段，标题由调用方给出，不能根据类型补章节或改变正文。"
         )
-        monkeypatch.setattr("adapters.qoder.mcp_server.infer_memory_type", lambda _: memory_type)
+        monkeypatch.setattr("adapters.mcp.mcp_server.infer_memory_type", lambda _: memory_type)
         result = await server._handle_tool(
             "memory_save", {"workspace_name": env["workspace"], "title": title, "content": content}
         )
@@ -882,7 +890,7 @@ class TestFreeContentDelivery:
         arguments = {"workspace_name": env["workspace"], "title": title, "content": content}
         if memory_type:
             arguments["type"] = memory_type
-        monkeypatch.setattr("adapters.qoder.mcp_server.infer_memory_type", lambda _: "decision")
+        monkeypatch.setattr("adapters.mcp.mcp_server.infer_memory_type", lambda _: "decision")
         with patch.object(
             server.client, "submit_candidate", side_effect=httpx.ConnectError("offline")
         ):

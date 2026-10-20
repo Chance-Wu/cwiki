@@ -74,6 +74,7 @@ async def get_feedback_summary(
             "useful": 0,
             "not_useful": 0,
             "outdated": 0,
+            "wrong": 0,
             "total": 0,
         }
     result = await db.execute(
@@ -90,6 +91,7 @@ async def get_feedback_summary(
         "useful": counts.get("useful", 0),
         "not_useful": counts.get("not_useful", 0),
         "outdated": counts.get("outdated", 0),
+        "wrong": counts.get("wrong", 0),
         "total": sum(counts.values()),
     }
 

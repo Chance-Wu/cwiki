@@ -53,6 +53,7 @@ def apply_entry_filters(
     confidence_floor: float = 0.0,
     relevance_mode: str = "none",
     relevance_floor: float = 0.0,
+    skip_stale: bool = False,
     now: datetime | None = None,
 ) -> tuple[list[dict[str, Any]], list[FilterEvent]]:
     """在组装流水线入口按三档策略过滤候选。
@@ -61,11 +62,14 @@ def apply_entry_filters(
     - confidence 低于 confidence_floor（且 floor > 0）按 confidence_mode 处理，
       条目缺 confidence 键时不判定（合成条目/调用方未提供的场景不误杀）；
     - score 低于 relevance_floor（且 floor > 0）按 relevance_mode 处理。
+    - skip_stale：历史意图查询豁免 stale 判定——查询明确问往事时
+      过期记忆正是答案，不应降权或剔除（与 engine/temporal 豁免同源）。
 
     Args:
         items: 候选记忆字典列表（至少含 score，可选 valid_to / confidence）。
         stale_mode / confidence_mode / relevance_mode: none / demote / hard。
         confidence_floor / relevance_floor: 判定阈值，<= 0 视为关闭该过滤。
+        skip_stale: 置 True 时跳过全部 stale 判定。
         now: 过期判定的参考时间，默认当前 UTC（测试可注入固定时间）。
 
     Returns:
@@ -74,7 +78,7 @@ def apply_entry_filters(
         relevance_floor），返回副本不修改输入；事件为 (memory_id, stage,
         reason) 三元组，由调用方转成 FilterReason。
     """
-    stale_mode = normalize_mode(stale_mode, "stale_filter_mode")
+    stale_mode = "none" if skip_stale else normalize_mode(stale_mode, "stale_filter_mode")
     confidence_mode = normalize_mode(confidence_mode, "confidence_floor_mode")
     relevance_mode = normalize_mode(relevance_mode, "relevance_floor_mode")
 

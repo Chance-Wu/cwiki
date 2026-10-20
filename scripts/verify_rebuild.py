@@ -2,8 +2,21 @@
 
 用法:
     python scripts/verify_rebuild.py
+        MD/_meta 与当前 DB 核对（数量 + 抽样字段 + 关联表行数）。
 
-本脚本检查：
+    python scripts/verify_rebuild.py --against-db BASELINE.db
+        列级对账模式：重建后的 DB 与恢复演练前的基线 DB 快照逐表逐列
+        对比（W7 恢复演练验收"恢复结果经自动化对账"的配套工具）。
+        归一化规则（W7-03 演练实测的三类格式噪音）：
+        1. 行尾换行——MD 往返中正文尾部 \\n 不保真；
+        2. datetime 零微秒——`.000000` 与无微秒形式等效；
+        3. 字符串 'null' 与 SQL NULL 等效（历史 JSON 列 None 落库格式，
+           JSONBType none_as_null 修复后新数据不再产生）。
+        embedding 列跳过（重建后重新生成，模型/内容任一变化即不同）；
+        运行期表（session/agent/retrieval_trace 等）不在重建范围，只报
+        行数不参与对账（是否纳入导出范围待决策，见审计 3.5）。
+
+本脚本默认模式检查：
 1. MD 文件中的记忆数 vs memory 表行数。
 2. 抽样对比关键字段（title、content、confidence、importance）。
 3. 各关联表行数 vs _meta JSON 数据（含版本快照与复习事件史）。
@@ -12,8 +25,11 @@
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import logging
+import re
+import sqlite3
 import sys
 import uuid
 from pathlib import Path
@@ -33,6 +49,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from packages.domain.config import settings
 from packages.domain.models import (
+    AgentSession,
     CandidateMemory,
     Evidence,
     Memory,
@@ -45,6 +62,7 @@ from packages.domain.models import (
     Review,
     ReviewHistory,
     ReviewSchedule,
+    SessionNote,
 )
 from packages.storage import config as storage_config
 from packages.storage.file_store import FileStore
@@ -53,8 +71,225 @@ from packages.storage.meta_store import MetaStore
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
+# 重建范围表：由 MD + _meta 完整重建的表，参与列级对账。
+REBUILD_TABLES: tuple[str, ...] = (
+    "memory",
+    "workspace",
+    "candidate_memory",
+    "agent_session",
+    "session_note",
+    "review",
+    "review_schedule",
+    "review_history",
+    "memory_relation",
+    "memory_feedback",
+    "memory_usage",
+    "memory_conflict",
+    "memory_version",
+    "memory_lifecycle_event",
+    "evidence",
+)
 
-async def main() -> int:
+# 重建后重新生成的列：对账无意义（值随 embedding 模型/内容重算而变）。
+SKIP_COLUMNS: dict[str, set[str]] = {
+    "memory": {"embedding"},
+    "candidate_memory": {"embedding"},
+}
+
+_DATETIME_ZERO_FRAC = re.compile(r"^(\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2})\.0{1,6}$")
+
+_norm_stats = {"null_text": 0, "datetime_frac": 0, "trailing_newline": 0}
+
+
+def _normalize(value: Any) -> Any:
+    """对账归一化：把已知格式噪音折算成等效形式（规则见模块 docstring）。"""
+    if not isinstance(value, str):
+        return value
+    if value == "null":
+        _norm_stats["null_text"] += 1
+        return None
+    match = _DATETIME_ZERO_FRAC.match(value)
+    if match:
+        _norm_stats["datetime_frac"] += 1
+        return match.group(1)
+    if value.endswith("\n"):
+        _norm_stats["trailing_newline"] += 1
+        return value.rstrip("\n")
+    return value
+
+
+def _short(value: Any) -> str:
+    text = "NULL" if value is None else str(value)
+    return text if len(text) <= 60 else f"{text[:57]}..."
+
+
+def _sqlite_path(db_url: str) -> Path | None:
+    if not db_url.startswith("sqlite"):
+        return None
+    raw = db_url.split("///", 1)[-1]
+    path = Path(raw)
+    return path if path.is_absolute() else ROOT / path
+
+
+def _user_tables(conn: sqlite3.Connection) -> set[str]:
+    rows = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+    )
+    return {row[0] for row in rows}
+
+
+def _table_columns(conn: sqlite3.Connection, table: str) -> list[str]:
+    return [row[1] for row in conn.execute(f'PRAGMA table_info("{table}")')]
+
+
+def _row_count(conn: sqlite3.Connection, table: str) -> int:
+    return int(conn.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0])
+
+
+def _load_rows(conn: sqlite3.Connection, table: str, columns: list[str]) -> dict[str, dict]:
+    rows: dict[str, dict] = {}
+    for row in conn.execute(f'SELECT * FROM "{table}"'):
+        record = {k: _normalize(v) for k, v in dict(row).items() if k in columns}
+        rows[str(record.get("id"))] = record
+    return rows
+
+
+def _compare_table(
+    base_conn: sqlite3.Connection, rebuilt_conn: sqlite3.Connection, table: str
+) -> bool:
+    """逐行逐列对比一张重建范围表，返回该表是否一致。"""
+    base_cols = _table_columns(base_conn, table)
+    rebuilt_cols = _table_columns(rebuilt_conn, table)
+    common = [c for c in base_cols if c in rebuilt_cols and c not in SKIP_COLUMNS.get(table, set())]
+    skipped = (set(base_cols) | set(rebuilt_cols)) - set(common)
+    note = f"（跳过列: {', '.join(sorted(skipped))}）" if skipped else ""
+    print_message(f"  {table}{note}")
+
+    if "id" not in common:
+        # 无主键则退化为行数对比，不做列级断言。
+        b, r = _row_count(base_conn, table), _row_count(rebuilt_conn, table)
+        status = "OK" if b == r else "DIFF"
+        print_message(f"    [{status}] 无 id 列，仅对比行数: baseline={b}, rebuilt={r}")
+        return b == r
+
+    base_rows = _load_rows(base_conn, table, common)
+    rebuilt_rows = _load_rows(rebuilt_conn, table, common)
+    ok = True
+
+    missing_in_rebuilt = sorted(set(base_rows) - set(rebuilt_rows))
+    missing_in_base = sorted(set(rebuilt_rows) - set(base_rows))
+    if missing_in_rebuilt:
+        ok = False
+        preview = ", ".join(missing_in_rebuilt[:5])
+        more = " ..." if len(missing_in_rebuilt) > 5 else ""
+        print_message(f"    [DIFF] 基线有、重建后缺 {len(missing_in_rebuilt)} 行: {preview}{more}")
+    if missing_in_base:
+        ok = False
+        preview = ", ".join(missing_in_base[:5])
+        more = " ..." if len(missing_in_base) > 5 else ""
+        print_message(f"    [DIFF] 重建后多出 {len(missing_in_base)} 行: {preview}{more}")
+
+    diff_rows = 0
+    shown = 0
+    for mid in sorted(set(base_rows) & set(rebuilt_rows)):
+        b_row, r_row = base_rows[mid], rebuilt_rows[mid]
+        cols_diff = [c for c in common if b_row[c] != r_row[c]]
+        if not cols_diff:
+            continue
+        diff_rows += 1
+        if shown < 5:
+            shown += 1
+            detail = "; ".join(
+                f"{c}: {_short(b_row[c])} -> {_short(r_row[c])}" for c in cols_diff[:3]
+            )
+            extra = f" (+{len(cols_diff) - 3} cols)" if len(cols_diff) > 3 else ""
+            print_message(f"    [DIFF] {mid}: {detail}{extra}")
+    if diff_rows:
+        ok = False
+        print_message(f"    [DIFF] 内容不一致 {diff_rows} 行")
+    else:
+        print_message(f"    [OK] {len(base_rows)} 行逐列一致")
+    return ok
+
+
+def verify_against_db(baseline_path: Path, rebuilt_path: Path | None = None) -> int:
+    """列级对账：重建后 DB vs 基线快照（W7 恢复演练配套验收工具）。"""
+    if rebuilt_path is None:
+        rebuilt_path = _sqlite_path(settings.database_url)
+        if rebuilt_path is None:
+            print_message(f"[ERROR] 仅支持 SQLite 对账，当前 database_url: {settings.database_url}")
+            return 1
+    for label, path in (("基线", baseline_path), ("重建后", rebuilt_path)):
+        if not path.exists():
+            print_message(f"[ERROR] {label}数据库不存在: {path}")
+            return 1
+
+    print_message("=== DB 列级对账（重建后 vs 基线） ===")
+    print_message(f"  基线:   {baseline_path}")
+    print_message(f"  重建后: {rebuilt_path}")
+    print_message()
+
+    base_conn = sqlite3.connect(str(baseline_path))
+    rebuilt_conn = sqlite3.connect(str(rebuilt_path))
+    base_conn.row_factory = sqlite3.Row
+    rebuilt_conn.row_factory = sqlite3.Row
+    ok = True
+    try:
+        print_message("--- 重建范围表 ---")
+        base_tables = _user_tables(base_conn)
+        rebuilt_tables = _user_tables(rebuilt_conn)
+        for table in REBUILD_TABLES:
+            if table not in base_tables:
+                print_message(f"  [SKIP] {table}: 基线库中不存在")
+                continue
+            if table not in rebuilt_tables:
+                ok = False
+                print_message(f"  [DIFF] {table}: 重建后库中缺失")
+                continue
+            if not _compare_table(base_conn, rebuilt_conn, table):
+                ok = False
+
+        runtime = sorted((base_tables | rebuilt_tables) - set(REBUILD_TABLES))
+        print_message()
+        print_message("--- 运行期表（不在重建范围，仅报行数，见审计 3.5 决策点） ---")
+        for table in runtime:
+            b = _row_count(base_conn, table) if table in base_tables else None
+            r = _row_count(rebuilt_conn, table) if table in rebuilt_tables else None
+            print_message(f"  [INFO] {table}: baseline={b}, rebuilt={r}")
+    finally:
+        base_conn.close()
+        rebuilt_conn.close()
+
+    print_message()
+    stats = ", ".join(f"{k}={v}" for k, v in _norm_stats.items())
+    print_message(f"归一化规则命中（两侧合计，均为等效折算非真实差异）: {stats}")
+    print_message()
+    print_message("对账结果: " + ("PASS —— 重建范围表全部一致" if ok else "FAIL —— 存在真实差异"))
+    return 0 if ok else 1
+
+
+def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Verify rebuild consistency.")
+    parser.add_argument(
+        "--against-db",
+        type=Path,
+        metavar="BASELINE_DB",
+        help="列级对账模式：重建后 DB 与基线 DB 快照逐表逐列对比",
+    )
+    parser.add_argument(
+        "--rebuilt-db",
+        type=Path,
+        metavar="REBUILT_DB",
+        help="覆盖对账的重建侧 DB（默认取 config 的 database_url；沙箱演练用）",
+    )
+    return parser.parse_args(argv)
+
+
+async def main(argv: list[str] | None = None) -> int:
+    args = _parse_args(argv)
+    if args.against_db:
+        return verify_against_db(args.against_db, args.rebuilt_db)
+
     data_dir = storage_config.memory_dir
     db_url = settings.database_url
 
@@ -220,6 +455,23 @@ async def main() -> int:
             status = "OK" if db_c == export_c else "DIFF"
             print_message(f"  [{status}] {name}: DB={db_c}, EXPORT={export_c}")
 
+        # --- 捕获会话 / 待整理笔记对比（DB vs _meta/_capture_notes.json）---
+        print_message()
+        print_message("=== Capture notes counts ===")
+        capture = meta_store.import_capture() or {}
+        export_sessions = (
+            capture.get("sessions") if isinstance(capture.get("sessions"), list) else []
+        )
+        export_notes = capture.get("notes") if isinstance(capture.get("notes"), list) else []
+        db_sessions = len((await session.execute(select(AgentSession))).scalars().all())
+        db_notes = len((await session.execute(select(SessionNote))).scalars().all())
+        for name, db_c, export_c in (
+            ("agent_session", db_sessions, len(export_sessions)),
+            ("session_note", db_notes, len(export_notes)),
+        ):
+            status = "OK" if db_c == export_c else "DIFF"
+            print_message(f"  [{status}] {name}: DB={db_c}, EXPORT={export_c}")
+
     await engine.dispose()
     print_message()
     print_message("Verification complete.")
@@ -227,4 +479,4 @@ async def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(asyncio.run(main()))
+    sys.exit(asyncio.run(main(sys.argv[1:])))

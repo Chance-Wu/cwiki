@@ -69,7 +69,7 @@ export default function MemoryRelationsTab({ memoryId, onNavigateToMemory }: Pro
                     onNavigateToMemory?.(m.id)
                   }
                 }}
-                className="group relative flex items-center gap-2 p-2 bg-surface-inset rounded-lg border border-[var(--border-default)] shadow-warm-xs hover:bg-brand-50/20 cursor-pointer transition-all duration-150 active:scale-[0.98]"
+                className="group relative flex items-center gap-2 p-2 bg-surface-inset rounded-lg border border-[var(--border-default)] shadow-warm-xs hover:bg-brand-badge-bg cursor-pointer transition-all duration-150 active:scale-[0.98]"
               >
                 <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-4 rounded-full bg-brand-400 opacity-40 transition-opacity duration-150" />
                 <span

@@ -3,7 +3,7 @@
 import asyncio
 import importlib
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
@@ -14,11 +14,11 @@ from fastapi import FastAPI
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from adapters.qoder.client import CwikiClient
+from adapters.mcp.client import CwikiClient
 from apps.api.deps import get_db
 from apps.api.routes.workspaces import router
 from packages.domain.database import Base
-from packages.domain.models import Workspace
+from packages.domain.models import Memory, Workspace
 
 
 @pytest.fixture
@@ -195,3 +195,46 @@ def test_migration_rejects_duplicates_without_changing_data(legacy_database, mon
     ]
     # 迁移被拒绝后仍可继续插入重名：schema 未被改动。
     conn.execute(workspace.insert(), {"id": "three", "name": "duplicate"})
+
+
+async def test_default_workspace_prefers_most_active(workspace_api):
+    """默认工作区取 active 记忆最多者，而非最新创建的空工作区。"""
+    client, engine = workspace_api
+    alpha_id = (await client.post("/v1/workspaces", json={"name": "alpha"})).json()["id"]
+    await client.post("/v1/workspaces", json={"name": "beta"})
+    async with AsyncSession(bind=engine) as session:
+        session.add_all(
+            [
+                Memory(workspace_id=uuid.UUID(alpha_id), title="a1", content="a1", type="fact"),
+                Memory(workspace_id=uuid.UUID(alpha_id), title="a2", content="a2", type="fact"),
+            ]
+        )
+        await session.commit()
+
+    resp = await client.get("/v1/workspaces/default")
+    assert resp.status_code == 200
+    assert resp.json()["name"] == "alpha"
+
+
+async def test_default_workspace_without_memories_falls_back_to_latest(workspace_api):
+    """全部工作区都无记忆时按创建时间取最新。"""
+    client, engine = workspace_api
+    await client.post("/v1/workspaces", json={"name": "older"})
+    await client.post("/v1/workspaces", json={"name": "newer"})
+    # 同秒创建的 created_at 并列，显式错开以保证确定性
+    async with AsyncSession(bind=engine) as session:
+        ws = (
+            await session.execute(sa.select(Workspace).where(Workspace.name == "newer"))
+        ).scalar_one()
+        ws.created_at = datetime.now(UTC) + timedelta(seconds=5)
+        await session.commit()
+
+    resp = await client.get("/v1/workspaces/default")
+    assert resp.status_code == 200
+    assert resp.json()["name"] == "newer"
+
+
+async def test_default_workspace_no_workspaces_returns_404(workspace_api):
+    client, _ = workspace_api
+    resp = await client.get("/v1/workspaces/default")
+    assert resp.status_code == 404

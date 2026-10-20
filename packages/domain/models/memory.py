@@ -50,6 +50,7 @@ class Memory(Base):
     title: Mapped[str] = mapped_column(String(512), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     type: Mapped[str] = mapped_column(String(64), nullable=False)
+    tags: Mapped[list[str] | None] = mapped_column(JSONBType(), nullable=True)
     source: Mapped[str] = mapped_column(String(32), nullable=False, default="mcp")
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
     confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.5)

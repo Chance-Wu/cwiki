@@ -6,7 +6,7 @@ import { Button } from '../ui/Button'
 import { Input } from '../ui/Input'
 import { Textarea } from '../ui/Textarea'
 import { Bot } from 'lucide-react'
-import { AGENT_BTN_ACTIVE, AGENT_BTN_INACTIVE } from './constants'
+import { AGENT_BTN_ACTIVE, AGENT_BTN_INACTIVE, agentLabel } from './constants'
 
 export default function CreateForm({
   onSuccess,
@@ -107,7 +107,7 @@ export default function CreateForm({
                   }`}
                 >
                   <Bot size={12} className="inline mr-1" aria-hidden="true" />
-                  {agent}
+                  {agentLabel(agent)}
                 </button>
               ))}
             </div>

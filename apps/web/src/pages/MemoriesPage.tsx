@@ -11,7 +11,21 @@ import {
 import { useSearchParams } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { spring, ease, duration } from '../lib/motion'
-import { Plus, Merge, X, Loader2, RefreshCw, AlertCircle, Database, Tag, Folder, ListFilter, Clock } from 'lucide-react'
+import {
+  Plus,
+  Merge,
+  X,
+  Loader2,
+  RefreshCw,
+  AlertCircle,
+  Database,
+  Tag,
+  Folder,
+  ListFilter,
+  Clock,
+  Tags,
+  Pencil,
+} from 'lucide-react'
 import { useTranslation, translate } from '../i18n/I18nProvider'
 import { api, type FileMemory, type MergeSuggestion } from '../lib/api'
 import { type MemoryListItem, type MemoryListRecord } from '../lib/api/memories'
@@ -35,6 +49,7 @@ import type { OptimizePreview } from '../components/memory/MemoryDetailModal'
 import MemoryItem, { MEMORY_TYPES } from '../components/memories/MemoryItem'
 import BatchActionBar from '../components/memories/BatchActionBar'
 import MergeDialog from '../components/memories/MergeDialog'
+import TagManagePanel from '../components/memory/TagManagePanel'
 
 const MemoryDetailModal = lazy(() => import('../components/memory/MemoryDetailModal'))
 const MemoryCreateModal = lazy(() => import('../components/memory/MemoryCreateModal'))
@@ -80,6 +95,11 @@ export default function MemoriesPage() {
   const [workspaceFilter, setWorkspaceFilter] = useState('all')
   const [statusFilter, setStatusFilter] = useState('all')
   const [timeRange, setTimeRange] = useState('all')
+  const [selectedTags, setSelectedTags] = useState<string[]>(
+    searchParams.get('tags')?.split(',').filter(Boolean) ?? [],
+  )
+  const [showAllTags, setShowAllTags] = useState(false)
+  const [showTagManage, setShowTagManage] = useState(false)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
   const [error, setError] = useState<string | null>(null)
@@ -109,6 +129,7 @@ export default function MemoriesPage() {
           workspace_id: workspaceFilter !== 'all' ? workspaceFilter : undefined,
           type: typeFilter !== 'all' ? typeFilter : undefined,
           status: statusFilter !== 'all' ? statusFilter : undefined,
+          tags: selectedTags.length > 0 ? selectedTags : undefined,
           limit: pageSize,
           offset: (page - 1) * pageSize,
         },
@@ -119,6 +140,12 @@ export default function MemoriesPage() {
   })
   const statsQuery = useMemoryStats()
   const workspacesQuery = useWorkspacesList()
+
+  // 标签列表
+  const [tagsList, setTagsList] = useState<{ name: string; count: number }[]>([])
+  useEffect(() => {
+    api.listTags().then((res) => setTagsList(res.tags || [])).catch(() => {})
+  }, [])
 
   // /v1/memories 返回 workspace_id（UUID），徽标展示需要名称——用工作区列表解析；
   // 解析不到时回退到 item 自带的 workspace 字段（搜索结果走此路径）
@@ -186,6 +213,17 @@ export default function MemoriesPage() {
     }
     setSearchParams(next, { replace: true })
   }, [typeFilter]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 标签筛选同步到 URL query，刷新/分享链接可保留筛选状态
+  useEffect(() => {
+    const next = new URLSearchParams(searchParams)
+    if (selectedTags.length > 0) {
+      next.set('tags', selectedTags.join(','))
+    } else {
+      next.delete('tags')
+    }
+    setSearchParams(next, { replace: true })
+  }, [selectedTags]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleRebuildIndex = async () => {
     try {
@@ -525,11 +563,114 @@ export default function MemoriesPage() {
             icon={<Clock size={14} />}
           />
           {timeRange !== 'all' && (
-            <span className="text-xs text-[var(--text-tertiary)]">
-              {t.memories.pageOnlyFilter}
-            </span>
+            <span className="text-xs text-[var(--text-tertiary)]">{t.memories.pageOnlyFilter}</span>
           )}
         </div>
+
+        {/* 标签筛选行：只显示计数≥2 的热门标签，最多 8 个，其余折叠 */}
+        {tagsList.length > 0 && (() => {
+          const hotTags = tagsList.filter(t => t.count >= 2).slice(0, 8)
+          const coldTags = tagsList.filter(t => t.count < 2 || !hotTags.includes(t))
+          const showMore = hotTags.length < tagsList.length && !showAllTags
+          const displayTags = showAllTags ? tagsList.filter(t => t.count >= 2) : hotTags
+          return (
+            <>
+            <div className="flex flex-wrap items-center gap-1.5 mt-2.5">
+              <Tags size={14} className="text-[var(--text-tertiary)] shrink-0" />
+              <button
+                onClick={() => {
+                  setSelectedTags([])
+                  setPage(1)
+                }}
+                className={`px-2 py-0.5 text-xs rounded-full border transition-colors flex items-center gap-1 ${
+                  selectedTags.length === 0
+                    ? 'bg-brand-500 text-white border-brand-500'
+                    : 'bg-surface-inset text-[var(--text-secondary)] border-[var(--border-default)] hover:bg-brand-badge-bg'
+                }`}
+              >
+                {selectedTags.length > 0 ? (
+                  <>
+                    <X size={10} className="opacity-70" />
+                    <span>{t.memories.tagClear} {selectedTags.length}</span>
+                  </>
+                ) : (
+                  <>
+                    {t.memories.tagAll}
+                    {displayTags.length > 0 && (
+                      <span className="opacity-60">{displayTags.length}</span>
+                    )}
+                  </>
+                )}
+              </button>
+              {displayTags.map((tag) => (
+                <button
+                  key={tag.name}
+                  onClick={() => {
+                    setSelectedTags((prev) =>
+                      prev.includes(tag.name)
+                        ? prev.filter((t) => t !== tag.name)
+                        : [...prev, tag.name],
+                    )
+                    setPage(1)
+                  }}
+                  className={`px-2 py-0.5 text-xs rounded-full border transition-colors flex items-center gap-1 ${
+                    selectedTags.includes(tag.name)
+                      ? 'bg-brand-500 text-white border-brand-500'
+                      : 'bg-surface-inset text-[var(--text-secondary)] border-[var(--border-default)] hover:bg-brand-badge-bg'
+                  }`}
+                >
+                  {selectedTags.includes(tag.name) && (
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                  )}
+                  {tag.name}
+                  <span className="opacity-60 tabular-nums">{tag.count > 99 ? '99+' : tag.count}</span>
+                </button>
+              ))}
+              {showMore && (
+                <button
+                  onClick={() => setShowAllTags(true)}
+                  className="px-2 py-0.5 text-xs rounded-full border border-dashed border-[var(--border-default)] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:border-[var(--text-tertiary)] transition-colors"
+                >
+                  +{coldTags.length} {t.memories.tagMore}
+                </button>
+              )}
+              {showAllTags && hotTags.length > 8 && (
+                <button
+                  onClick={() => setShowAllTags(false)}
+                  className="px-2 py-0.5 text-xs rounded-full border border-dashed border-[var(--border-default)] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:border-[var(--text-tertiary)] transition-colors"
+                >
+                  {t.memories.tagCollapse}
+                </button>
+              )}
+              <div className="flex-1" />
+              <button
+                onClick={() => setShowTagManage(!showTagManage)}
+                className={`px-2 py-0.5 text-xs rounded-full border transition-colors flex items-center gap-1 ${
+                  showTagManage
+                    ? 'bg-brand-500 text-white border-brand-500'
+                    : 'bg-surface-inset text-[var(--text-secondary)] border-[var(--border-default)] hover:bg-brand-badge-bg'
+                }`}
+              >
+                <Pencil size={10} />
+                {t.memories.tagManage}
+              </button>
+            </div>
+            {showTagManage && (
+              <div className="mt-2">
+                <TagManagePanel
+                  tags={tagsList}
+                  onTagsChanged={() => {
+                    api.listTags().then((res) => setTagsList(res.tags || [])).catch(() => {})
+                  }}
+                  onClose={() => setShowTagManage(false)}
+                />
+              </div>
+            )}
+            </>
+          )
+        })()}
       </motion.div>
 
       {/* 合并建议横幅 */}
@@ -674,7 +815,8 @@ export default function MemoriesPage() {
             typeFilter !== 'all' ||
             workspaceFilter !== 'all' ||
             statusFilter !== 'all' ||
-            timeRange !== 'all') && (
+            timeRange !== 'all' ||
+            selectedTags.length > 0) && (
             <Button
               onClick={() => {
                 setSearchInput('')
@@ -682,6 +824,7 @@ export default function MemoriesPage() {
                 setWorkspaceFilter('all')
                 setStatusFilter('all')
                 setTimeRange('all')
+                setSelectedTags([])
                 setPage(1)
                 clearSelection()
               }}
@@ -714,7 +857,37 @@ export default function MemoriesPage() {
       ) : displayItems.length === 0 ? (
         <EmptyState
           illustration={<EmptyMemory />}
-          message={isSearching ? t.memories.noMatch : t.memories.empty}
+          message={
+            isSearching
+              ? t.memories.noMatch
+              : (typeFilter !== 'all' || workspaceFilter !== 'all' || statusFilter !== 'all' || timeRange !== 'all' || selectedTags.length > 0)
+                ? t.memories.noFilterResults
+                : t.memories.empty
+          }
+          description={
+            (typeFilter !== 'all' || workspaceFilter !== 'all' || statusFilter !== 'all' || timeRange !== 'all' || selectedTags.length > 0)
+              ? t.memories.noFilterResultsDesc
+              : undefined
+          }
+          action={
+            (typeFilter !== 'all' || workspaceFilter !== 'all' || statusFilter !== 'all' || timeRange !== 'all' || selectedTags.length > 0) ? (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  setSearchInput('')
+                  setTypeFilter('all')
+                  setWorkspaceFilter('all')
+                  setStatusFilter('all')
+                  setTimeRange('all')
+                  setSelectedTags([])
+                  setPage(1)
+                }}
+              >
+                {t.memories.clearFilters}
+              </Button>
+            ) : undefined
+          }
         />
       ) : (
         <Card className="divide-y divide-[var(--border-default)] overflow-hidden">

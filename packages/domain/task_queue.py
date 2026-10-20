@@ -60,7 +60,11 @@ class TaskQueue:
     _FAILED_SNAPSHOT_LIMIT = 50
 
     def __init__(
-        self, max_workers: int = 4, max_retries: int = 3, retry_backoff: float = 1.0
+        self,
+        max_workers: int = 4,
+        max_retries: int = 3,
+        retry_backoff: float = 1.0,
+        persist_path: Path | None = None,
     ) -> None:
         self._queue: asyncio.Queue[Task] = asyncio.Queue()
         self._tasks: dict[str, Task] = {}
@@ -76,6 +80,8 @@ class TaskQueue:
         self._pending_keys: dict[tuple[str, str], str] = {}
         self._persist_dirty = False
         self._persist_task: asyncio.Task[None] | None = None
+        # 持久化路径可注入：测试与故障注入需隔离真机 ~/.cwiki/state
+        self._persist_path = persist_path or _PERSIST_PATH
 
     def register(self, name: str, func: TaskFunc) -> None:
         """注册任务函数。"""
@@ -125,8 +131,8 @@ class TaskQueue:
         if self._running:
             return
 
-        # 恢复上次运行遗留的 PENDING 任务
-        restored = self._restore_pending()
+        # 恢复上次运行遗留的 PENDING 任务与 FAILED 死信
+        restored_pending, restored_failed = self._restore_persisted()
         for task in list(self._tasks.values()):
             if task.status == TaskStatus.PENDING:
                 dedup_key = (task.name, self._make_dedup_args_key(task.args, task.kwargs))
@@ -138,7 +144,12 @@ class TaskQueue:
             worker = asyncio.create_task(self._worker_loop(i))
             self._workers.append(worker)
         self._persist_task = asyncio.create_task(self._persist_loop())
-        logger.info("Started %d task workers (restored %d pending)", self._max_workers, restored)
+        logger.info(
+            "Started %d task workers (restored %d pending, %d dead-letter)",
+            self._max_workers,
+            restored_pending,
+            restored_failed,
+        )
 
     async def stop(self, timeout: float = 10.0) -> None:
         """优雅停止全部 worker。
@@ -234,6 +245,9 @@ class TaskQueue:
                         task.status = TaskStatus.FAILED
                         task.error = str(e)
                         task.completed_at = datetime.now(UTC)
+                        # 死信需落盘：否则文件里仍是 PENDING，重启后会被
+                        # 当作待执行任务重新跑一遍已耗尽重试预算的任务
+                        self._persist_dirty = True
 
                 finally:
                     self._queue.task_done()
@@ -363,15 +377,46 @@ class TaskQueue:
         logger.info("Task %s manually re-enqueued after failure", task_id)
         return True
 
+    def clear_failed(self, task_id: str | None = None) -> int:
+        """清理 FAILED 死信任务。
+
+        不传 task_id 时清理全部 FAILED 任务；传 task_id 时只清理指定任务。
+        返回实际清理数量。
+        """
+        if task_id:
+            task = self._tasks.get(task_id)
+            if task is None or task.status != TaskStatus.FAILED:
+                return 0
+            del self._tasks[task_id]
+            self._persist_dirty = True
+            logger.info("Cleared failed task %s", task_id)
+            return 1
+
+        cleared = 0
+        failed_ids = [tid for tid, t in self._tasks.items() if t.status == TaskStatus.FAILED]
+        for tid in failed_ids:
+            del self._tasks[tid]
+            cleared += 1
+        if cleared:
+            self._persist_dirty = True
+            logger.info("Cleared %d failed tasks", cleared)
+        return cleared
+
     # ── 持久化 ───────────────────────────────────────────────────
 
     def _persist_snapshot(self) -> None:
-        """原子地把 PENDING 任务写入磁盘（状态变化时调用）。"""
+        """原子地把 PENDING 与 FAILED 任务写入磁盘（状态变化时调用）。
+
+        PENDING 用于重启续跑（at-least-once）；FAILED 是死信的持久
+        形态 —— 死信若仅存内存，进程重启后失败证据与手动重放入口
+        一起消失。RUNNING 不落盘：崩溃后由上次快照中的 PENDING 恢复，
+        语义为重复执行。
+        """
         if not self._persist_dirty:
             return
         self._persist_dirty = False
 
-        pending = [
+        entries = [
             {
                 "id": t.id,
                 "name": t.name,
@@ -379,57 +424,98 @@ class TaskQueue:
                 "kwargs": t.kwargs,
                 "retry_count": t.retry_count,
                 "created_at": t.created_at.isoformat(),
+                "status": t.status.value,
+                "error": t.error,
+                "completed_at": t.completed_at.isoformat() if t.completed_at else None,
             }
             for t in self._tasks.values()
-            if t.status == TaskStatus.PENDING
+            if t.status in (TaskStatus.PENDING, TaskStatus.FAILED)
         ]
-        if not pending:
-            _PERSIST_PATH.unlink(missing_ok=True)
+        if not entries:
+            self._persist_path.unlink(missing_ok=True)
             return
 
         try:
-            _PERSIST_PATH.parent.mkdir(parents=True, exist_ok=True)
+            self._persist_path.parent.mkdir(parents=True, exist_ok=True)
             # 先写临时文件再 os.replace 原子替换，避免崩溃留下半写文件
-            fd, tmp = tempfile.mkstemp(suffix=".tmp", dir=_PERSIST_PATH.parent)
+            fd, tmp = tempfile.mkstemp(suffix=".tmp", dir=self._persist_path.parent)
             try:
                 os.close(fd)
                 with open(tmp, "w", encoding="utf-8") as f:
-                    json.dump(pending, f, default=str)
-                os.replace(tmp, _PERSIST_PATH)
+                    json.dump(entries, f, default=str)
+                os.replace(tmp, self._persist_path)
             except Exception:
                 Path(tmp).unlink(missing_ok=True)
                 raise
         except Exception as e:
             logger.warning("Failed to persist task queue: %s", e)
 
-    def _restore_pending(self) -> int:
-        """从磁盘加载 PENDING 任务，返回恢复数量。"""
-        if not _PERSIST_PATH.exists():
-            return 0
+    def _restore_persisted(self) -> tuple[int, int]:
+        """从磁盘恢复 PENDING 与 FAILED 任务，返回 ``(pending, failed)`` 数量。
+
+        FAILED 死信恢复后仍处于 FAILED 状态，等待手动 retry_failed；
+        旧版快照（无 status 字段）与异常状态一律按 PENDING 恢复。
+        单条损坏记录跳过，不阻塞其余恢复。
+        """
+        if not self._persist_path.exists():
+            return 0, 0
         try:
-            with open(_PERSIST_PATH, encoding="utf-8") as f:
+            with open(self._persist_path, encoding="utf-8") as f:
                 data = json.load(f)
-            restored = 0
-            for entry in data:
-                task_id = entry["id"]
-                if task_id in self._tasks:
-                    continue
+        except Exception as e:
+            logger.warning("Failed to restore task queue: %s", e)
+            return 0, 0
+
+        restored_pending = 0
+        restored_failed = 0
+        for entry in data:
+            task_id = entry.get("id")
+            if not task_id or task_id in self._tasks:
+                continue
+            try:
+                created_at = datetime.fromisoformat(entry["created_at"])
+                completed_at_raw = entry.get("completed_at")
+                completed_at = (
+                    datetime.fromisoformat(completed_at_raw) if completed_at_raw else None
+                )
+                status_raw = entry.get("status", TaskStatus.PENDING.value)
+                if status_raw == TaskStatus.FAILED.value:
+                    status = TaskStatus.FAILED
+                    restored_failed += 1
+                elif status_raw == TaskStatus.PENDING.value:
+                    status = TaskStatus.PENDING
+                    restored_pending += 1
+                else:
+                    # RUNNING 等只可能来自异常快照 —— 按 PENDING 恢复（at-least-once）
+                    logger.warning(
+                        "Snapshot task %s has unexpected status %r, restoring as pending",
+                        task_id,
+                        status_raw,
+                    )
+                    status = TaskStatus.PENDING
+                    restored_pending += 1
                 task = Task(
                     id=task_id,
                     name=entry["name"],
                     args=tuple(entry.get("args", [])),
                     kwargs=entry.get("kwargs", {}),
+                    status=status,
                     retry_count=entry.get("retry_count", 0),
-                    created_at=datetime.fromisoformat(entry["created_at"]),
+                    created_at=created_at,
+                    error=entry.get("error"),
+                    completed_at=completed_at,
                 )
                 self._tasks[task_id] = task
-                restored += 1
-            if restored:
-                logger.info("Restored %d pending tasks from disk", restored)
-            return restored
-        except Exception as e:
-            logger.warning("Failed to restore task queue: %s", e)
-            return 0
+            except (KeyError, ValueError) as exc:
+                logger.warning("Skipping corrupt snapshot entry %s: %s", task_id, exc)
+
+        if restored_pending or restored_failed:
+            logger.info(
+                "Restored %d pending, %d dead-letter tasks from disk",
+                restored_pending,
+                restored_failed,
+            )
+        return restored_pending, restored_failed
 
 
 queue = TaskQueue(max_workers=2)  # 优化：从 4 减少到 2，降低空闲时资源占用

@@ -1,7 +1,9 @@
-"""packages/domain/task_queue.py 测试 — 入队、worker 执行、重试、清理。"""
+"""packages/domain/task_queue.py 测试 — 入队、worker 执行、重试、清理、持久化。"""
 
 import asyncio
+import json
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
 
@@ -23,8 +25,9 @@ async def _wait_for_status(
 
 
 @pytest.fixture
-async def task_queue():
-    q = TaskQueue(max_workers=2)
+async def task_queue(tmp_path: Path):
+    # 持久化路径指向 tmp，避免测试把任务写进真机 ~/.cwiki/state
+    q = TaskQueue(max_workers=2, persist_path=tmp_path / "task_queue.json")
     yield q
     await q.stop()
 
@@ -101,8 +104,8 @@ class TestWorkerExecution:
         results = sorted([(await task_queue.get_task(tid)).result for tid in ids])
         assert results == [0, 1, 2, 3, 4, 5]
 
-    async def test_unknown_task_fails_without_retry(self, task_queue: TaskQueue):
-        q = TaskQueue(max_workers=1, max_retries=0)
+    async def test_unknown_task_fails_without_retry(self, task_queue: TaskQueue, tmp_path: Path):
+        q = TaskQueue(max_workers=1, max_retries=0, persist_path=tmp_path / "tq.json")
         try:
             await q.start()
             task_id = await q.enqueue("nonexistent_task")
@@ -135,7 +138,7 @@ class TestWorkerExecution:
 
 
 class TestRetry:
-    async def test_retry_then_success(self, task_queue: TaskQueue):
+    async def test_retry_then_success(self, task_queue: TaskQueue, tmp_path: Path):
         attempts = {"n": 0}
 
         async def flaky(ctx):
@@ -144,7 +147,9 @@ class TestRetry:
                 raise RuntimeError("transient failure")
             return "recovered"
 
-        q = TaskQueue(max_workers=1, max_retries=3, retry_backoff=0)
+        q = TaskQueue(
+            max_workers=1, max_retries=3, retry_backoff=0, persist_path=tmp_path / "tq.json"
+        )
         try:
             q.register("flaky", flaky)
             await q.start()
@@ -158,14 +163,16 @@ class TestRetry:
         finally:
             await q.stop()
 
-    async def test_exhausted_retries_marks_failed(self, task_queue: TaskQueue):
+    async def test_exhausted_retries_marks_failed(self, task_queue: TaskQueue, tmp_path: Path):
         attempts = {"n": 0}
 
         async def always_fails(ctx):
             attempts["n"] += 1
             raise RuntimeError(f"failure #{attempts['n']}")
 
-        q = TaskQueue(max_workers=1, max_retries=2, retry_backoff=0)
+        q = TaskQueue(
+            max_workers=1, max_retries=2, retry_backoff=0, persist_path=tmp_path / "tq.json"
+        )
         try:
             q.register("always_fails", always_fails)
             await q.start()
@@ -179,14 +186,16 @@ class TestRetry:
         finally:
             await q.stop()
 
-    async def test_exponential_backoff_delay(self, task_queue: TaskQueue):
+    async def test_exponential_backoff_delay(self, task_queue: TaskQueue, tmp_path: Path):
         attempts: list[float] = []
 
         async def always_fails(ctx):
             attempts.append(asyncio.get_running_loop().time())
             raise RuntimeError("fail")
 
-        q = TaskQueue(max_workers=1, max_retries=2, retry_backoff=0.05)
+        q = TaskQueue(
+            max_workers=1, max_retries=2, retry_backoff=0.05, persist_path=tmp_path / "tq.json"
+        )
         try:
             q.register("always_fails", always_fails)
             await q.start()
@@ -201,14 +210,14 @@ class TestRetry:
         finally:
             await q.stop()
 
-    async def test_zero_retries_fails_immediately(self, task_queue: TaskQueue):
+    async def test_zero_retries_fails_immediately(self, task_queue: TaskQueue, tmp_path: Path):
         attempts = {"n": 0}
 
         async def fails_once(ctx):
             attempts["n"] += 1
             raise ValueError("boom")
 
-        q = TaskQueue(max_workers=1, max_retries=0)
+        q = TaskQueue(max_workers=1, max_retries=0, persist_path=tmp_path / "tq.json")
         try:
             q.register("fails_once", fails_once)
             await q.start()
@@ -291,9 +300,9 @@ class TestCleanupCompletedTasks:
         task_queue._cleanup_completed_tasks()
         assert await task_queue.get_task(task_id) is not None
 
-    async def test_keeps_stale_failed_task(self, task_queue: TaskQueue):
+    async def test_keeps_stale_failed_task(self, task_queue: TaskQueue, tmp_path: Path):
         """死信语义：FAILED 任务不被 300 秒清理，永久保留供诊断与手动重试。"""
-        q = TaskQueue(max_workers=1, max_retries=0)
+        q = TaskQueue(max_workers=1, max_retries=0, persist_path=tmp_path / "tq.json")
         try:
             await q.start()
             task_id = await q.enqueue("unknown_task")
@@ -418,15 +427,21 @@ class TestSnapshot:
 
 
 class TestRetryFailed:
-    async def _make_failed_task(self, name: str = "unknown_task") -> tuple[TaskQueue, str]:
-        q = TaskQueue(max_workers=1, max_retries=0)
+    async def _make_failed_task(
+        self, name: str = "unknown_task", tmp_path: Path | None = None
+    ) -> tuple[TaskQueue, str]:
+        q = TaskQueue(
+            max_workers=1,
+            max_retries=0,
+            persist_path=(tmp_path or Path.cwd()) / "tq.json",
+        )
         await q.start()
         task_id = await q.enqueue(name)
         await _wait_for_status(q, task_id, TaskStatus.FAILED)
         return q, task_id
 
-    async def test_resets_state_and_rebuilds_dedup_key(self):
-        q, task_id = await self._make_failed_task()
+    async def test_resets_state_and_rebuilds_dedup_key(self, tmp_path: Path):
+        q, task_id = await self._make_failed_task(tmp_path=tmp_path)
         try:
             assert await q.retry_failed(task_id) is True
             task = await q.get_task(task_id)
@@ -449,7 +464,7 @@ class TestRetryFailed:
         task_queue._tasks[task_id].status = TaskStatus.COMPLETED
         assert await task_queue.retry_failed(task_id) is False
 
-    async def test_retried_task_executes_successfully(self):
+    async def test_retried_task_executes_successfully(self, tmp_path: Path):
         attempts = {"n": 0}
 
         async def flaky(ctx):
@@ -458,7 +473,9 @@ class TestRetryFailed:
                 raise RuntimeError("first attempt fails")
             return "recovered"
 
-        q = TaskQueue(max_workers=1, max_retries=0, retry_backoff=0)
+        q = TaskQueue(
+            max_workers=1, max_retries=0, retry_backoff=0, persist_path=tmp_path / "tq.json"
+        )
         try:
             q.register("flaky", flaky)
             await q.start()
@@ -472,3 +489,160 @@ class TestRetryFailed:
             assert task.retry_count == 0
         finally:
             await q.stop()
+
+
+class TestPersistence:
+    """死信持久化：FAILED 任务跨重启保留，PENDING 续跑，旧格式兼容。"""
+
+    @staticmethod
+    def _read_snapshot(path: Path) -> list[dict]:
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    async def test_failed_task_persisted_with_status(self, tmp_path: Path):
+        persist_path = tmp_path / "tq.json"
+        q = TaskQueue(max_workers=1, max_retries=0, persist_path=persist_path)
+        await q.start()
+        task_id = await q.enqueue("unknown_task")
+        await _wait_for_status(q, task_id, TaskStatus.FAILED)
+        await q.stop()
+
+        entries = self._read_snapshot(persist_path)
+        assert len(entries) == 1
+        assert entries[0]["status"] == "failed"
+        assert entries[0]["id"] == task_id
+        assert entries[0]["error"] is not None
+        assert entries[0]["completed_at"] is not None
+
+    async def test_dead_letter_restored_not_rerun(self, tmp_path: Path):
+        persist_path = tmp_path / "tq.json"
+        attempts = {"n": 0}
+
+        async def counting_fail(ctx):
+            attempts["n"] += 1
+            raise RuntimeError("boom")
+
+        q = TaskQueue(max_workers=1, max_retries=0, persist_path=persist_path)
+        q.register("counting_fail", counting_fail)
+        await q.start()
+        task_id = await q.enqueue("counting_fail")
+        await _wait_for_status(q, task_id, TaskStatus.FAILED)
+        await q.stop()
+
+        # 重启：死信恢复为 FAILED，不重新执行
+        q2 = TaskQueue(max_workers=1, max_retries=0, persist_path=persist_path)
+        q2.register("counting_fail", counting_fail)
+        await q2.start()
+        task = await q2.get_task(task_id)
+        assert task is not None
+        assert task.status == TaskStatus.FAILED
+        assert attempts["n"] == 1
+        # 恢复的死信仍可手动重放
+        assert await q2.retry_failed(task_id) is True
+        await _wait_for_status(q2, task_id, TaskStatus.FAILED)
+        assert attempts["n"] == 2
+        await q2.stop()
+
+    async def test_pending_task_restored_and_executed(self, tmp_path: Path):
+        persist_path = tmp_path / "tq.json"
+        # 手写旧版快照（无 status 字段）—— 向后兼容按 PENDING 恢复
+        persist_path.write_text(
+            json.dumps(
+                [
+                    {
+                        "id": "legacy-1",
+                        "name": "noop",
+                        "args": [],
+                        "kwargs": {},
+                        "retry_count": 0,
+                        "created_at": datetime.now(UTC).isoformat(),
+                    }
+                ]
+            ),
+            encoding="utf-8",
+        )
+        executed = {"n": 0}
+
+        async def noop(ctx):
+            executed["n"] += 1
+
+        q = TaskQueue(max_workers=1, persist_path=persist_path)
+        q.register("noop", noop)
+        await q.start()
+        await _wait_for_status(q, "legacy-1", TaskStatus.COMPLETED)
+        assert executed["n"] == 1
+        await q.stop()
+
+    async def test_unexpected_status_restored_as_pending(self, tmp_path: Path):
+        persist_path = tmp_path / "tq.json"
+        persist_path.write_text(
+            json.dumps(
+                [
+                    {
+                        "id": "weird-1",
+                        "name": "noop",
+                        "args": [],
+                        "kwargs": {},
+                        "retry_count": 0,
+                        "created_at": datetime.now(UTC).isoformat(),
+                        "status": "running",
+                    }
+                ]
+            ),
+            encoding="utf-8",
+        )
+        executed = {"n": 0}
+
+        async def noop(ctx):
+            executed["n"] += 1
+
+        q = TaskQueue(max_workers=1, persist_path=persist_path)
+        q.register("noop", noop)
+        await q.start()
+        await _wait_for_status(q, "weird-1", TaskStatus.COMPLETED)
+        assert executed["n"] == 1
+        await q.stop()
+
+    async def test_corrupt_entry_skipped(self, tmp_path: Path):
+        persist_path = tmp_path / "tq.json"
+        persist_path.write_text(
+            json.dumps(
+                [
+                    {"id": "bad-1", "args": []},  # 缺 name/created_at —— 损坏条目
+                    {
+                        "id": "good-1",
+                        "name": "noop",
+                        "args": [],
+                        "kwargs": {},
+                        "retry_count": 0,
+                        "created_at": datetime.now(UTC).isoformat(),
+                    },
+                ]
+            ),
+            encoding="utf-8",
+        )
+        executed = {"n": 0}
+
+        async def noop(ctx):
+            executed["n"] += 1
+
+        q = TaskQueue(max_workers=1, persist_path=persist_path)
+        q.register("noop", noop)
+        await q.start()
+        await _wait_for_status(q, "good-1", TaskStatus.COMPLETED)
+        assert executed["n"] == 1
+        await q.stop()
+
+    async def test_no_live_tasks_removes_snapshot_file(self, tmp_path: Path):
+        persist_path = tmp_path / "tq.json"
+
+        async def noop(ctx):
+            return None
+
+        q = TaskQueue(max_workers=1, persist_path=persist_path)
+        q.register("noop", noop)
+        await q.start()
+        task_id = await q.enqueue("noop")
+        await _wait_for_status(q, task_id, TaskStatus.COMPLETED)
+        await q.stop()
+        # 无 PENDING/FAILED 存活时快照文件应删除，避免遗留过期待办
+        assert not persist_path.exists()

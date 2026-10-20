@@ -5,9 +5,10 @@ import { spring } from '../lib/motion'
 interface PageTitleProps {
   icon: ReactNode
   title: string
+  subtitle?: string
 }
 
-export default function PageTitle({ icon, title }: PageTitleProps) {
+export default function PageTitle({ icon, title, subtitle }: PageTitleProps) {
   return (
     <motion.div
       className="flex items-start gap-3.5"
@@ -31,6 +32,9 @@ export default function PageTitle({ icon, title }: PageTitleProps) {
         <h1 className="text-xl md:text-2xl font-serif font-semibold text-[var(--text-primary)] tracking-tight">
           {title}
         </h1>
+        {subtitle && (
+          <p className="mt-0.5 text-xs text-[var(--text-tertiary)] font-medium">{subtitle}</p>
+        )}
       </div>
     </motion.div>
   )

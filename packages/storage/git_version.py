@@ -54,26 +54,41 @@ class GitVersionControl:
         )
         return probe.returncode == 0
 
-    def _run_sync(self, cmd: list[str], cwd: Path | None = None) -> str:
-        """同步子进程执行器（仅限构造函数使用）。"""
+    def _run_sync(self, cmd: list[str], cwd: Path | None = None, check: bool = True) -> str:
+        """同步子进程执行器（构造函数与探测路径使用）。"""
         result = subprocess.run(
             cmd,
             cwd=cwd or self.repo_path,
             capture_output=True,
             text=True,
             encoding="utf-8",
-            check=True,
+            check=check,
         )
         if result.returncode != 0:
-            logger.warning("Git command failed: %s -> %s", " ".join(cmd), result.stderr.strip())
+            if check:
+                logger.warning("Git command failed: %s -> %s", " ".join(cmd), result.stderr.strip())
+            return ""
         return result.stdout.strip()
 
-    async def _run(self, cmd: list[str], cwd: Path | None = None) -> str:
+    async def _run(self, cmd: list[str], cwd: Path | None = None, check: bool = True) -> str:
         """运行 git 命令且不阻塞事件循环。"""
-        return await asyncio.to_thread(self._run_sync, cmd, cwd)
+        return await asyncio.to_thread(self._run_sync, cmd, cwd, check)
 
     async def commit(self, message: str) -> None:
-        """暂存全部变更并提交。"""
+        """暂存全部变更并提交。
+
+        提交身份逐仓库兜底：该仓库（含外部带入的既有仓库，如测试里
+        git init 出来的嵌套仓库）缺 user.email/user.name 时就地补写，
+        避免依赖宿主机的全局 git 配置——CI/测试沙箱常没有。
+        """
+        for key, value in (("user.email", "cwiki@local"), ("user.name", "cwiki")):
+            probe = await self._run(
+                ["git", "config", key],
+                cwd=self.repo_path,
+                check=False,
+            )
+            if not probe:
+                await self._run(["git", "config", key, value], cwd=self.repo_path)
         await self._run(["git", "add", "-A"], cwd=self.repo_path)
         await self._run(["git", "commit", "-m", message], cwd=self.repo_path)
 

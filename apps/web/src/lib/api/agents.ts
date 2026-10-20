@@ -74,8 +74,16 @@ export const searchSessionNotes = (opts: {
   return request<PaginatedResponse<SessionNote>>(`/session-notes/search?${params.toString()}`)
 }
 
-export const formalizeNote = (noteId: string, body?: { memory_id?: string }) =>
+export const getSessionNote = (noteId: string) => request<SessionNote>(`/session-notes/${noteId}`)
+
+export const formalizeNote = (
+  noteId: string,
+  body?: { memory_id?: string; candidate_id?: string },
+) =>
   request<SessionNote>(`/session-notes/${noteId}/formalize`, {
     method: 'PATCH',
     body: JSON.stringify(body ?? {}),
   })
+
+export const discardNote = (noteId: string) =>
+  request<void>(`/session-notes/${noteId}`, { method: 'DELETE' })

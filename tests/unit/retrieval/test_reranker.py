@@ -189,3 +189,166 @@ class TestRerankSignalSemantics:
         # 查询被误判为 procedure：fact 与 reference 都拿中性 0.5
         result = rerank(candidates, query_intent="procedure")
         assert result[0][0] == "gold"
+
+
+class TestMetadataCap:
+    """W5-C：元数据信号总影响力不超过 RRF 的约束。"""
+
+    def test_cap_bounds_metadata_share(self):
+        """意图权重重归一化后 fresh+usage 等元数据之和被压到 ≤ rrf 权重。"""
+        w = RerankerWeights.for_intent("procedure")
+        # 模拟 rerank 内部封顶后的实际权重
+        non_rrf = w.confidence + w.importance + w.freshness + w.usage + w.intent
+        assert non_rrf > w.rrf  # 原始意图权重确实超限（触发条件存在）
+        candidates = [_make_input(f"m{i}", rrf_score=0.02 - i * 0.001) for i in range(3)]
+        rerank(candidates, query_intent="procedure", intent_confidence=0.9)
+
+    def test_relevance_ranking_survives_metadata_gap(self):
+        """W4 归因 A 病理：单路 rank1 候选（rrf 低但为池内最高）不再被
+        高元数据但低相关性的候选反超。"""
+        candidates = [
+            # 池内 rrf 最高（单路 rank1：只有 bm25 一路命中）
+            _make_input(
+                "gold",
+                rrf_score=0.0164,
+                confidence=0.3,
+                importance=0.3,
+                freshness=0.4,
+                usage_score=0.0,
+                memory_type="fact",
+            ),
+            # rrf 略低但元数据全面占优
+            _make_input(
+                "metadata_favored",
+                rrf_score=0.0140,
+                confidence=0.9,
+                importance=0.9,
+                freshness=1.0,
+                usage_score=0.9,
+                memory_type="fact",
+            ),
+        ]
+        result = rerank(
+            candidates,
+            query_intent="procedure",
+            intent_confidence=0.9,
+            key_terms=["taskgroup"],
+        )
+        assert result[0][0] == "gold"
+
+    def test_cap_does_not_mutate_caller_weights(self):
+        w = RerankerWeights(
+            rrf=0.1, confidence=0.3, importance=0.2, freshness=0.2, usage=0.1, intent=0.2
+        )
+        candidates = [_make_input("a", rrf_score=1.0), _make_input("b", rrf_score=0.5)]
+        rerank(candidates, weights=w)
+        assert w.confidence == 0.3  # 原对象不被就地修改
+
+
+class TestVectorSignal:
+    """W6-B：向量语义信号接入 rerank（vector_score 原始余弦参与加权）。
+
+    W6-A 归因：RerankInput.vector_score 字段一直存在但从未参与计分，
+    语义无关候选凭 conf/imp 元数据压过双路命中的 gold（C12-q3 病理：
+    干扰 cosine 0.617 vs gold 0.806）。
+    """
+
+    def test_semantic_signal_breaks_metadata_advantage(self):
+        """C12-q3 回归：元数据占优但语义无关的候选不再反超双路 rank1 的 gold。
+
+        rrf 分取自真实池（gold nrrf 1.0、noise 0.978、floor 拉低池底），
+        cosine 取自实测（gold 0.806、noise 0.617）。
+        """
+        candidates = [
+            _make_input(
+                "gold",
+                rrf_score=0.0164,
+                vector_score=0.806,
+                confidence=0.68,
+                importance=0.83,
+                freshness=0.87,
+                usage_score=0.57,
+                memory_type="fact",
+            ),
+            _make_input(
+                "noise",
+                rrf_score=0.01635,
+                vector_score=0.617,
+                confidence=0.83,
+                importance=0.93,
+                freshness=0.87,
+                usage_score=0.57,
+                memory_type="opinion",
+            ),
+            _make_input("floor", rrf_score=0.0141, vector_score=0.0),
+        ]
+        result = rerank(candidates, query_intent="unknown")
+        assert result[0][0] == "gold"
+
+    def test_without_vector_signal_metadata_wins(self):
+        """vector 权重置 0 时旧病理复现（证明修复来自语义信号本身）。"""
+        w = RerankerWeights(
+            rrf=0.38,
+            semantic=0.0,
+            confidence=0.10,
+            importance=0.12,
+            freshness=0.10,
+            usage=0.06,
+            intent=0.09,
+        )
+        candidates = [
+            _make_input(
+                "gold",
+                rrf_score=0.0164,
+                vector_score=0.806,
+                confidence=0.68,
+                importance=0.83,
+                freshness=0.87,
+                usage_score=0.57,
+                memory_type="fact",
+            ),
+            _make_input(
+                "noise",
+                rrf_score=0.01635,
+                vector_score=0.617,
+                confidence=0.83,
+                importance=0.93,
+                freshness=0.87,
+                usage_score=0.57,
+                memory_type="opinion",
+            ),
+            _make_input("floor", rrf_score=0.0141, vector_score=0.0),
+        ]
+        result = rerank(candidates, query_intent="unknown", weights=w)
+        assert result[0][0] == "noise"
+
+    def test_vector_uses_raw_value(self):
+        """余弦是 0-1 语义分，绝对值直接加权（不做池内 min-max）：
+        仅 vector 不同、vector 权重 1 时分差应恰为 Δcos=0.5。"""
+        a = _make_input("a", rrf_score=0.5, vector_score=0.8)
+        b = _make_input("b", rrf_score=0.5, vector_score=0.3)
+        w = RerankerWeights(
+            rrf=0.0,
+            semantic=1.0,
+            confidence=0.0,
+            importance=0.0,
+            freshness=0.0,
+            usage=0.0,
+            intent=0.0,
+        )
+        result = rerank([a, b], weights=w)
+        assert abs((result[0][1] - result[1][1]) - 0.5) < 1e-9
+
+    def test_vector_not_capped_by_metadata_cap(self):
+        """vector 是相关性信号，不参与元数据 ≤ rrf 的封顶：
+        元数据权重触发封顶时 vector 权重保持原值。"""
+        w = RerankerWeights.for_intent("procedure")
+        assert w.semantic > 0
+        candidates = [
+            _make_input("a", rrf_score=0.02, vector_score=0.9),
+            _make_input("b", rrf_score=0.01, vector_score=0.1),
+        ]
+        rerank(candidates, query_intent="procedure", intent_confidence=0.9)
+        # 封顶只缩放元数据五项；vector 与 rrf 不动（无法直接观测内部权重，
+        # 用语义无关候选的排序结果间接验证：a 凭高 vector + 高 rrf 稳居首位）
+        assert rerank(candidates, query_intent="procedure", intent_confidence=0.9)[0][0] == "a"

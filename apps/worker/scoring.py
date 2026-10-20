@@ -16,7 +16,7 @@ from packages.domain.config import settings
 logger = logging.getLogger(__name__)
 
 
-def calculate_value_score(candidate: dict[str, Any]) -> float:
+def calculate_value_score(candidate: dict[str, Any]) -> float | None:
     """计算候选记忆的综合价值分。
 
     改造后公式（novelty 降级为排序信号）：
@@ -35,6 +35,11 @@ def calculate_value_score(candidate: dict[str, Any]) -> float:
     if any(v is None for v in [reusability, stability, confidence, importance, evidence_strength]):
         return None
 
+    assert reusability is not None
+    assert stability is not None
+    assert confidence is not None
+    assert importance is not None
+    assert evidence_strength is not None
     reusability = max(0.0, min(1.0, float(reusability)))
     stability = max(0.0, min(1.0, float(stability)))
     confidence = max(0.0, min(1.0, float(confidence)))

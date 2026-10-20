@@ -30,6 +30,7 @@ from packages.domain.models import (
     MemoryUsage,
     RetrievalTrace,
     ReviewSchedule,
+    SessionNote,
 )
 from packages.memory.evolution_metrics import compute_evolution_metrics
 from packages.memory.health import compute_health
@@ -159,12 +160,16 @@ async def get_dashboard_stats(
         )
     )
     mem_row = memory_stats.one()
+    pending_notes = await db.scalar(
+        select(func.count(SessionNote.id)).filter(SessionNote.formalized.is_(False))
+    )
 
     result = {
         "candidates": candidate_count or 0,
         "high_value": mem_row.high_value or 0,
         "conflicts": conflict_count or 0,
         "approved": mem_row.approved or 0,
+        "pending_notes": pending_notes or 0,
     }
     _dashboard_cache.set(result)
     return result

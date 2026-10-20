@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-import yaml  # type: ignore[import-untyped]
+import yaml
 
 from packages.domain.paths import sanitize_filename, validate_path_component
 
@@ -314,9 +314,18 @@ class FileStore:
             return True
         return False
 
-    def list(self, workspace_name: str | None = None) -> list[MemoryFile]:
-        """列出全部记忆，可按 workspace 过滤。"""
-        memories = []
+    def list_with_skipped(
+        self, workspace_name: str | None = None
+    ) -> tuple[list[MemoryFile], list[tuple[str, str]]]:
+        """列出全部记忆，同时返回无法解析而被跳过的文件。
+
+        返回 ``(memories, skipped)``，skipped 每项为 ``(文件路径, 原因)``。
+        这些文件（空文件 / frontmatter 缺 id / YAML 损坏 / 读取失败）无法
+        还原出记忆；DB 重建时若不显式暴露就会静默丢数据，因此除返回
+        外还以 error 级别记日志。
+        """
+        memories: list[MemoryFile] = []
+        skipped: list[tuple[str, str]] = []
         base = self.base_path
 
         if workspace_name:
@@ -334,14 +343,30 @@ class FileStore:
                 for file_path in type_dir.iterdir():
                     if not file_path.is_file() or file_path.suffix.lower() != ".md":
                         continue
-                    content = file_path.read_text(encoding="utf-8")
+                    try:
+                        content = file_path.read_text(encoding="utf-8")
+                    except (OSError, UnicodeDecodeError) as exc:
+                        logger.error("Memory file unreadable, skipping: %s (%s)", file_path, exc)
+                        skipped.append((str(file_path), f"read_error: {exc}"))
+                        continue
                     metadata, body = self._parse_frontmatter(content)
                     if metadata and "id" in metadata:
                         metadata["workspace"] = ws
                         memory = MemoryFile.from_dict({**metadata, "content": body})
                         memory.file_path = file_path
                         memories.append(memory)
+                    else:
+                        logger.error(
+                            "Memory file has no parsable frontmatter (missing id), skipping: %s",
+                            file_path,
+                        )
+                        skipped.append((str(file_path), "no_frontmatter_id"))
 
+        return memories, skipped
+
+    def list(self, workspace_name: str | None = None) -> list[MemoryFile]:
+        """列出全部记忆，可按 workspace 过滤。"""
+        memories, _ = self.list_with_skipped(workspace_name)
         return memories
 
     def search_by_content(self, query: str, workspace_name: str | None = None) -> list[MemoryFile]:  # type: ignore[valid-type]

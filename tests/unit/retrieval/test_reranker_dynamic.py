@@ -37,7 +37,9 @@ class TestWeightsForIntent:
     def test_weights_sum_to_one(self):
         for intent in ["fact", "procedure", "lesson", "project_rule", "constraint", "decision"]:
             w = RerankerWeights.for_intent(intent)
-            total = w.rrf + w.confidence + w.importance + w.freshness + w.usage + w.intent
+            total = (
+                w.rrf + w.semantic + w.confidence + w.importance + w.freshness + w.usage + w.intent
+            )
             assert abs(total - 1.0) < 1e-6, f"{intent} weights sum to {total}"
 
     def test_project_rule_boosts_rrf(self):

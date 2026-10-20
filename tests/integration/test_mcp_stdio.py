@@ -15,9 +15,10 @@ from unittest.mock import AsyncMock, Mock
 import httpx
 import pytest
 
-from adapters.qoder import mcp_server, transport
-from adapters.qoder.content_processing import is_test_content
-from adapters.qoder.outbox import WriteAheadOutbox
+from adapters.mcp import mcp_server, transport
+from adapters.mcp.content_processing import is_test_content
+from adapters.mcp.outbox import WriteAheadOutbox
+from packages.domain.version import app_version
 
 VALID_MEMORY_CONTENT = (
     "记录跨平台文件锁的实际行为和使用约束：Windows 与类 Unix 系统使用不同的锁实现，"
@@ -223,7 +224,7 @@ def test_mcp_subprocess_utf8_roundtrip_and_eof():
     assert [item["id"] for item in responses] == [1, 2, 3, 4, 5, 6, 7]
     assert responses[0]["result"]["serverInfo"]["name"] == "cwiki"
     tools = responses[1]["result"]["tools"]
-    assert len(tools) == 14
+    assert len(tools) == 19  # 关系管理（create/delete）新增 2 个工具
     assert "memory_save" in {tool["name"] for tool in tools}
     assert responses[2]["result"] == {}
     assert "不存在的方法" in responses[3]["error"]["message"]
@@ -240,7 +241,7 @@ def test_session_git_lookup_keeps_open_stdio_responsive():
     code = (
         "import asyncio\n"
         "from unittest.mock import AsyncMock\n"
-        "from adapters.qoder import mcp_server\n"
+        "from adapters.mcp import mcp_server\n"
         "mcp_server.CwikiClient.create_agent_session = AsyncMock(return_value={})\n"
         "asyncio.run(mcp_server.run_server())\n"
     )
@@ -339,8 +340,8 @@ async def test_workspace_failure_preserves_write_before_resolution(tmp_path):
         "memory_save", {"title": "跨平台文件锁约束", "content": VALID_MEMORY_CONTENT}
     )
     assert result["cached"] is True
-    # 未显式传 workspace_name 时，handler 回退到 session_workspace 或 DEFAULT_WORKSPACE
-    outbox_entries = server.outbox.load_all("default")
+    # 未显式传 workspace_name 时，handler 回退到 Agent 当前绑定项目（动态解析）
+    outbox_entries = server.outbox.load_all(mcp_server.current_workspace_for(server))
     # 内容此时已自动注入 #memory/ 标签
     assert VALID_MEMORY_CONTENT.strip() in outbox_entries[0]["arguments"]["content"]
 
@@ -349,15 +350,18 @@ async def test_workspace_failure_preserves_write_before_resolution(tmp_path):
 def memory_server(tmp_path):
     client = Mock()
     client.submit_candidate = AsyncMock(return_value={"candidate": {"id": "candidate"}})
-    client.update_memory = AsyncMock(return_value={"id": "memory"})
+    client.update_memory = AsyncMock(return_value={"id": "memory", "status": "archived"})
+    client.submit_feedback = AsyncMock(return_value={"id": "feedback"})
     server = mcp_server.MCPServer(client)
     server.outbox = WriteAheadOutbox(tmp_path)
     return server
 
 
 async def test_initialize_reports_plugin_json_version(memory_server):
-    plugin_json_path = Path(mcp_server.__file__).parent / ".qoder-plugin" / "plugin.json"
-    expected = json.loads(plugin_json_path.read_text(encoding="utf-8"))["version"]
+    # serverInfo 版本号的权威源是 pyproject.toml（经 importlib.metadata 读取），
+    # 见 packages/domain/version.py；plugin.json 的 version 只决定 Qoder 插件
+    # 缓存路径，属插件资产版本，与包版本解耦。
+    expected = app_version()
 
     response = await memory_server.handle_message({"id": 1, "method": "initialize"})
 
@@ -368,7 +372,7 @@ async def test_initialize_reports_plugin_json_version(memory_server):
 async def test_tool_inventory_and_merged_schemas(memory_server):
     response = await memory_server.handle_message({"id": 1, "method": "tools/list"})
     tools = {tool["name"]: tool for tool in response["result"]["tools"]}
-    assert len(response["result"]["tools"]) == 14
+    assert len(response["result"]["tools"]) == 19  # 关系管理新增 2 个工具
     assert set(tools) == {
         "memory_search",
         "memory_save",
@@ -376,7 +380,12 @@ async def test_tool_inventory_and_merged_schemas(memory_server):
         "memory_types",
         "memory_history",
         "memory_relations",
+        "memory_relation_create",
+        "memory_relation_delete",
+        "memory_tags",
         "memory_update",
+        "memory_feedback",
+        "memory_forget",
         "memory_retry_failed",
         "memory_checkpoint",
         "memory_export",
@@ -422,6 +431,42 @@ async def test_removed_tools_are_not_dispatched(memory_server, name):
         "error": f"Unknown tool: {name}",
     }
     assert memory_server.client.mock_calls == []
+
+
+async def test_feedback_and_forget_tools(memory_server):
+    feedback = await memory_server.handle_message(
+        {
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "memory_feedback",
+                "arguments": {
+                    "memory_id": "memory-1",
+                    "feedback_type": "useful",
+                    "reason": "used in answer",
+                },
+            },
+        }
+    )
+    payload = json.loads(feedback["result"]["content"][0]["text"])
+    assert payload["status"] == "recorded"
+    memory_server.client.submit_feedback.assert_awaited_once()
+    assert memory_server.client.submit_feedback.await_args.kwargs["feedback_type"] == "useful"
+
+    forget = await memory_server.handle_message(
+        {
+            "id": 2,
+            "method": "tools/call",
+            "params": {
+                "name": "memory_forget",
+                "arguments": {"memory_id": "memory-1", "reason": "wrong"},
+            },
+        }
+    )
+    payload = json.loads(forget["result"]["content"][0]["text"])
+    assert payload["status"] == "archived"
+    memory_server.client.update_memory.assert_awaited_once()
+    assert memory_server.client.update_memory.await_args.kwargs["status"] == "archived"
 
 
 @pytest.mark.parametrize("mode", [None, "hybrid", "keyword", "semantic"])
@@ -929,20 +974,29 @@ async def test_rejected_write_keeps_body_without_leaking_api_error(memory_server
     assert memory_server.outbox.load_all("workspace") == []
 
 
-@pytest.mark.parametrize("bad_type", ["unknown", "", None, [], 123])
-async def test_save_validates_type_before_resolution_or_outbox(memory_server, bad_type):
+@pytest.mark.parametrize("bad_type", ["unknown", "", None, [], 123, "project"])
+async def test_save_invalid_type_falls_back_without_rejection(memory_server, bad_type):
+    """非法 type 不再拒绝（旧行为丢捕获），回落推断后照常走提交链路。
+
+    归属校验仍在类型处理之后：提交的工作区/类型与解析结果一致。
+    """
     result = await memory_server._handle_tool(
         "memory_save",
         {
             "title": "本地类型验证",
             "content": VALID_MEMORY_CONTENT,
             "type": bad_type,
+            "workspace_name": "typed-ws",
         },
     )
-    assert "type" in result["error"]
-    # 工作区解析现在先于 handler 校验执行（针对 _WORKSPACE_TOOLS）
-    memory_server.client.submit_candidate.assert_not_awaited()
-    assert memory_server.outbox.load_all_workspaces() == {}
+    assert result["status"] == "created"
+    from packages.domain.types import TYPE_DEFINITIONS
+
+    assert result["inferred_type"] in TYPE_DEFINITIONS
+    assert result["workspace"] == "typed-ws"
+    kwargs = memory_server.client.submit_candidate.await_args.kwargs
+    assert kwargs["memory_type"] in TYPE_DEFINITIONS
+    assert kwargs["workspace_id"] == "typed-ws"
 
 
 async def test_update_security_error_is_visible_in_rpc(memory_server):
@@ -1135,8 +1189,8 @@ async def test_idle_retry_backs_off_and_eventually_exhausts(memory_server, monke
 def _run_isolated_stdio(tmp_path, payload, api_url="http://127.0.0.1:1"):
     bootstrap = (
         "from pathlib import Path; import sys; "
-        "from adapters.qoder import mcp_server as m; "
-        "from adapters.qoder.outbox import WriteAheadOutbox; "
+        "from adapters.mcp import mcp_server as m; "
+        "from adapters.mcp.outbox import WriteAheadOutbox; "
         "m.WriteAheadOutbox=lambda: WriteAheadOutbox(Path(sys.argv[1])); m.main()"
     )
     return subprocess.run(

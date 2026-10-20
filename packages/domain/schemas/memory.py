@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Annotated, Any
 from uuid import UUID
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, field_validator
 
 from packages.domain.types import validate_memory_content, validate_memory_title
 from packages.memory.content_security import validate_safe_content
@@ -26,6 +26,7 @@ class MemoryCreate(BaseModel):
     title: MemoryTitle
     content: MemoryContent
     type: str = Field(..., max_length=64)
+    tags: list[str] = Field(default_factory=list)
     confidence: float = 0.5
     importance: float = 0.5
     content_contract: dict[str, Any] | None = None
@@ -40,6 +41,7 @@ class MemoryRead(BaseModel):
     title: str
     content: str
     type: str
+    tags: list[str] = Field(default_factory=list)
     source: str = "mcp"
     status: str
     confidence: float
@@ -59,6 +61,11 @@ class MemoryRead(BaseModel):
     created_at: datetime
     updated_at: datetime
 
+    @field_validator("tags", mode="before")
+    @classmethod
+    def _coerce_tags(cls, v: Any) -> list[str]:
+        return v if isinstance(v, list) else []
+
 
 class MemoryUpdate(BaseModel):
     """更新已确认记忆的载荷。"""
@@ -67,6 +74,7 @@ class MemoryUpdate(BaseModel):
     expected_version: int | None = Field(default=None, ge=1)
     title: MemoryTitle | None = None
     content: MemoryContent | None = None
+    tags: list[str] | None = None
     status: str | None = None
     confidence: float | None = None
     importance: float | None = None
@@ -221,7 +229,12 @@ class ReviewRead(BaseModel):
 class MemoryFeedbackCreate(BaseModel):
     workspace_id: str
     memory_id: UUID
-    feedback_type: str = Field(..., max_length=32, description="useful, not_useful")
+    feedback_type: str = Field(
+        ...,
+        max_length=32,
+        description="useful, not_useful, outdated, wrong",
+        pattern=r"^(useful|not_useful|outdated|wrong)$",
+    )
     source_type: str = Field(..., max_length=32, description="human, agent, auto")
     source_id: str | None = Field(default=None, max_length=128)
     reason: str | None = None
@@ -361,6 +374,42 @@ class BatchReviewResultItem(BaseModel):
     success: bool
     error: str | None = None
     result: ReviewResultRead | None = None
+
+
+class RelationCreate(BaseModel):
+    """手动创建记忆关系。"""
+
+    target_memory_id: UUID
+    relation_type: str = Field(
+        ...,
+        max_length=50,
+        pattern=r"^(related|supports|contradicts|supersedes|refines)$",
+    )
+    confidence: float = Field(default=1.0, ge=0.0, le=1.0)
+
+
+class RelationUpdate(BaseModel):
+    """更新已有关系的类型或置信度。"""
+
+    relation_type: str | None = Field(
+        default=None,
+        max_length=50,
+        pattern=r"^(related|supports|contradicts|supersedes|refines)$",
+    )
+    confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+
+
+class TagRenameRequest(BaseModel):
+    """标签重命名。"""
+
+    new_name: str = Field(..., min_length=1, max_length=64)
+
+
+class TagMergeRequest(BaseModel):
+    """将多个标签合并为一个。"""
+
+    source_tags: list[str] = Field(..., min_length=2, max_length=20)
+    target_tag: str = Field(..., min_length=1, max_length=64)
 
 
 class BatchReviewResultRead(BaseModel):

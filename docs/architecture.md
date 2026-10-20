@@ -5,16 +5,20 @@
 ```mermaid
 graph TB
     subgraph "Agent Layer"
-        Qoder[Qoder Agent]
+        Qoder[Qoder]
+        Claude[Claude Code]
+        Cursor[Cursor]
+        Codex[Codex]
     end
 
     subgraph "Adapter Layer"
-        QAdapter[Qoder Adapter<br/>MCP + Skills]
+        MCP[Host-neutral MCP Server<br/>tools / outbox / recall]
+        Hooks[Hook Runtime<br/>recall / capture / spool]
     end
 
     subgraph "API Layer"
-        API[FastAPI Server :5172<br/>20 路由模块]
-        Worker[Background Worker<br/>8 异步任务]
+        API[FastAPI Server :5172<br/>24 路由模块]
+        Worker[Background Worker<br/>9 异步任务]
     end
 
     subgraph "Core Services"
@@ -27,7 +31,7 @@ graph TB
     end
 
     subgraph "Storage Layer"
-        DB[(SQLite<br/>25 Tables)]
+        DB[(SQLite<br/>24 Tables)]
         Vector[Vector Index<br/>numpy]
         BM25[BM25 Index<br/>custom BM25]
         Files[Markdown Files<br/>cwiki-data/]
@@ -37,9 +41,15 @@ graph TB
         WebUI[Web Console :5173<br/>React 18 + Vite]
     end
 
-    Qoder --> QAdapter
-
-    QAdapter --> API
+    Qoder --> MCP
+    Claude --> MCP
+    Cursor --> MCP
+    Codex --> MCP
+    Qoder --> Hooks
+    Claude --> Hooks
+    Cursor --> Hooks
+    Hooks --> API
+    MCP --> API
 
     API --> Worker
     Worker --> Memory
@@ -66,7 +76,7 @@ graph TB
 | 层 | 职责 |
 |----|------|
 | MCP | 定义工具参数与响应契约、安全检查、类型分类；通过 write-ahead outbox 与幂等写入保障投递可靠性 |
-| AGENTS | 行为契约（每轮强制流程 + 关键约定），约 20 行；不另设提取策略或重复工具用法 |
+| AGENTS | 行为契约（触发条件 + 关键约定），约 10 行；不另设提取策略或重复工具用法 |
 | [cwiki-save skill](../skills/cwiki-save/SKILL.md) | 唯一维护知识提取策略：双重价值判断（agent 记忆 + 个人学习平台）、分类信号识别、查重决策流程、内容组织与排版模式、标题生成与类型辨析、检查点与反馈校准 |
 
 ### 写入规则
@@ -89,7 +99,7 @@ graph TB
 ```
 cwiki/
 ├── apps/
-│   ├── api/                  # FastAPI 服务端（20 个路由模块）
+│   ├── api/                  # FastAPI 服务端（23 个路由模块）
 │   │   ├── main.py           # 应用入口（含进程内任务队列）
 │   │   ├── auth.py           # 本地单用户模式，默认身份，无 token 认证
 │   │   └── routes/           # workspaces / agents / events /
@@ -116,6 +126,7 @@ cwiki/
 │   │   ├── config.py         # 配置加载
 │   │   ├── task_queue.py     # 进程内异步任务队列（磁盘持久化）
 │   │   ├── types.py          # 11 种记忆类型定义与校验
+│   │   ├── version.py        # 版本号权威源（app_version()，见 development.md「版本号管理」）
 │   │   └── database.py       # 数据库引擎
 │   ├── memory/               # 记忆管理（12 个模块）
 │   │   ├── service.py        # 业务逻辑 + 类型/正文最小长度校验，原文入库
@@ -143,12 +154,16 @@ cwiki/
 │   │                         # + 从 MD + _meta 重建数据库（rebuilder）
 │   └── protocol/             # Agent Event Protocol（15 种事件类型）
 │
-├── adapters/                 # Agent 适配器
-│   └── qoder/                # Qoder 插件（MCP Server + Skills）
+├── adapters/                 # Agent 适配层
+│   ├── mcp/                  # 宿主无关 MCP 入口（新宿主统一用 python -m adapters.mcp）
+│   ├── hooks/                # 宿主无关 hook 运行时（recall / capture / spool）
+│   └── qoder/                # Qoder 插件（参考实现 + 兼容 shim）
 │
 ├── skills/                   # 宿主 skill（cwiki-save 等）
 ├── scripts/                  # 运维脚本
-│   ├── setup.py              # Agent 接入配置（MCP 注册 / skill 安装）
+│   ├── setup.py              # Qoder 接入配置（MCP / hooks / skill）
+│   ├── setup_agent.py        # Claude Code / Cursor / Codex 接入配置
+│   ├── import_qoder_memory.py # Qoder Auto-Memory → 待整理
 │   ├── migrate_to_git.py     # SQLite → MD + _meta 导出
 │   ├── rebuild_db.py         # 从 MD + _meta 重建 cwiki.db
 │   ├── recompute.py          # 重算派生字段（SM-2 调度等）
@@ -157,7 +172,7 @@ cwiki/
 │   ├── port_utils.py         # 跨平台端口管理
 │   └── restart_watcher.py    # 重启守护
 │
-├── migrations/               # Alembic 迁移（28 个版本）
+├── migrations/               # Alembic 迁移（31 个版本）
 ├── benchmarks/               # 检索基准测试（见 benchmarks/README.md）
 ├── docs/                     # 设计与发布文档
 ├── config.yaml               # 统一配置文件

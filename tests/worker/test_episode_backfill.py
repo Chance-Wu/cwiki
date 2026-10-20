@@ -392,3 +392,50 @@ class TestEpisodeCandidateExtraction:
         assert result["status"] == "completed"
         assert result["candidate_generated"] is False
         assert await _count_episode_candidates(db, ws.id) == 0
+
+
+class TestFinalizeIdempotency:
+    async def test_replay_does_not_recreate_episode(
+        self, db: AsyncSession, ctx: dict, engine
+    ) -> None:
+        """at-least-once 重放守卫：同一 session 重复 finalize 返回已有 episode，不重建。"""
+        ws, session, agent = await _make_session(db)
+        await _add_debug_events(db, session, ws, agent, _naive(2024, 6, 1, 12, 0, 0))
+
+        first = await _run_finalize(ctx, engine, session, ws)
+        assert first["status"] == "completed"
+
+        second = await _run_finalize(ctx, engine, session, ws)
+
+        assert second["status"] == "already_finalized"
+        assert second["episode_id"] == first["episode_id"]
+        count = (
+            await db.execute(
+                select(func.count()).select_from(Episode).where(Episode.session_id == session.id)
+            )
+        ).scalar_one()
+        assert count == 1
+
+    async def test_replay_does_not_duplicate_candidates(
+        self,
+        db: AsyncSession,
+        ctx: dict,
+        engine,
+        mock_queue: AsyncMock,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """重放 finalize 时回填与规则候选生成都不得重复执行。"""
+        monkeypatch.setattr(
+            parasitic_evolution_config, "episode_candidate_extraction_enabled", True
+        )
+        ws, session, agent = await _make_session(db)
+        base = _naive(2024, 6, 1, 12, 0, 0)
+        await _add_debug_events(db, session, ws, agent, base)
+        await _make_candidate(db, ws.id, created_at=base + timedelta(minutes=1))
+
+        first = await _run_finalize(ctx, engine, session, ws)
+        assert first["status"] == "completed"
+
+        second = await _run_finalize(ctx, engine, session, ws)
+        assert second["status"] == "already_finalized"
+        assert await _count_episode_candidates(db, ws.id) == 1

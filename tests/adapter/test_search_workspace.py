@@ -10,8 +10,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from adapters.qoder.mcp_server import DEFAULT_WORKSPACE, MCPServer
-from adapters.qoder.outbox import WriteAheadOutbox
+from adapters.mcp.mcp_server import MCPServer, current_workspace_for
+from adapters.mcp.outbox import WriteAheadOutbox
 
 
 @pytest.fixture
@@ -64,7 +64,8 @@ async def test_curated_without_workspace_falls_back_to_default(server):
     client.get_context.return_value = {"items": [], "total": 0}
     result = await instance._handle_tool("memory_search", {"keyword": "跨库召回", "curated": True})
     assert isinstance(result, dict)
-    assert client.get_context.call_args.kwargs["workspace_id"] == DEFAULT_WORKSPACE
+    # 未传 workspace → Agent 当前绑定项目（动态注册表 > roots > 静态；测试环境即 default）
+    assert client.get_context.call_args.kwargs["workspace_id"] == current_workspace_for(instance)
 
 
 async def test_curated_workspace_name_is_scoped(server):

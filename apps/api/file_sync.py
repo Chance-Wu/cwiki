@@ -1,9 +1,10 @@
 """记忆路由共享的文件同步工具。
 
 file_sync 机制：DB 是权威源，Markdown 文件是可读镜像。路由在提交
-事务后调用 sync_memory_to_file 把已提交状态写回 MD + 索引；写入
-默认静默失败（下次启动扫描可恢复），worker 侧可开启 raise_on_error
-让任务队列重试，保证最终一致。
+事务后调用 sync_memory_to_file 把已提交状态写回 MD + 索引。注意：
+写入失败只记 error 日志、不阻塞请求，也不会被自动修复 —— 失败即产生
+MD 镜像与 DB 的静默偏差（无启动扫描兜底），需按日志定位后手动
+recompute/rebuild-db；worker 侧可开启 raise_on_error 让任务队列重试。
 """
 
 from __future__ import annotations
@@ -82,7 +83,11 @@ async def sync_memory_to_file(
             await asyncio.to_thread(indexer.vector_index.save)
         return True
     except Exception:
-        logger.warning("Failed to sync memory %s to file store", memory.id, exc_info=True)
+        # 放行请求但必须响亮：失败意味着 MD 镜像与 DB 静默偏差，
+        # 重建 DB（以 MD 为源）时会丢这条记忆。
+        logger.exception(
+            "Failed to sync memory %s to file store; MD mirror is now stale", memory.id
+        )
         if raise_on_error:
             raise
         return False

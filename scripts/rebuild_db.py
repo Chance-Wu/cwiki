@@ -34,7 +34,12 @@ patch_metadata()
 
 from packages.domain.config import settings
 from packages.storage import config as storage_config
-from packages.storage.rebuilder import DatabaseRebuilder, index_files_present, indexed_active_count
+from packages.storage.rebuilder import (
+    DatabaseRebuilder,
+    index_files_present,
+    indexed_active_count,
+    vector_meta_count,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -58,8 +63,9 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 async def _rebuild_vector_index_step(rebuilder: DatabaseRebuilder, *, force: bool) -> None:
     """第 2 步：除非现有索引仍然有效，否则重新生成向量索引。
 
-    仅当索引文件齐全、且现有索引恰好覆盖全量重建会产生的活跃记忆集
-    （``memory_index`` 活跃行数 == 活跃记忆行数）时，跳过才是安全的。
+    仅当索引文件齐全、index.db 活跃行数与 vectors.json 向量数均覆盖
+    全量重建会产生的活跃记忆集时，跳过才是安全的 —— 两套文件任一
+    偏少（如旧版中断残留）都可能导致检索静默缺向量。
     """
     print_message("=== Step 2: Vector index ===")
 
@@ -69,8 +75,9 @@ async def _rebuild_vector_index_step(rebuilder: DatabaseRebuilder, *, force: boo
             reason = f"index files missing or incomplete: {', '.join(missing)}"
         else:
             indexed_count = indexed_active_count()
+            vector_count = vector_meta_count()
             _, active_memories, _ = await rebuilder.table_counts()
-            if indexed_count == active_memories:
+            if indexed_count == active_memories and vector_count == active_memories:
                 print_message(
                     "  Skipped: index files present "
                     f"(use --force-index to rebuild) [{active_memories} active memories]"
@@ -78,7 +85,8 @@ async def _rebuild_vector_index_step(rebuilder: DatabaseRebuilder, *, force: boo
                 return
             reason = (
                 "index out of sync with memories "
-                f"(indexed active: {indexed_count}, memories active: {active_memories})"
+                f"(indexed active: {indexed_count}, vectors: {vector_count}, "
+                f"memories active: {active_memories})"
             )
     else:
         reason = "--force-index requested"

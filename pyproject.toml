@@ -36,6 +36,9 @@ dev = [
     "pytest-cov>=5.0.0",
     "ruff>=0.6.0",
     "mypy>=1.11.0",
+    # 让 mypy 能解析第三方包类型；CI 与本地必须一致安装，否则 # type: ignore
+    # 会在有无该 stub 的环境间漂移（曾在 yaml import 上反复误报）。
+    "types-PyYAML>=6.0.0",
     "httpx>=0.27.0",
 ]
 
@@ -62,5 +65,5 @@ asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 strict = true

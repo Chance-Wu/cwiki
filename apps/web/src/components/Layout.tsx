@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   BookOpenCheck,
   Brain,
+  FileText,
   Inbox,
   LayoutDashboard,
   type LucideIcon,
@@ -123,6 +124,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     const labels: Record<string, string> = {
       '/': t.nav.home,
       '/pending': t.nav.inbox,
+      '/notes': t.nav.notes,
       '/memories': t.nav.memories,
       '/skills': t.nav.skills,
       '/config': t.nav.config,
@@ -137,9 +139,10 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     () => [
       { to: '/', icon: LayoutDashboard, label: t.nav.home },
       { to: '/pending', icon: Inbox, label: t.nav.inbox },
+      { to: '/notes', icon: FileText, label: t.nav.notes },
       { to: '/memories', icon: Brain, label: t.nav.memories },
     ],
-    [t.nav.home, t.nav.inbox, t.nav.memories],
+    [t.nav.home, t.nav.inbox, t.nav.notes, t.nav.memories],
   )
 
   const secondaryItems = useMemo(
@@ -424,20 +427,20 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           transition={isResizing ? TRANSITION_RESIZING : TRANSITION_SPRING}
         >
           <div className="relative z-10 flex-1 min-h-0 flex flex-col">
-            <AnimatePresence>
-              {!online && (
-                <motion.div
-                  className="mx-4 md:mx-6 mt-4 md:mt-6 flex items-center gap-2 px-4 py-2.5 glass border-danger/20 rounded-lg text-base text-danger-fg shrink-0"
-                  initial={{ opacity: 0, y: -8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -8 }}
-                  transition={{ type: 'spring', ...spring.snappy }}
-                >
-                  <WifiOff size={14} className="shrink-0" />
-                  <span>{t.common.offline}</span>
-                </motion.div>
-              )}
-            </AnimatePresence>
+            {/* 离线横幅不用 AnimatePresence exit：后台标签页 rAF 停转会让
+                exit 动画永不完成，opacity:0 的 DOM 永久残留占布局与可访问性树 */}
+            {!online && (
+              <motion.div
+                className="mx-4 md:mx-6 mt-4 md:mt-6 flex items-center gap-2 px-4 py-2.5 glass border-danger/20 rounded-lg text-base text-danger-fg shrink-0"
+                initial={{ opacity: 0, y: -8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ type: 'spring', ...spring.snappy }}
+                role="alert"
+              >
+                <WifiOff size={14} className="shrink-0" />
+                <span>{t.common.offline}</span>
+              </motion.div>
+            )}
             <div className="flex-1 min-h-0 flex flex-col">{children}</div>
           </div>
         </motion.main>

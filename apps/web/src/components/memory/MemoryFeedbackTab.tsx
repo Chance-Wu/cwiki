@@ -20,6 +20,7 @@ interface FeedbackSummary {
   useful?: number
   not_useful?: number
   outdated?: number
+  wrong?: number
   // 后端 /feedback/summary 返回 total，用于空态判断
   total?: number
 }
@@ -39,12 +40,13 @@ const FEEDBACK_TYPE_VARIANTS: Record<
   string,
   {
     variant: 'success' | 'danger' | 'warning'
-    key: 'feedbackUseful' | 'feedbackNotUseful' | 'feedbackOutdated'
+    key: 'feedbackUseful' | 'feedbackNotUseful' | 'feedbackOutdated' | 'feedbackWrong'
   }
 > = {
   useful: { variant: 'success', key: 'feedbackUseful' },
   not_useful: { variant: 'danger', key: 'feedbackNotUseful' },
   outdated: { variant: 'warning', key: 'feedbackOutdated' },
+  wrong: { variant: 'danger', key: 'feedbackWrong' },
 }
 
 interface Props {
@@ -201,6 +203,12 @@ export default function MemoryFeedbackTab({ memoryId }: Props) {
           value={summary?.outdated || 0}
           label={t.memories.feedbackOutdated}
           color="warning"
+          className="flex-1"
+        />
+        <StatBox
+          value={summary?.wrong || 0}
+          label={t.memories.feedbackWrong}
+          color="danger"
           className="flex-1"
         />
       </div>

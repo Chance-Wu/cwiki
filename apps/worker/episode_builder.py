@@ -306,9 +306,6 @@ def _check_context_completeness(
     if not has_goal:
         missing.append("no_user_goal")
 
-    unresolved = [p for p in problems if not any(
-        s.get("resolved_after_failure") for s in solutions
-    )]
     if problems and not solutions:
         missing.append("problems_without_solutions")
 
@@ -326,19 +323,11 @@ def _classify_results(
     lessons: list[str],
 ) -> tuple[list[str], list[str], list[str]]:
     """MQ-203: 区分已验证结果、Agent 推断与待确认事项。"""
-    verified = [
-        v.get("test_name", "unknown")
-        for v in verification
-        if v.get("success")
-    ]
+    verified = [v.get("test_name", "unknown") for v in verification if v.get("success")]
 
     inferences = list(lessons)
 
-    failed_tests = [
-        v.get("test_name", "unknown")
-        for v in verification
-        if not v.get("success")
-    ]
+    failed_tests = [v.get("test_name", "unknown") for v in verification if not v.get("success")]
     pending = list(failed_tests)
 
     return verified, inferences, pending

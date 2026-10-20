@@ -64,6 +64,7 @@ def register_tasks(queue: TaskQueue) -> None:
     queue.register("dedup_check", task_dedup_check)
     queue.register("auto_consolidate_similar", task_auto_consolidate_similar)
     queue.register("check_review_reminders", task_check_review_reminders)
+    queue.register("periodic_meta_export", task_periodic_meta_export)
 
 
 async def task_finalize_episode(
@@ -75,6 +76,24 @@ async def task_finalize_episode(
     async with async_session_maker() as db_session:
         sid = uuid.UUID(session_id)
         wid = uuid.UUID(workspace_id)
+
+        # 幂等守卫：队列是 at-least-once，finalize 重放/重复入队不得重建
+        # episode（否则时间窗回填与规则候选生成会重复执行）
+        existing_episode = (
+            await db_session.execute(
+                select(Episode.id).where(
+                    Episode.session_id == sid,
+                    Episode.workspace_id == wid,
+                )
+            )
+        ).scalar_one_or_none()
+        if existing_episode is not None:
+            logger.info(
+                "Episode %s already exists for session %s, skipping finalize",
+                existing_episode,
+                session_id,
+            )
+            return {"episode_id": str(existing_episode), "status": "already_finalized"}
 
         events_query = select(Event).where(Event.session_id == sid).order_by(Event.sequence)
         events_result = await db_session.execute(events_query)
@@ -348,6 +367,16 @@ async def task_score_candidate(
 
         if not candidate:
             return {"status": "not_found"}
+
+        if candidate.status != "pending_review":
+            # at-least-once 重放守卫：已评分/已生效/已合并的候选不再重评，
+            # 否则 auto-approve 会对同一候选重复创建正式记忆
+            logger.info(
+                "Skipping score for candidate %s in status %r (not pending_review)",
+                candidate_id,
+                candidate.status,
+            )
+            return {"status": "skipped", "reason": f"candidate status is {candidate.status}"}
 
         embedding_service = _resolve_embedding_service(ctx)
 
@@ -1224,3 +1253,30 @@ async def task_check_review_reminders(ctx: dict[str, Any]) -> dict[str, Any]:
             "workspace_count": len(by_workspace),
             "reminders": reminders,
         }
+
+
+async def task_periodic_meta_export(ctx: dict[str, Any]) -> dict[str, Any]:
+    """定期将 DB 侧车数据导出到 _meta/*.json，防止重建时回退。
+
+    由周期调度器按 scheduler.meta_export_interval_hours 间隔触发。
+    复用 scripts/migrate_to_git.py 的 export_all 逻辑。
+    """
+    from packages.domain.settings import get_settings
+    from packages.storage import config as storage_config
+    from scripts.migrate_to_git import export_all
+
+    db_url = get_settings().database_url
+    data_dir = str(storage_config.memory_dir)
+
+    try:
+        stats = await export_all(db_url, data_dir)
+        logger.info(
+            "Periodic meta export: %d memories, %d meta, %d workspaces",
+            stats.get("memory_count", 0),
+            stats.get("meta_count", 0),
+            stats.get("workspace_count", 0),
+        )
+        return {"status": "completed", **stats}
+    except Exception:
+        logger.exception("Periodic meta export failed")
+        return {"status": "error"}

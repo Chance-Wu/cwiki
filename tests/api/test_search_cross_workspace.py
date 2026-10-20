@@ -14,11 +14,12 @@ import pytest
 from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from adapters.qoder.client import CwikiClient
+from adapters.mcp.client import CwikiClient
 from apps.api.deps import get_db, invalidate_workspace_cache
 from apps.api.routes import search as search_route
 from packages.domain.database import Base
 from packages.domain.models import Memory, Workspace
+from packages.retrieval import engine as retrieval_engine
 from packages.retrieval.engine import RetrievalEngine
 
 KEYWORD = "跨库召回验证"
@@ -56,7 +57,8 @@ async def search_env(tmp_path, monkeypatch):
     retrieval = RetrievalEngine()
     monkeypatch.setattr(search_route, "get_retrieval_engine", lambda: retrieval)
     fake_embedding = SimpleNamespace(generate_embedding=AsyncMock(return_value=[1.0, 0.0]))
-    monkeypatch.setattr(search_route, "get_embedding_service", lambda: fake_embedding)
+    # embedding 由检索引擎管线内部调用，patch 引擎模块而非路由模块
+    monkeypatch.setattr(retrieval_engine, "get_embedding_service", lambda: fake_embedding)
     invalidate_workspace_cache("alpha-name")
     search_route.invalidate_search_cache()
 

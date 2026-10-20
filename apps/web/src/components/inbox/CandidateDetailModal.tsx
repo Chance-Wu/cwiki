@@ -1,8 +1,19 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { Check, X, Edit, Merge, RefreshCw, AlertTriangle, BarChart3, FileText, ShieldCheck } from 'lucide-react'
+import {
+  Check,
+  X,
+  Edit,
+  Merge,
+  RefreshCw,
+  AlertTriangle,
+  BarChart3,
+  FileText,
+  ShieldCheck,
+} from 'lucide-react'
 import { useTranslation } from '../../i18n/I18nProvider'
 import { type Candidate } from '../../lib/api'
 import { typeLabel, sourceLabel, TYPE_COLORS, SOURCE_COLORS } from '../../lib/labels'
+import { translateBackendReason } from '../../lib/backendReason'
 import { formatTime } from '../../lib/format'
 import { Dialog } from '../ui/Dialog'
 import { Badge } from '../ui/Badge'
@@ -72,9 +83,21 @@ export default function CandidateDetailModal({
     return [
       { key: 'stability', label: t.inbox.qualityDimensionStable, score: candidate.stability },
       { key: 'reusability', label: t.inbox.qualityDimensionReusable, score: candidate.reusability },
-      { key: 'actionability', label: t.inbox.qualityDimensionActionable, score: candidate.actionability },
-      { key: 'scope_confidence', label: t.inbox.qualityDimensionScoped, score: candidate.scope_confidence },
-      { key: 'evidence_strength', label: t.inbox.qualityDimensionEvidence, score: candidate.evidence_strength },
+      {
+        key: 'actionability',
+        label: t.inbox.qualityDimensionActionable,
+        score: candidate.actionability,
+      },
+      {
+        key: 'scope_confidence',
+        label: t.inbox.qualityDimensionScoped,
+        score: candidate.scope_confidence,
+      },
+      {
+        key: 'evidence_strength',
+        label: t.inbox.qualityDimensionEvidence,
+        score: candidate.evidence_strength,
+      },
     ]
   }, [candidate, t])
 
@@ -269,35 +292,46 @@ export default function CandidateDetailModal({
                   {t.inbox.qualityDiagnostics}
                 </span>
                 {candidate.quality_gate_score !== null && (
-                  <Badge variant={candidate.quality_gate_score >= 0.7 ? 'success' : candidate.quality_gate_score >= 0.4 ? 'warning' : 'danger'}>
+                  <Badge
+                    variant={
+                      candidate.quality_gate_score >= 0.7
+                        ? 'success'
+                        : candidate.quality_gate_score >= 0.4
+                          ? 'warning'
+                          : 'danger'
+                    }
+                  >
                     {t.inbox.gateScore}: {Math.round(candidate.quality_gate_score * 100)}
                   </Badge>
                 )}
               </div>
-              <div className="space-y-1.5">
-                {dimensions.map((dim) => (
-                  <div key={dim.key} className="flex items-center gap-2 text-xs">
-                    <span className="w-20 text-[var(--text-secondary)]">{dim.label}</span>
-                    <div className="flex-1 h-1.5 bg-[var(--border-default)] rounded-full overflow-hidden">
-                      {dim.score !== null ? (
-                        <div
-                          className={`h-full rounded-full transition-all ${dim.score >= 0.7 ? 'bg-success-fg' : dim.score >= 0.4 ? 'bg-warning-fg' : 'bg-danger-fg'}`}
-                          style={{ width: `${Math.round(dim.score * 100)}%` }}
-                        />
-                      ) : (
-                        <div className="h-full w-0" />
-                      )}
+              {/* 五维无数据时收起条形区：仅剩 gate 分与原因，避免整排 "—" 占位 */}
+              {dimensions.some((dim) => dim.score !== null) && (
+                <div className="space-y-1.5">
+                  {dimensions.map((dim) => (
+                    <div key={dim.key} className="flex items-center gap-2 text-xs">
+                      <span className="w-20 text-[var(--text-secondary)]">{dim.label}</span>
+                      <div className="flex-1 h-1.5 bg-[var(--border-default)] rounded-full overflow-hidden">
+                        {dim.score !== null ? (
+                          <div
+                            className={`h-full rounded-full transition-all ${dim.score >= 0.7 ? 'bg-success-fg' : dim.score >= 0.4 ? 'bg-warning-fg' : 'bg-danger-fg'}`}
+                            style={{ width: `${Math.round(dim.score * 100)}%` }}
+                          />
+                        ) : (
+                          <div className="h-full w-0" />
+                        )}
+                      </div>
+                      <span className="w-10 text-right tabular-nums text-[var(--text-tertiary)]">
+                        {dim.score !== null ? Math.round(dim.score * 100) : '—'}
+                      </span>
                     </div>
-                    <span className="w-10 text-right tabular-nums text-[var(--text-tertiary)]">
-                      {dim.score !== null ? Math.round(dim.score * 100) : '—'}
-                    </span>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
               {candidate.quality_gate_reason && (
                 <div className="mt-2 pt-2 border-t border-[var(--border-default)]">
                   <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
-                    {candidate.quality_gate_reason}
+                    {translateBackendReason(candidate.quality_gate_reason, t, locale)}
                   </p>
                 </div>
               )}
@@ -306,10 +340,17 @@ export default function CandidateDetailModal({
 
           {/* 完整性检查 */}
           {candidate.content_contract && (
-            <div className={`mb-4 p-3 rounded-lg border ${missingFields.length === 0 ? 'bg-success-bg border-success-border' : 'bg-warning-bg border-warning-border'}`}>
+            <div
+              className={`mb-4 p-3 rounded-lg border ${missingFields.length === 0 ? 'bg-success-bg border-success-border' : 'bg-warning-bg border-warning-border'}`}
+            >
               <div className="flex items-center gap-2 mb-1">
-                <ShieldCheck size={14} className={missingFields.length === 0 ? 'text-success-fg' : 'text-warning-fg'} />
-                <span className={`text-sm font-medium ${missingFields.length === 0 ? 'text-success-fg' : 'text-warning-fg'}`}>
+                <ShieldCheck
+                  size={14}
+                  className={missingFields.length === 0 ? 'text-success-fg' : 'text-warning-fg'}
+                />
+                <span
+                  className={`text-sm font-medium ${missingFields.length === 0 ? 'text-success-fg' : 'text-warning-fg'}`}
+                >
                   {t.inbox.completenessCheck}
                 </span>
               </div>
@@ -322,9 +363,7 @@ export default function CandidateDetailModal({
                   <p className="mb-1">{t.inbox.completenessMissing}:</p>
                   <ul className="list-disc list-inside space-y-0.5">
                     {missingFields.map((f) => (
-                      <li key={f}>
-                        {t.inbox[FIELD_I18N_KEY[f] as keyof typeof t.inbox] || f}
-                      </li>
+                      <li key={f}>{t.inbox[FIELD_I18N_KEY[f] as keyof typeof t.inbox] || f}</li>
                     ))}
                   </ul>
                 </div>

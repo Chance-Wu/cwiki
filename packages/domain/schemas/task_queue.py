@@ -68,3 +68,15 @@ class TaskQueueRetryResponse(BaseModel):
 
     task_id: str
     status: str
+
+
+class TaskQueueClearRequest(BaseModel):
+    """清理 FAILED 死信任务的请求体。"""
+
+    task_id: str | None = Field(default=None, description="指定任务 ID，不传则清理全部")
+
+
+class TaskQueueClearResponse(BaseModel):
+    """清理死信任务后的响应体。"""
+
+    cleared: int

@@ -1,0 +1,48 @@
+{"query_id": "C1-q1", "query": "wal_checkpoint TRUNCATE 在什么场景必须执行", "memory_id": "1ac5d7fe-236b-58ad-a297-2b3f4bd1a1a9", "relevance": 3, "category": "C1", "note": "命令名精确匹配；标题含 checkpoint 但正文才有 TRUNCATE 语义"}
+{"query_id": "C1-q1", "query": "wal_checkpoint TRUNCATE 在什么场景必须执行", "memory_id": "fce5da8e-903b-50b4-b876-d6c0cc21a151", "relevance": 2, "category": "C1", "note": "命令名精确匹配；标题含 checkpoint 但正文才有 TRUNCATE 语义"}
+{"query_id": "C1-q2", "query": "Redis Cluster 的 16384 个 slot 是怎么编号的", "memory_id": "89602fba-0647-566a-8ad7-e2f827b2794e", "relevance": 3, "category": "C1", "note": "数字+术语精确匹配"}
+{"query_id": "C1-q3", "query": "busy_timeout 设多少合适", "memory_id": "4d325f53-88bd-5bba-9262-14940cd7d45d", "relevance": 3, "category": "C1", "note": "参数名精确匹配；query 比标题短得多"}
+{"query_id": "C1-q4", "query": "mem_fragmentation_ratio 高于多少说明碎片严重", "memory_id": "9cef9e98-3c34-5254-b072-072f1a582ad2", "relevance": 3, "category": "C1", "note": "指标名精确匹配，仅存在于正文"}
+{"query_id": "C2-q1", "query": "数据库文件把记录删了之后体积还是很大，怎么收缩", "memory_id": "77834d21-8614-55e9-8449-6b7317fa73bc", "relevance": 3, "category": "C2", "note": "同义改写：收缩≈VACUUM，表面词零重叠"}
+{"query_id": "C2-q2", "query": "Redis 重启之后数据会不会丢", "memory_id": "a8cea497-32f2-5092-b775-a83432e229e9", "relevance": 3, "category": "C2", "note": "同义改写：会不会丢≈持久化"}
+{"query_id": "C2-q2", "query": "Redis 重启之后数据会不会丢", "memory_id": "a929523c-7ef9-5f58-b58a-728483e41b2c", "relevance": 2, "category": "C2", "note": "同义改写：会不会丢≈持久化"}
+{"query_id": "C2-q3", "query": "Python 服务的 Docker 镜像有什么办法变小", "memory_id": "4d08fb3c-45c1-582b-be3b-03bcd9887370", "relevance": 3, "category": "C2", "note": "同义改写：变小≈多阶段构建瘦身"}
+{"query_id": "C3-q1", "query": "当初为什么决定放弃 Sentinel 改用 Cluster", "memory_id": "0a430073-29d4-5eec-a9ce-9de049a66728", "relevance": 3, "category": "C3", "note": "决策类记忆作主答案；被取代的旧方案作弱相关历史背景"}
+{"query_id": "C3-q1", "query": "当初为什么决定放弃 Sentinel 改用 Cluster", "memory_id": "e8da24d1-64f5-5430-b278-e4964509195c", "relevance": 1, "category": "C3", "note": "决策类记忆作主答案；被取代的旧方案作弱相关历史背景"}
+{"query_id": "C3-q2", "query": "重复检测的方案是怎么一步步演进的", "memory_id": "7f06db7c-59f0-5414-904f-4f2eeee6aa9a", "relevance": 3, "category": "C3", "note": "v1 已归档不可检索，历史由 v2 正文承载；正确行为是返回 v2 而非空"}
+{"query_id": "C4-q1", "query": "SQLite 写入又慢磁盘空间又涨，一起排查", "memory_id": "502c8c4e-bdc9-5bb0-b154-c84390def66a", "relevance": 3, "category": "C4", "note": "两条件各对应一条记忆，考察多答案召回"}
+{"query_id": "C4-q1", "query": "SQLite 写入又慢磁盘空间又涨，一起排查", "memory_id": "77834d21-8614-55e9-8449-6b7317fa73bc", "relevance": 2, "category": "C4", "note": "两条件各对应一条记忆，考察多答案召回"}
+{"query_id": "C4-q2", "query": "删 Redis 大 key 时怎么既不阻塞又防止雪崩", "memory_id": "cb5f6f97-c69a-50ac-8c2e-b2b5e76437c5", "relevance": 3, "category": "C4", "note": "渐进删除 + 雪崩防护两个侧面"}
+{"query_id": "C4-q2", "query": "删 Redis 大 key 时怎么既不阻塞又防止雪崩", "memory_id": "5a534575-dda0-5f98-ba38-e0c2aae02f3c", "relevance": 2, "category": "C4", "note": "渐进删除 + 雪崩防护两个侧面"}
+{"query_id": "C5-q1", "query": "现在生产环境还允许用 Sentinel 部署吗", "memory_id": "0a430073-29d4-5eec-a9ce-9de049a66728", "relevance": 3, "category": "C5", "note": "现行决策是主答案；stale 旧方案含时间线但应降权，考察过期记忆处理"}
+{"query_id": "C5-q1", "query": "现在生产环境还允许用 Sentinel 部署吗", "memory_id": "e8da24d1-64f5-5430-b278-e4964509195c", "relevance": 1, "category": "C5", "note": "现行决策是主答案；stale 旧方案含时间线但应降权，考察过期记忆处理"}
+{"query_id": "C5-q2", "query": "WAL 模式出来之前 SQLite 的锁和 journal 是怎么调优的", "memory_id": "d37e99c4-ae70-5850-b661-a7ecbfede3b0", "relevance": 2, "category": "C5", "note": "明确问历史：stale 记忆反而是正确答案，考察 stale 过滤是否过度拦截"}
+{"query_id": "C5-q2", "query": "WAL 模式出来之前 SQLite 的锁和 journal 是怎么调优的", "memory_id": "4d325f53-88bd-5bba-9262-14940cd7d45d", "relevance": 1, "category": "C5", "note": "明确问历史：stale 记忆反而是正确答案，考察 stale 过滤是否过度拦截"}
+{"query_id": "C6-q1", "query": "标题相似度判重复的方案是什么，阈值多少", "memory_id": "7f06db7c-59f0-5414-904f-4f2eeee6aa9a", "relevance": 3, "category": "C6", "note": "查询措辞命中已归档 v1（仅标题比较）；归档记忆不可检索，正确行为是返回 v2"}
+{"query_id": "C6-q2", "query": "现在的监控告警是怎么做的，用什么指标", "memory_id": "be6dbcf4-4a08-589a-a5c5-ebc4c5d5da18", "relevance": 3, "category": "C6", "note": "monitor v1（cron 邮件）已归档；应返回 v2 指标端点方案"}
+{"query_id": "C7-q1", "query": "生产环境 Redis 可以关闭持久化吗", "memory_id": "a929523c-7ef9-5f58-b58a-728483e41b2c", "relevance": 3, "category": "C7", "note": "矛盾对：团队约束（must）与少数派观点（off）都要召回，漏掉任一方都是失败"}
+{"query_id": "C7-q1", "query": "生产环境 Redis 可以关闭持久化吗", "memory_id": "1c3d42a4-1496-50af-b781-be5e7d165c22", "relevance": 2, "category": "C7", "note": "矛盾对：团队约束（must）与少数派观点（off）都要召回，漏掉任一方都是失败"}
+{"query_id": "C7-q2", "query": "WAL 模式下 synchronous=NORMAL 会不会丢事务", "memory_id": "0d871ff9-dccc-5a60-9e2c-4a00b825d494", "relevance": 3, "category": "C7", "note": "矛盾对：结论相反的两条事实，考察检索层不做单边过滤"}
+{"query_id": "C7-q2", "query": "WAL 模式下 synchronous=NORMAL 会不会丢事务", "memory_id": "3fb650d7-f23f-58bd-b9ee-d3094d77917c", "relevance": 2, "category": "C7", "note": "矛盾对：结论相反的两条事实，考察检索层不做单边过滤"}
+{"query_id": "C8-q1", "query": "Kubernetes HPA 自动扩缩容策略怎么配", "memory_id": "4d08fb3c-45c1-582b-be3b-03bcd9887370", "relevance": 0, "category": "C8", "note": "负例探针：部署运维主题相近但均不相关；判定仅含 0 分干扰项"}
+{"query_id": "C8-q1", "query": "Kubernetes HPA 自动扩缩容策略怎么配", "memory_id": "46256548-cddb-581a-adac-19d7d09276da", "relevance": 0, "category": "C8", "note": "负例探针：部署运维主题相近但均不相关；判定仅含 0 分干扰项"}
+{"query_id": "C8-q2", "query": "React Hooks 里 useReducer 怎么用", "memory_id": "27d22af3-db03-55db-b5f2-07f9c4f02dd4", "relevance": 0, "category": "C8", "note": "负例探针：前端主题，夹具仅有后端校验/模板词条"}
+{"query_id": "C8-q2", "query": "React Hooks 里 useReducer 怎么用", "memory_id": "a364d559-c0f1-53f6-b817-df99d99f3a00", "relevance": 0, "category": "C8", "note": "负例探针：前端主题，夹具仅有后端校验/模板词条"}
+{"query_id": "C8-q3", "query": "红烧肉怎么炖才能肥而不腻", "memory_id": "74114580-8d85-58c9-9869-f5d2b765db66", "relevance": 0, "category": "C8", "note": "负例探针：完全无关查询，考察是否强行返回噪声"}
+{"query_id": "C8-q3", "query": "红烧肉怎么炖才能肥而不腻", "memory_id": "35426e2a-49a1-59b0-b870-ffcbf8654b07", "relevance": 0, "category": "C8", "note": "负例探针：完全无关查询，考察是否强行返回噪声"}
+{"query_id": "C9-q1", "query": "Redis 分布式锁怎么实现", "memory_id": "5a534575-dda0-5f98-ba38-e0c2aae02f3c", "relevance": 1, "category": "C9", "note": "困难负例：夹具只有 setnx 缓存互斥锁（弱相关干扰），无分布式锁专题；返回干扰项记误召回"}
+{"query_id": "C9-q1", "query": "Redis 分布式锁怎么实现", "memory_id": "4e9dc83c-07d8-570a-934e-c3ae2ee19d99", "relevance": 0, "category": "C9", "note": "困难负例：夹具只有 setnx 缓存互斥锁（弱相关干扰），无分布式锁专题；返回干扰项记误召回"}
+{"query_id": "C9-q2", "query": "MySQL 主从复制延迟怎么解决", "memory_id": "e8da24d1-64f5-5430-b278-e4964509195c", "relevance": 1, "category": "C9", "note": "困难负例：'一主两从'复制拓扑是弱相关干扰，夹具无 MySQL 内容"}
+{"query_id": "C9-q2", "query": "MySQL 主从复制延迟怎么解决", "memory_id": "fce5da8e-903b-50b4-b876-d6c0cc21a151", "relevance": 0, "category": "C9", "note": "困难负例：'一主两从'复制拓扑是弱相关干扰，夹具无 MySQL 内容"}
+{"query_id": "C9-q3", "query": "Kafka 消息堆积怎么处理", "memory_id": "fcd7fab2-3b9c-574a-a75f-852e4f243800", "relevance": 1, "category": "C9", "note": "困难负例：任务队列重试/死信语义相近（弱相关干扰），夹具无 Kafka"}
+{"query_id": "C9-q3", "query": "Kafka 消息堆积怎么处理", "memory_id": "cd527edc-ec4b-5cfa-b315-bd0bd69dd24a", "relevance": 0, "category": "C9", "note": "困难负例：任务队列重试/死信语义相近（弱相关干扰），夹具无 Kafka"}
+{"query_id": "C10-q1", "query": "MCP stdio 插件连接失败怎么排查", "memory_id": "e863f81b-27e5-5565-9789-62956a145fe6", "relevance": 0, "category": "C10", "note": "隔离探针：真实 cwiki 工作区话题，eval-fixture 工作区无此记忆；考察跨工作区泄漏"}
+{"query_id": "C10-q1", "query": "MCP stdio 插件连接失败怎么排查", "memory_id": "399ae1cd-65ac-5a10-a9c7-d66325c8a3e2", "relevance": 0, "category": "C10", "note": "隔离探针：真实 cwiki 工作区话题，eval-fixture 工作区无此记忆；考察跨工作区泄漏"}
+{"query_id": "C10-q2", "query": "受控表单组件在 React 里怎么写", "memory_id": "a364d559-c0f1-53f6-b817-df99d99f3a00", "relevance": 0, "category": "C10", "note": "隔离探针：前端话题不在夹具内；干扰项为业务模板/校验词条"}
+{"query_id": "C10-q2", "query": "受控表单组件在 React 里怎么写", "memory_id": "27d22af3-db03-55db-b5f2-07f9c4f02dd4", "relevance": 0, "category": "C10", "note": "隔离探针：前端话题不在夹具内；干扰项为业务模板/校验词条"}
+{"query_id": "C11-q1", "query": "except* 和 except 在异常捕获上有什么区别", "memory_id": "c3edc857-58f7-540f-ad6b-ceff38654dae", "relevance": 3, "category": "C11", "note": "except* 仅在正文，标题是'任务组与异常传播语义'；考察标题弱匹配"}
+{"query_id": "C11-q2", "query": "aof_rewrite_buffer 长度告警怎么配", "memory_id": "98469499-0a42-5c2b-b296-4c9dd9b0d5cb", "relevance": 3, "category": "C11", "note": "aof_rewrite_buffer 仅在正文；标题讲内存翻倍"}
+{"query_id": "C11-q3", "query": "bge 模型的指令前缀要不要加", "memory_id": "8d73d727-72d4-50de-884a-bc967473b94c", "relevance": 3, "category": "C11", "note": "指令前缀细节仅在正文；标题只含模型名"}
+{"query_id": "C12-q1", "query": "fastembed 的 ONNX 权重能离线用吗", "memory_id": "e291edc0-58cc-5c36-b5d5-665cf747461e", "relevance": 3, "category": "C12", "note": "中英混合；离线≈冷启动/下载一次"}
+{"query_id": "C12-q2", "query": "bge-small-zh 输出的向量是多少维", "memory_id": "8d73d727-72d4-50de-884a-bc967473b94c", "relevance": 3, "category": "C12", "note": "中英混合；维度数仅在正文"}
+{"query_id": "C12-q3", "query": "向量做 L2 归一化之后余弦相似度就等于点积了吗", "memory_id": "2352624f-0092-5b74-8844-f8debeac41c0", "relevance": 3, "category": "C12", "note": "中英混合：L2/点积/余弦术语混排"}

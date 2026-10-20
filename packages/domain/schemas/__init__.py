@@ -5,6 +5,13 @@
 
 from __future__ import annotations
 
+from packages.domain.schemas.agent_capture import (
+    AgentCaptureRecord,
+    AgentCaptureRejected,
+    AgentCaptureRequest,
+    AgentCaptureResponse,
+    AgentCaptureStats,
+)
 from packages.domain.schemas.common import (
     CandidateStatus,
     ConsistencyReport,
@@ -32,6 +39,8 @@ from packages.domain.schemas.memory import (
     MemoryRetrievalHit,
     MemoryUpdate,
     MemoryVersionRead,
+    RelationCreate,
+    RelationUpdate,
     ReviewCreate,
     ReviewItemRead,
     ReviewRead,
@@ -39,6 +48,8 @@ from packages.domain.schemas.memory import (
     ReviewStatsRead,
     ReviewSubmitRequest,
     SimilarItemRead,
+    TagMergeRequest,
+    TagRenameRequest,
 )
 from packages.domain.schemas.search import (
     ContextItem,
@@ -60,11 +71,14 @@ from packages.domain.schemas.session import (
     EventRead,
     SessionCreate,
     SessionNoteCreate,
+    SessionNoteFormalize,
     SessionNoteRead,
     SessionRead,
 )
 from packages.domain.schemas.task_queue import (
     FailedTaskItem,
+    TaskQueueClearRequest,
+    TaskQueueClearResponse,
     TaskQueueCounts,
     TaskQueueFailedInfo,
     TaskQueueRetryRequest,
@@ -82,6 +96,11 @@ from packages.domain.schemas.workspace import (
 )
 
 __all__ = [
+    "AgentCaptureRecord",
+    "AgentCaptureRejected",
+    "AgentCaptureRequest",
+    "AgentCaptureResponse",
+    "AgentCaptureStats",
     "AgentCreate",
     "AgentProfileRead",
     "AgentProfileUpdate",
@@ -129,14 +148,21 @@ __all__ = [
     "ReviewResultRead",
     "ReviewStatsRead",
     "ReviewSubmitRequest",
+    "RelationCreate",
+    "RelationUpdate",
     "SearchRequest",
     "SearchResponse",
     "SearchResult",
     "SessionCreate",
     "SessionNoteCreate",
+    "SessionNoteFormalize",
     "SessionNoteRead",
     "SessionRead",
     "SimilarItemRead",
+    "TagMergeRequest",
+    "TagRenameRequest",
+    "TaskQueueClearRequest",
+    "TaskQueueClearResponse",
     "TaskQueueCounts",
     "TaskQueueFailedInfo",
     "TaskQueueRetryRequest",

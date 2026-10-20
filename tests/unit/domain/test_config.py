@@ -10,18 +10,21 @@ class TestSettings:
 
     def test_reranker_weights_loaded(self):
         s = Settings()
+        # W6-B 权重重平衡（新增 semantic，元数据信号让位）
         assert s.reranker_rrf_weight == 0.38
-        assert s.reranker_confidence_weight == 0.13
-        assert s.reranker_importance_weight == 0.16
-        assert s.reranker_freshness_weight == 0.13
-        assert s.reranker_usage_weight == 0.08
-        assert s.reranker_intent_weight == 0.12
+        assert s.reranker_semantic_weight == 0.15
+        assert s.reranker_confidence_weight == 0.10
+        assert s.reranker_importance_weight == 0.12
+        assert s.reranker_freshness_weight == 0.10
+        assert s.reranker_usage_weight == 0.06
+        assert s.reranker_intent_weight == 0.09
         assert s.reranker_key_term_bonus == 0.08
 
     def test_reranker_weights_sum_to_one(self):
         s = Settings()
         total = (
             s.reranker_rrf_weight
+            + s.reranker_semantic_weight
             + s.reranker_confidence_weight
             + s.reranker_importance_weight
             + s.reranker_freshness_weight

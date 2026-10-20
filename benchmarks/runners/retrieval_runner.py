@@ -34,6 +34,7 @@ from benchmarks.evaluators.retrieval import (
     evaluate_query,
     format_report_md,
 )
+from packages.domain.config import settings
 from packages.domain.database import async_session_maker
 from packages.domain.models import Memory
 from packages.retrieval.bm25 import BM25Index
@@ -148,12 +149,15 @@ async def _vector_search(
 def _rrf_fusion(
     bm25_results: list[tuple[str, float]],
     vector_results: list[tuple[str, float]],
+    bm25_w: float,
+    vec_w: float,
 ) -> dict[str, float]:
+    """加权 RRF 融合，与生产 engine 一致（config.yaml 的 bm25_weight/vector_weight）。"""
     rrf_scores: dict[str, float] = {}
     for rank, (doc_id, _) in enumerate(bm25_results, 1):
-        rrf_scores[doc_id] = rrf_scores.get(doc_id, 0.0) + 1.0 / (RRF_K + rank)
+        rrf_scores[doc_id] = rrf_scores.get(doc_id, 0.0) + bm25_w / (RRF_K + rank)
     for rank, (doc_id, _) in enumerate(vector_results, 1):
-        rrf_scores[doc_id] = rrf_scores.get(doc_id, 0.0) + 1.0 / (RRF_K + rank)
+        rrf_scores[doc_id] = rrf_scores.get(doc_id, 0.0) + vec_w / (RRF_K + rank)
     return rrf_scores
 
 
@@ -183,7 +187,9 @@ async def run_pipeline(
 
     bm25_results = await _bm25_search(bm25_index, query, top_k=50)
     vector_results = await _vector_search(db, query, workspace_id, top_k=50)
-    rrf_scores = _rrf_fusion(bm25_results, vector_results)
+    rrf_scores = _rrf_fusion(
+        bm25_results, vector_results, settings.bm25_weight, settings.vector_weight
+    )
 
     if pipeline == "hybrid_rrf":
         sorted_ids = sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)
@@ -206,6 +212,7 @@ async def run_pipeline(
             valid_to=m.valid_to,
             created_at=m.created_at,
             last_used_at=m.last_used_at,
+            ignore_expiry=analyzed.is_historical_query,
         )
         usage_score = min(m.usage_count / 100.0, 1.0) if m.usage_count else 0.0
 
@@ -240,6 +247,9 @@ async def run_pipeline(
     reranked = rerank(
         rerank_inputs,
         query_intent=analyzed.intent,
+        intent_confidence=analyzed.confidence,
+        negations=analyzed.negations,
+        key_terms=analyzed.key_terms,
         top_k=max_items * 2,
     )
 
@@ -314,6 +324,8 @@ def save_report(report: BenchmarkReport, output_dir: Path, prefix: str = "") -> 
         "ndcg_at_10": report.ndcg_at_10,
         "useful_at_10": report.useful_at_10,
         "avg_latency_ms": report.avg_latency_ms,
+        "negative_probes": report.negative_probes,
+        "negative_fp_rate_at_10": report.negative_fp_rate_at_10,
         "per_query": [
             {
                 "query_id": qm.query_id,
@@ -323,6 +335,8 @@ def save_report(report: BenchmarkReport, output_dir: Path, prefix: str = "") -> 
                 "ndcg_at_10": qm.ndcg_at_10,
                 "useful_at_10": qm.useful_at_10,
                 "relevant_count": qm.relevant_count,
+                "is_negative_probe": qm.is_negative_probe,
+                "negative_fp_at_10": qm.negative_fp_at_10,
             }
             for qm in report.per_query
         ],
@@ -372,6 +386,8 @@ async def main(
     db_url: str | None = None,
 ) -> list[BenchmarkReport]:
     _quiet_sql_logging()
+    # 记录调用方是否显式指定数据集（决定报告目录：按数据集分目录避免覆盖默认报告）
+    explicit_dataset = dataset_path
     pipelines = [pipeline] if pipeline else PIPELINES
     reports: list[BenchmarkReport] = []
     session_maker = make_session_maker(db_url) if db_url else async_session_maker
@@ -460,8 +476,11 @@ async def main(
         logger.info("Running pipeline: %s", pl)
         report = await run_benchmark(pl, judgments, ws_id, session_maker=session_maker)
         reports.append(report)
-        # 指定 workspace 时报告进子目录，与 --all-workspaces 模式保持一致
-        if workspace_name:
+        # 报告目录：显式数据集 → 按数据集名分目录；否则沿用 workspace 目录
+        if explicit_dataset is not None:
+            stem = explicit_dataset.stem
+            save_report(report, REPORTS_DIR / stem, prefix=f"{stem}-")
+        elif workspace_name:
             save_report(report, REPORTS_DIR / workspace_name, prefix=f"{workspace_name}-")
         else:
             save_report(report, REPORTS_DIR)
@@ -474,7 +493,12 @@ async def main(
             report.useful_at_10,
         )
 
-    out_dir = REPORTS_DIR / workspace_name if workspace_name else REPORTS_DIR
+    if explicit_dataset is not None:
+        out_dir = REPORTS_DIR / explicit_dataset.stem
+    elif workspace_name:
+        out_dir = REPORTS_DIR / workspace_name
+    else:
+        out_dir = REPORTS_DIR
     comparison_path = out_dir / "pipeline-comparison.md"
     _write_comparison(reports, comparison_path)
 

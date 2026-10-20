@@ -10,7 +10,7 @@ import pytest
 from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from adapters.qoder.client import CwikiClient
+from adapters.mcp.client import CwikiClient
 from apps.api.deps import get_db, invalidate_workspace_cache
 from apps.api.routes import file_memories
 from packages.domain.database import Base

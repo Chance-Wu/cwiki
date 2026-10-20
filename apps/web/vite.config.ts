@@ -18,6 +18,14 @@ export default defineConfig({
       '/v1': 'http://127.0.0.1:5172',
     },
   },
+  // 生产预览：日常浏览用（tasks.py preview），内存占用约为 dev 模式一半
+  preview: {
+    host: '0.0.0.0',
+    port: 4173,
+    proxy: {
+      '/v1': 'http://127.0.0.1:5172',
+    },
+  },
   build: {
     cssCodeSplit: true,
     sourcemap: false,

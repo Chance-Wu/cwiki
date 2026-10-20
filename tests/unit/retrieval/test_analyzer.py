@@ -114,3 +114,52 @@ class TestToDict:
         assert "confidence" in d
         assert isinstance(d["expanded_terms"], list)
         assert isinstance(d["confidence"], float)
+
+
+class TestHistoricalQueryDetection:
+    def test_before_phrase_detected(self):
+        # 评测集 C5-q2 原文："X 出来之前" 明确问历史
+        result = analyze_query("WAL 模式出来之前 SQLite 的锁和 journal 是怎么调优的")
+        assert result.is_historical_query is True
+
+    def test_evolution_detected(self):
+        # 评测集 C3-q2 原文："演进" 指向方案变迁史
+        result = analyze_query("重复检测的方案是怎么一步步演进的")
+        assert result.is_historical_query is True
+
+    def test_current_affairs_not_historical(self):
+        # 评测集 C5-q1 原文：问现行状态，不是历史
+        result = analyze_query("现在生产环境还允许用 Sentinel 部署吗")
+        assert result.is_historical_query is False
+
+    def test_sequencing_bu_not_historical(self):
+        # "之前"表流程顺序而非历史指向，宽匹配会误伤
+        result = analyze_query("检索之前先做分词处理")
+        assert result.is_historical_query is False
+
+    def test_english_historical_detected(self):
+        assert (
+            analyze_query("what did we use to store vectors historically?").is_historical_query
+            is True
+        )
+
+    def test_plain_query_not_historical(self):
+        assert (
+            analyze_query("Redis Cluster 的 16384 个 slot 是怎么编号的").is_historical_query
+            is False
+        )
+
+
+class TestNegationExtraction:
+    def test_alternative_question_not_negation(self):
+        # "X 不 X" 疑问式不是否定——实测"要不要加"曾提取出否定"加"，
+        # 正文含该词的 gold 记忆被 negation_penalty 沉底（C11-q3 根因）
+        assert analyze_query("bge 模型的指令前缀要不要加").negations == []
+        assert analyze_query("配置要不要改").negations == []
+        assert analyze_query("需不需要开 WAL").negations == []
+        assert analyze_query("包不包括测试环境").negations == []
+
+    def test_real_negation_kept(self):
+        assert analyze_query("不要用 root 跑服务").negations == ["用"]
+        assert analyze_query("结果不需要包含历史版本").negations == ["包含历史版本"]
+        assert analyze_query("排除已归档的记忆").negations == ["已归档的记忆"]

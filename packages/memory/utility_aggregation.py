@@ -57,7 +57,8 @@ async def aggregate_utility_scores(
         )
         usage_map = {str(row[0]): (row[1], row[2]) for row in usage_result.all()}
 
-        # 人工反馈：useful / not_useful 各自计数（feedback_type 仅这两种取值）
+        # 反馈计数：useful 计正票；not_useful/outdated/wrong 一律视为负票
+        # （outdated/wrong 是更强的负信号，单独存在时也压制排序）。
         feedback_result = await db.execute(
             select(
                 MemoryFeedback.memory_id,
@@ -82,12 +83,13 @@ async def aggregate_utility_scores(
         for mem_id, mem in id_to_mem.items():
             retrieval_count, used_count = usage_map.get(mem_id, (0, 0))
             votes = feedback_map.get(mem_id, {})
+            negative_votes = sum(votes.get(kind, 0) for kind in ("not_useful", "outdated", "wrong"))
             utility = compute_utility_score(
                 retrieval_count=retrieval_count,
                 used_count=used_count,
                 cited_count=0,
                 useful_votes=votes.get("useful", 0),
-                not_useful_votes=votes.get("not_useful", 0),
+                not_useful_votes=negative_votes,
                 last_used_at=mem.last_used_at,
                 evidence_count=evidence_map.get(mem_id, 0),
             )

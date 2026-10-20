@@ -170,7 +170,7 @@ export default function DiagnosticsPanel() {
     : []
 
   return (
-    <Card className="p-5 md:p-6">
+    <Card className="flex flex-col p-5 md:p-6 lg:h-full">
       {/* 标题行 */}
       <div className="flex items-center gap-3 mb-4">
         <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-gradient-to-br from-brand-100 to-brand-50 shrink-0 ring-1 ring-brand-200/35 border border-brand-200/25 shadow-warm-xs">
@@ -205,7 +205,7 @@ export default function DiagnosticsPanel() {
           {t.diagnostics.loadFailed}
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+        <div className="grid flex-1 grid-cols-1 content-start md:grid-cols-3 gap-5">
           {/* ── 任务队列 ── */}
           <div className="space-y-2.5">
             <div className="flex items-center gap-1.5 text-sm font-semibold text-[var(--text-primary)]">
@@ -355,7 +355,7 @@ export default function DiagnosticsPanel() {
 
       {/* ── 失败任务明细 + 逐条重试 ── */}
       {queue && queue.failed.items.length > 0 && (
-        <div className="mt-4">
+        <div className="mt-auto pt-4">
           <div className="flex items-center justify-between mb-2">
             <span className="text-sm font-semibold text-[var(--text-primary)]">
               {t.diagnostics.failedTasks}

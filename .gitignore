@@ -47,9 +47,14 @@ Thumbs.db
 
 tmp-screenshot*.png
 .shot/
-benchmarks/reports/
+# 报告产物不入库；但 CI 回归门槛基线必须入库（compare_reports 的 --baseline）
+benchmarks/reports/*
+!benchmarks/reports/baseline.json
 
 .qoder/
+
+# DSH 安装产物：setup_dsh.py 在此生成 skills 链接，属设备本地配置
+.dsh/
 
 # IDE
 .idea/

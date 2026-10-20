@@ -35,7 +35,7 @@ cwiki 是个人知识工作台与 Agent 记忆基础设施。核心闭环：**�
 
 ## 开发命令
 
-所有命令通过 `python tasks.py <命令>` 跨平台运行。常用：`start`/`restart`（全栈）、`serve`/`web`（单端）、`test`/`lint`/`format`、`install`、`setup`。迁移：`migrate-init`/`migrate-up`/`migrate-down`/`migrate-create "描述"`。数据维护：`migrate-to-git`、`rebuild-db`、`recompute`。数据同步由数据仓库自管：`python cwiki-data/sync.py`。完整列表：`python tasks.py help`。
+所有命令通过 `python tasks.py <命令>` 跨平台运行。常用：`start`/`restart`（全栈）、`serve`/`web`（单端）、`preview`（前端生产模式，日常浏览用）、`test`/`lint`/`format`、`install`、`setup`。迁移：`migrate-init`/`migrate-up`/`migrate-down`/`migrate-create "描述"`。数据维护：`migrate-to-git`、`rebuild-db`、`recompute`。数据同步由数据仓库自管：`python cwiki-data/sync.py`。完整列表：`python tasks.py help`。
 
 > `restart` 强制释放端口后重启（端口被占用时使用）。服务热重启：`curl -X POST http://127.0.0.1:5172/v1/system/restart`
 
@@ -44,11 +44,14 @@ cwiki 是个人知识工作台与 Agent 记忆基础设施。核心闭环：**�
 - 数据库统一使用 `cwiki-data/cwiki.db`，Markdown 记忆文件目录为 `./cwiki-data/`（由 `config.yaml` 的 `storage.memory_dir` 决定），不要引用 `memorywiki`
 - 配置统一走 `config.yaml`，不要引入环境变量配置（MCP 适配器自身的连接参数除外）
 - workspace 是唯一的组织维度；project/scope 概念已移除
+- 版本号唯一权威源是 `pyproject.toml` 的 `[project] version`，代码里一律调 `app_version()`（`packages/domain/version.py`），不要新写字面量；`plugin.json` 的 version 是 Qoder 插件资产版本，与包版本解耦
 - 完整说明见 [记忆系统](docs/memory-system.md)和[开发指南](docs/development.md#agent-接入配置)
 
 ## Git 同步
 
 **双仓库布局**：代码仓库（`cwiki.git`）与数据仓库（`cwiki-data.git`）彼此独立，`cwiki-data/` 目录内自带 `.git`，被根仓库 `.gitignore` 忽略。数据整体位于 `cwiki-data/`（Markdown + `_meta/` JSON + SQLite `cwiki.db`），随数据仓库多设备同步；SQLite 亦可随时从 MD + _meta 完整重建（workspace 表由 `_meta/_workspaces.json` 精确恢复，含无记忆的空 workspace）。数据仓库自带同步工具 `cwiki-data/sync.py`（随数据仓库版本化分发）；代码侧（tasks.py）不提供数据同步入口。
+
+- **提交信息保持简洁概括**
 
 - **同步媒介**：两个 GitHub 私有仓库——代码 `cwiki.git`、数据 `cwiki-data.git`
 - **数据仓库内容**：cwiki-data/（MD + _meta + cwiki.db + index.db + vectors.npz + vectors.json）

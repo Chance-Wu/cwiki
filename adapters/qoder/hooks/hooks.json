@@ -5,7 +5,91 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python -m adapters.qoder.hooks session-start",
+            "command": "python -m adapters.hooks qoder session-start",
+            "timeout": 5,
+            "env": {
+              "PYTHONPATH": "."
+            }
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python -m adapters.hooks qoder user-prompt-submit",
+            "timeout": 3,
+            "env": {
+              "PYTHONPATH": "."
+            }
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "mcp_call|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python -m adapters.hooks qoder pre-tool-use",
+            "timeout": 3,
+            "env": {
+              "PYTHONPATH": "."
+            }
+          }
+        ]
+      }
+    ],
+    "PostCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python -m adapters.hooks qoder post-compact",
+            "timeout": 10,
+            "async": true,
+            "env": {
+              "PYTHONPATH": "."
+            }
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python -m adapters.hooks qoder post-tool-failure",
+            "timeout": 5,
+            "async": true,
+            "env": {
+              "PYTHONPATH": "."
+            }
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python -m adapters.hooks qoder session-end",
+            "timeout": 10,
+            "async": true,
+            "env": {
+              "PYTHONPATH": "."
+            }
+          },
+          {
+            "type": "command",
+            "command": "python -m adapters.hooks qoder drain",
+            "timeout": 10,
+            "async": true,
             "env": {
               "PYTHONPATH": "."
             }

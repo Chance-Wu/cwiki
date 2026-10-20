@@ -10,6 +10,7 @@ import {
   NEUTRAL_CHIP,
   AGENT_BTN_ACTIVE,
   AGENT_BTN_INACTIVE,
+  agentLabel,
 } from './constants'
 import zh from '../../i18n/locales/zh'
 
@@ -100,7 +101,7 @@ export default function SkillDetail({
                     }`}
                   >
                     <Bot size={12} className="inline mr-1" aria-hidden="true" />
-                    {agent}
+                    {agentLabel(agent)}
                   </button>
                 ))}
               </div>

@@ -27,6 +27,7 @@ import {
   useImportSkill,
 } from '../hooks/useSkills'
 import { SkillCard, SkillDetail, CreateForm, EditForm, ImportForm } from '../components/skills'
+import { agentLabel } from '../components/skills/constants'
 
 type Tab = 'custom' | string
 
@@ -132,7 +133,7 @@ export default function SkillsPage() {
 
   const tabs: { key: Tab; label: string }[] = [
     { key: 'custom', label: t.skills.tabCustom },
-    ...agents.map((a) => ({ key: a, label: a.charAt(0).toUpperCase() + a.slice(1) })),
+    ...agents.map((a) => ({ key: a, label: agentLabel(a) })),
   ]
 
   return (

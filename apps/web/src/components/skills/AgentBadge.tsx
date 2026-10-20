@@ -1,5 +1,5 @@
 import { Bot, X } from 'lucide-react'
-import { AGENT_COLORS, NEUTRAL_CHIP } from './constants'
+import { AGENT_COLORS, NEUTRAL_CHIP, agentLabel } from './constants'
 
 export default function AgentBadge({
   agent,
@@ -16,7 +16,7 @@ export default function AgentBadge({
       className={`inline-flex items-center gap-0.5 px-2 py-0.5 rounded-lg text-xs font-medium max-w-[120px] border border-[var(--border-default)] shadow-warm-xs transition-all duration-150 ${color}`}
     >
       <Bot size={12} className="shrink-0" aria-hidden="true" />
-      <span className="truncate">{agent}</span>
+      <span className="truncate">{agentLabel(agent)}</span>
       {onRemove && (
         <button
           onClick={(e) => {

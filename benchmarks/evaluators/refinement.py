@@ -19,15 +19,24 @@ from typing import Any
 
 # 合法类型枚举（与 packages/domain/models/memory.py 的 TYPE_DEFINITIONS 同步）
 VALID_TYPES = {
-    "fact", "lesson", "issue", "decision", "convention", "pattern",
-    "procedure", "feedback", "reference", "constraint", "rule",
+    "fact",
+    "lesson",
+    "issue",
+    "decision",
+    "convention",
+    "pattern",
+    "procedure",
+    "feedback",
+    "reference",
+    "constraint",
+    "rule",
 }
 
 # 技术词/名词模式（标题应包含至少一个）
 OBJECT_PATTERN = re.compile(
     r"[A-Z][a-zA-Z0-9_]+|"  # CamelCase/PascalCase
-    r"[a-z]+_[a-z_]+|"       # snake_case
-    r"[\u4e00-\u9fa5]{2,}"   # 中文词（2+ 字）
+    r"[a-z]+_[a-z_]+|"  # snake_case
+    r"[\u4e00-\u9fa5]{2,}"  # 中文词（2+ 字）
 )
 
 
@@ -132,7 +141,7 @@ def generate_report(results: list[dict[str, Any]]) -> str:
         dim_avg[dim] = sum(r["scores"][dim] for r in results) / total
 
     report = []
-    report.append(f"# 提炼质量评估报告\n")
+    report.append("# 提炼质量评估报告\n")
     report.append(f"**候选总数**: {total}")
     report.append(f"**平均分**: {avg_score:.3f}")
     report.append(f"**通过率** (≥0.7): {pass_count}/{total} = {pass_rate:.1%}\n")

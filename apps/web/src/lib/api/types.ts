@@ -10,7 +10,7 @@ export interface FileMemory {
   title: string
   content: string
   type: string
-  tags: string
+  tags: string[]
   related: string
   version: number
   status: string
@@ -324,6 +324,7 @@ export interface ConfigData {
     bm25_weight: number
     vector_weight: number
     reranker_rrf_weight: number
+    reranker_semantic_weight: number
     reranker_confidence_weight: number
     reranker_importance_weight: number
     reranker_freshness_weight: number
@@ -459,7 +460,7 @@ export interface Skill {
   name: string
   description: string
   body: string
-  source: 'project' | 'qoder' | 'codex' | 'plugin'
+  source: 'project' | 'qoder' | 'codex' | 'dsh' | 'plugin'
   agents: string[]
   publishable_to: string[]
   available_to: string[]
@@ -473,12 +474,36 @@ export interface SessionNote {
   id: string
   workspace_id: string
   session_id: string
-  content: string
+  /** preview 视图为 null；详情接口返回全文 */
+  content: string | null
+  content_preview: string
+  content_length: number
   signal_type: string | null
-  confidence: number | null
   formalized: boolean
   formalized_memory_id: string | null
+  candidate_id: string | null
+  discarded_at: string | null
+  host: string | null
+  workspace_name: string | null
   created_at: string
+}
+
+export interface WeeklyReview {
+  workspace_id: string
+  period_start: string
+  period_end: string
+  new_memories: number
+  reviewed: number
+  avg_quality: number | null
+  mastered_up: number
+  due_now: number
+  pending_notes: number
+  most_used: { memory_id: string; title: string; uses: number }[]
+  actions: {
+    conflicts: { id: string; description: string | null; created_at: string | null }[]
+    stale_memories: { memory_id: string; title: string; valid_to: string | null }[]
+    knowledge_gaps: { query: string; attempts: number }[]
+  }
 }
 
 export interface ReviewItem {

@@ -28,6 +28,10 @@ from packages.domain.models import (
 from packages.domain.models.session import SessionNote
 from packages.domain.paths import sanitize_filename
 
+# 跨包依赖（domain → memory）：content_security 仅依赖 domain.errors，无环；
+# 导入（外部输入边界）与常规写入路径共用同一注入检测
+from packages.memory.content_security import check_injection
+
 logger = logging.getLogger(__name__)
 
 EXPORT_VERSION = "1.0"
@@ -284,7 +288,7 @@ async def import_data(
     data: dict[str, Any],
     workspace_id: uuid.UUID,
     strategy: str = "skip",
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], list[uuid.UUID]]:
     """从结构化字典导入数据。
 
     Args:
@@ -294,18 +298,41 @@ async def import_data(
         strategy: 冲突处理策略 —— "skip"（默认）、"overwrite" 或 "rename"
 
     Returns:
-        导入结果汇总
+        (导入结果汇总, 有 DB 变更的记忆 ID 列表) —— 调用方据此在提交后
+        补齐 MD 镜像与索引；skip 全跳过时列表为空。
     """
+    # 导入只写 DB；MD 镜像与索引由调用方在事务提交后按返回的
+    # touched_memory_ids 补齐（与 memory 路由同一套 sync_memory_to_file 机制）。
+    # 曾只写 DB 不双写，导致 /v1/consistency 报 db/md/index/vector 计数不一致、
+    # 且从 MD 重建 DB 时导入的记忆直接丢失。
     results: dict[str, Any] = {
-        "memories": {"imported": 0, "skipped": 0, "updated": 0},
-        "candidates": {"imported": 0, "skipped": 0},
-        "notes": {"imported": 0, "skipped": 0},
+        "memories": {"imported": 0, "skipped": 0, "updated": 0, "rejected": 0},
+        "candidates": {"imported": 0, "skipped": 0, "rejected": 0},
+        "notes": {"imported": 0, "skipped": 0, "rejected": 0},
         "relations": {"imported": 0, "skipped": 0},
         "schedules": {"imported": 0, "skipped": 0},
     }
 
     # 旧 ID → 新 ID 映射：跳过/覆盖的实体沿用旧 ID，新建实体分配新 ID，下游引用按此重写
     id_mapping: dict[str, uuid.UUID] = {}
+    # 导入/更新涉及 DB 变更的记忆：路由提交后按此列表补齐 MD 镜像与索引
+    touched_memory_ids: list[uuid.UUID] = []
+
+    def _injection_rejected(section: str, item: dict[str, Any]) -> bool:
+        """导入是外部输入边界，与常规写入路径同标准做注入检测。
+
+        命中即拒绝该条并计数，不中断整批导入（迁移场景不应被单条脏数据卡死）。
+        """
+        text = f"{item.get('title', '')}\n{item.get('content', '')}"
+        if not check_injection(text):
+            return False
+        results[section]["rejected"] += 1
+        logger.warning(
+            "Import rejected %s item %s: prompt injection pattern matched",
+            section,
+            item.get("id"),
+        )
+        return True
 
     for item in data.get("memories", []):
         old_id = item.get("id")
@@ -321,6 +348,8 @@ async def import_data(
             continue
 
         if existing and strategy == "overwrite":
+            if _injection_rejected("memories", item):
+                continue
             existing.title = item["title"]
             existing.content = item["content"]
             existing.type = item.get("type", existing.type)
@@ -332,9 +361,12 @@ async def import_data(
             existing.metadata_ = item.get("metadata")
             existing.updated_at = datetime.now(UTC)
             id_mapping[old_id] = existing.id
+            touched_memory_ids.append(existing.id)
             results["memories"]["updated"] += 1
             continue
 
+        if _injection_rejected("memories", item):
+            continue
         new_id = uuid.uuid4()
         if old_id:
             id_mapping[old_id] = new_id
@@ -363,6 +395,7 @@ async def import_data(
                 metadata_json=json.dumps({"source": "import"}),
             )
         )
+        touched_memory_ids.append(new_id)
         results["memories"]["imported"] += 1
 
     for item in data.get("candidates", []):
@@ -373,6 +406,8 @@ async def import_data(
             continue
 
         assert cand_new_id is not None  # existing 为 None 时必然返回新 UUID
+        if _injection_rejected("candidates", item):
+            continue
         old_id = item.get("id")
         if old_id:
             id_mapping[old_id] = cand_new_id
@@ -396,6 +431,8 @@ async def import_data(
             results["notes"]["skipped"] += 1
             continue
 
+        if _injection_rejected("notes", item):
+            continue
         formalized_mid = item.get("formalized_memory_id")
         if formalized_mid:
             formalized_mid = id_mapping.get(formalized_mid, formalized_mid)
@@ -484,7 +521,7 @@ async def import_data(
         results["schedules"]["imported"] += 1
 
     await db.flush()
-    return results
+    return results, touched_memory_ids
 
 
 def parse_import_data(raw: bytes, content_type: str | None = None) -> dict[str, Any]:

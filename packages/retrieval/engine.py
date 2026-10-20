@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Any
 
 import numpy as np
-from sqlalchemy import func, select
+from sqlalchemy import String, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.domain.config import settings
@@ -267,43 +267,40 @@ class RetrievalEngine:
             )
         return results[:top_k]
 
-    async def retrieve(
+    async def search_ranked(
         self,
-        query: str | None,
-        workspace_id: uuid.UUID,
         db: AsyncSession,
+        query: str | None,
+        workspace_id: uuid.UUID | None,
         project_id: uuid.UUID | None = None,
-        max_items: int = 10,
-        max_tokens: int = 5000,
+        top_k: int = 10,
+        memory_type: str | None = None,
+        min_confidence: float | None = None,
+        min_similarity: float | None = None,
         session_id: uuid.UUID | None = None,
-        mode: str = "semantic",
+        record_trace: bool = True,
+        tags: list[str] | None = None,
     ) -> dict[str, Any]:
+        """执行完整语义检索管线，返回排序后的记忆列表（不做上下文组装）。
+
+        双路召回 → RRF 融合 → 多信号重排 → 图扩展 → 候选过滤 → 多样性
+        → 效用分。/v1/search 与 retrieve() 共用本方法，保证两条入口的
+        排序行为一致。
+
+        memory_type/min_confidence 在 hydrate 后、重排前过滤候选（图扩展
+        邻居同样受约束）；min_similarity 为最低向量相似度门槛，低于该值
+        或无向量信号的候选被剔除，用于拦截乱码/无关查询的凑数结果；
+        显式指定 memory_type 时取消多样性按类型限额，
+        避免同类型过滤结果被限额截断。workspace_id=None 表示跨全部
+        workspace 检索，此时 trace 无从归属，跳过写库；record_trace=False
+        供 retrieve() 委托调用——上下文组装后由其记录带 filter_reasons
+        的完整 trace。
+
+        返回 memories（含 version 与各信号分）、total（hydrate 后通过
+        过滤的候选数，上限为 3×top_k 候选池）、fallback、latency_ms，
+        另附 analyzed/candidates 供 retrieve() 记 trace 复用。
+        """
         start_time = time.time()
-
-        # 纯 episode 模式：完全跳过语义检索流水线
-        if mode == "episodic":
-            try:
-                from packages.domain.config import parasitic_evolution_config as _pec
-
-                if _pec.episodic_retrieval_enabled:
-                    episodes = await self._episodic_search(
-                        query or "", workspace_id, db, top_k=max_items
-                    )
-                    latency_ms = int((time.time() - start_time) * 1000)
-                    return {
-                        "memories": episodes,
-                        "total": len(episodes),
-                        "sources": [],
-                        "context": "\n".join(
-                            f"[Episode] {ep.get('goal', '')}: {ep.get('summary', '')}"
-                            for ep in episodes
-                        ),
-                        "latency_ms": latency_ms,
-                    }
-            except Exception:
-                logger.debug(
-                    "Episodic retrieval failed, falling through to semantic", exc_info=True
-                )
 
         # 指纹只计算一次，供 BM25 索引与向量矩阵两路缓存共用
         fingerprint = await self._content_fingerprint(db, workspace_id, project_id)
@@ -385,13 +382,22 @@ class RetrievalEngine:
                 Memory.title,
                 Memory.content,
                 Memory.type,
-            ).where(
-                Memory.status == "active",
-                Memory.workspace_id == workspace_id,
-            )
+                Memory.tags,
+                Memory.version,
+            ).where(Memory.status == "active")
+            if workspace_id is not None:
+                stmt = stmt.where(Memory.workspace_id == workspace_id)
             if project_id:
                 stmt = stmt.where(Memory.project_id == project_id)
-            result = await db.execute(stmt.order_by(Memory.importance.desc()).limit(max_items))
+            if memory_type:
+                stmt = stmt.where(Memory.type == memory_type)
+            if min_confidence is not None:
+                stmt = stmt.where(Memory.confidence >= min_confidence)
+            if tags:
+                for tag in tags:
+                    # SQLite JSON 查询：tags 以 JSON 数组存储，用 LIKE 匹配标签值
+                    stmt = stmt.where(Memory.tags.cast(String).contains(f'"{tag}"'))
+            result = await db.execute(stmt.order_by(Memory.importance.desc()).limit(top_k))
             rows = result.all()
             mem_dicts = [
                 {
@@ -399,36 +405,40 @@ class RetrievalEngine:
                     "title": r.title,
                     "content": r.content,
                     "type": r.type,
-                    "score": 1.0,
+                    "tags": r.tags or [],
+                    "version": r.version,
+                    # 无候选 fallback：没有任何相关性信号，score 归零并显式标记，
+                    # 不伪造 1.0 高分（会误导按分数过滤的消费方，如主动推送）
+                    "score": 0.0,
+                    "fallback": True,
                 }
                 for r in rows
             ]
-            ctx = await assemble_context_with_embedding(
-                mem_dicts, query=query or "", max_tokens=max_tokens
-            )
             latency_ms = int((time.time() - start_time) * 1000)
 
-            try:
-                await self._record_trace(
-                    db=db,
-                    workspace_id=workspace_id,
-                    session_id=session_id,
-                    query=query or "",
-                    analyzed=analyzed,
-                    candidates=candidates,
-                    final_memories=mem_dicts,
-                    latency_ms=latency_ms,
-                    ctx=ctx,
-                )
-            except Exception as e:
-                logger.warning("Failed to record retrieval trace: %s", e)
+            if record_trace and workspace_id is not None:
+                try:
+                    await self._record_trace(
+                        db=db,
+                        workspace_id=workspace_id,
+                        session_id=session_id,
+                        query=query or "",
+                        analyzed=analyzed,
+                        candidates=candidates,
+                        final_memories=mem_dicts,
+                        latency_ms=latency_ms,
+                    )
+                except Exception as e:
+                    logger.warning("Failed to record retrieval trace: %s", e)
 
             return {
                 "memories": mem_dicts,
-                "total": len(mem_dicts),
                 "sources": [{"memory_id": m["id"], "score": m["score"]} for m in mem_dicts],
-                "context": ctx.text,
+                "total": len(mem_dicts),
+                "fallback": True,
                 "latency_ms": latency_ms,
+                "analyzed": analyzed,
+                "candidates": candidates,
             }
 
         # RRF 倒数排名融合：score = Σ 权重/(k+rank)。两路原始分数量纲不可比，
@@ -449,7 +459,7 @@ class RetrievalEngine:
         sorted_candidates = sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)
         # RRF 融合后截断为 max_items×3 的候选池：给后续重排与多样性过滤
         # 留足余量，同时控制取回完整记录与重排的开销
-        top_ids = [doc_id for doc_id, _ in sorted_candidates[: max_items * 3]]
+        top_ids = [doc_id for doc_id, _ in sorted_candidates[: top_k * 3]]
 
         uuid_ids = []
         for did in top_ids:
@@ -459,13 +469,22 @@ class RetrievalEngine:
                 pass
 
         if not uuid_ids:
-            return {"memories": [], "total": 0, "sources": [], "context": "", "latency_ms": 0}
+            return {
+                "memories": [],
+                "total": 0,
+                "sources": [],
+                "context": "",
+                "latency_ms": 0,
+                "fallback": False,
+            }
 
         final_stmt = select(
             Memory.id,
             Memory.title,
             Memory.content,
             Memory.type,
+            Memory.tags,
+            Memory.version,
             Memory.confidence,
             Memory.importance,
             Memory.usage_count,
@@ -476,9 +495,10 @@ class RetrievalEngine:
             Memory.embedding,
         ).where(
             Memory.id.in_(uuid_ids),
-            Memory.workspace_id == workspace_id,
             Memory.status == "active",
         )
+        if workspace_id is not None:
+            final_stmt = final_stmt.where(Memory.workspace_id == workspace_id)
         if project_id:
             final_stmt = final_stmt.where(Memory.project_id == project_id)
         hydrated_result = await db.execute(final_stmt)
@@ -489,12 +509,26 @@ class RetrievalEngine:
             m = mem_map.get(doc_id)
             if not m:
                 continue
+            # 类型/置信度/相似度门槛在重排前生效：不合格候选不占用重排与多样性名额
+            if memory_type and m.type != memory_type:
+                continue
+            if min_confidence is not None and (m.confidence or 0.0) < min_confidence:
+                continue
+            if min_similarity is not None and (
+                float(candidates.get(doc_id, {}).get("vector_score", 0.0) or 0.0) < min_similarity
+            ):
+                continue
+            if tags:
+                mem_tags = set(m.tags or [])
+                if not all(t in mem_tags for t in tags):
+                    continue
             data = candidates.get(doc_id, {})
             freshness = temporal_score(
                 valid_from=m.valid_from,
                 valid_to=m.valid_to,
                 created_at=m.created_at,
                 last_used_at=m.last_used_at,
+                ignore_expiry=analyzed.is_historical_query,
             )
             # 使用次数归一化：100 次即满分，抑制超高频记忆的过度优势
             usage_score = min(m.usage_count / 100.0, 1.0) if m.usage_count else 0.0
@@ -518,7 +552,7 @@ class RetrievalEngine:
         reranked = rerank(
             rerank_inputs,
             query_intent=analyzed.intent,
-            top_k=max_items * 2,
+            top_k=top_k * 2,
             intent_confidence=analyzed.confidence,
             negations=analyzed.negations,
             key_terms=analyzed.key_terms,
@@ -547,6 +581,27 @@ class RetrievalEngine:
                         if neighbor_id in reranked_dict:
                             reranked_dict[neighbor_id] += boost
                         elif neighbor_id in mem_map:
+                            # 图扩展邻居同样受类型/置信度/相似度过滤约束，不得绕过
+                            neighbor = mem_map[neighbor_id]
+                            if memory_type and neighbor.type != memory_type:
+                                continue
+                            if (
+                                min_confidence is not None
+                                and (neighbor.confidence or 0.0) < min_confidence
+                            ):
+                                continue
+                            if (
+                                min_similarity is not None
+                                and float(
+                                    candidates.get(neighbor_id, {}).get("vector_score", 0.0) or 0.0
+                                )
+                                < min_similarity
+                            ):
+                                continue
+                            if tags:
+                                neighbor_tags = set(neighbor.tags or [])
+                                if not all(t in neighbor_tags for t in tags):
+                                    continue
                             reranked_dict[neighbor_id] = boost
                     reranked = sorted(reranked_dict.items(), key=lambda x: x[1], reverse=True)
         except Exception:
@@ -554,7 +609,9 @@ class RetrievalEngine:
 
         # 候选三档过滤（W3-T3）：过期/低置信候选按 config 档位压分或剔除，
         # 挂在 rerank 与多样性之间——被 hard 剔除的候选不再占用多样性名额
-        reranked = self._apply_candidate_filters(reranked, mem_map)
+        reranked = self._apply_candidate_filters(
+            reranked, mem_map, skip_stale=analyzed.is_historical_query
+        )
 
         ranked_with_type: list[tuple[str, float, str]] = []
         for mem_id, score in reranked:
@@ -563,7 +620,10 @@ class RetrievalEngine:
                 ranked_with_type.append((mem_id, score, m.type))
 
         max_per_type = diversity_limit_for_intent(analyzed.intent)
-        diverse = apply_diversity(ranked_with_type, top_k=max_items, max_per_type=max_per_type)
+        if memory_type:
+            # 类型过滤下结果同型，按类型限额只会把结果截断到限额数
+            max_per_type = top_k
+        diverse = apply_diversity(ranked_with_type, top_k=top_k, max_per_type=max_per_type)
 
         # 只对进入最终列表的记忆（≤ max_items 条）批量计算效用分，
         # 供上下文优先级排序在同优先级内综合 score + utility 排序
@@ -573,16 +633,20 @@ class RetrievalEngine:
 
         final_memories: list[dict[str, Any]] = []
         sources: list[dict[str, Any]] = []
-        for rank, (mem_id, final_score, mem_type) in enumerate(diverse, 1):
+        rank = 0
+        for mem_id, final_score, _mem_type in diverse:
             m = mem_map.get(mem_id)
             if not m:
                 continue
+            rank += 1
             final_memories.append(
                 {
                     "id": mem_id,
                     "title": m.title,
                     "content": m.content,
                     "type": m.type,
+                    "tags": m.tags or [],
+                    "version": m.version,
                     "score": round(final_score, 4),
                     # 信号分项：显式命名各路分数，与 rrf/utility 一起供
                     # trace metadata 落库与调用方排查"为什么排在这个位置"
@@ -605,8 +669,92 @@ class RetrievalEngine:
             )
             sources.append({"memory_id": mem_id, "score": round(final_score, 4)})
 
-        # 混合模式：将 episode 结果并入最终列表
-        if mode == "hybrid":
+        latency_ms = int((time.time() - start_time) * 1000)
+
+        if record_trace and workspace_id is not None:
+            try:
+                await self._record_trace(
+                    db=db,
+                    workspace_id=workspace_id,
+                    session_id=session_id,
+                    query=query or "",
+                    analyzed=analyzed,
+                    candidates=candidates,
+                    final_memories=final_memories,
+                    latency_ms=latency_ms,
+                )
+            except Exception as e:
+                logger.warning("Failed to record retrieval trace: %s", e)
+
+        return {
+            "memories": final_memories,
+            "sources": sources,
+            "total": len(rerank_inputs),
+            "fallback": False,
+            "latency_ms": latency_ms,
+            "analyzed": analyzed,
+            "candidates": candidates,
+        }
+
+    async def retrieve(
+        self,
+        query: str | None,
+        workspace_id: uuid.UUID,
+        db: AsyncSession,
+        project_id: uuid.UUID | None = None,
+        max_items: int = 10,
+        max_tokens: int = 5000,
+        session_id: uuid.UUID | None = None,
+        mode: str = "semantic",
+    ) -> dict[str, Any]:
+        """语义检索 + 上下文组装（/v1/context 入口）。
+
+        排序管线委托 search_ranked()；本方法负责 episode 模式分支、
+        混合模式的 episode 并入、上下文组装，以及组装后记录带
+        filter_reasons 的完整 trace。
+        """
+        start_time = time.time()
+
+        # 纯 episode 模式：完全跳过语义检索流水线
+        if mode == "episodic":
+            try:
+                from packages.domain.config import parasitic_evolution_config as _pec
+
+                if _pec.episodic_retrieval_enabled:
+                    episodes = await self._episodic_search(
+                        query or "", workspace_id, db, top_k=max_items
+                    )
+                    latency_ms = int((time.time() - start_time) * 1000)
+                    return {
+                        "memories": episodes,
+                        "total": len(episodes),
+                        "sources": [],
+                        "context": "\n".join(
+                            f"[Episode] {ep.get('goal', '')}: {ep.get('summary', '')}"
+                            for ep in episodes
+                        ),
+                        "latency_ms": latency_ms,
+                        "fallback": False,
+                    }
+            except Exception:
+                logger.debug(
+                    "Episodic retrieval failed, falling through to semantic", exc_info=True
+                )
+
+        result = await self.search_ranked(
+            db=db,
+            query=query,
+            workspace_id=workspace_id,
+            project_id=project_id,
+            top_k=max_items,
+            session_id=session_id,
+            record_trace=False,
+        )
+        final_memories = result["memories"]
+
+        # 混合模式：将 episode 结果并入最终列表（fallback 时保持原有
+        # 直接返回的行为，不并入 episode）
+        if mode == "hybrid" and not result["fallback"]:
             try:
                 from packages.domain.config import parasitic_evolution_config as _pec
 
@@ -628,8 +776,8 @@ class RetrievalEngine:
                 workspace_id=workspace_id,
                 session_id=session_id,
                 query=query or "",
-                analyzed=analyzed,
-                candidates=candidates,
+                analyzed=result["analyzed"],
+                candidates=result["candidates"],
                 final_memories=final_memories,
                 latency_ms=latency_ms,
                 ctx=ctx,
@@ -640,21 +788,25 @@ class RetrievalEngine:
         return {
             "memories": final_memories,
             "total": len(final_memories),
-            "sources": sources,
+            "sources": result["sources"],
             "context": ctx.text,
             "latency_ms": latency_ms,
+            "fallback": result["fallback"],
         }
 
     def _apply_candidate_filters(
         self,
         reranked: list[tuple[str, float]],
         mem_map: dict[str, Any],
+        *,
+        skip_stale: bool = False,
     ) -> list[tuple[str, float]]:
         """候选 hard 档早删（过期/低置信/低相关）。
 
         demote 与 none 档不在这里处理——组装器入口（apply_entry_filters）
         会统一执行全部档位，这里再降分会让同一候选被连乘两次惩罚因子。
         早删只做 hard 剔除：被删候选不再占用多样性名额、不进 utility 聚合。
+        skip_stale：历史意图查询豁免过期早删——过期记忆正是答案。
         档位值非法按 none 处理并告警，配置错误不阻断检索。
         """
         stale_mode = normalize_mode(settings.stale_filter_mode, "stale_filter_mode")
@@ -663,7 +815,7 @@ class RetrievalEngine:
         conf_floor = settings.confidence_floor
         rel_floor = settings.relevance_floor
 
-        stale_hard = stale_mode == "hard"
+        stale_hard = stale_mode == "hard" and not skip_stale
         conf_hard = conf_mode == "hard" and conf_floor > 0
         rel_hard = rel_mode == "hard" and rel_floor > 0
         if not (stale_hard or conf_hard or rel_hard):

@@ -47,7 +47,7 @@ const SkillCard = memo(function SkillCard({
       }}
       role="button"
       tabIndex={0}
-      className="group relative px-4 py-3 hover-lift hover:bg-brand-50/20 cursor-pointer transition-all duration-150"
+      className="group relative px-4 py-3 hover-lift hover:bg-brand-badge-bg cursor-pointer transition-all duration-150"
     >
       <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-full bg-brand-400 opacity-40 transition-opacity duration-150" />
       <div className="flex items-start gap-3.5 group-hover:translate-x-0.5 transition-transform duration-150">

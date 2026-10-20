@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 
@@ -34,148 +34,172 @@ def build_relation_test_suite() -> list[RelationTestCase]:
     cases: list[RelationTestCase] = []
 
     # 1. 文本不同但事实相同（语义重复）
-    cases.append(RelationTestCase(
-        id="dup-001",
-        category="semantic_duplicate",
-        candidate_title="SQLite WAL 同步前必须 checkpoint",
-        existing_title="WAL checkpoint 是同步前置条件",
-        candidate_content="cwiki 使用 SQLite WAL 模式，多设备同步前需执行 PRAGMA wal_checkpoint(TRUNCATE)，确保数据库提交内容完整无 WAL 残留。",
-        existing_content="同步数据库之前必须先运行 wal_checkpoint(TRUNCATE) 命令，这是 SQLite WAL 模式下的必要步骤，保证数据完整性。",
-        expected_relation="similar",
-        difficulty="medium",
-        notes="措辞不同但核心事实相同",
-    ))
-    cases.append(RelationTestCase(
-        id="dup-002",
-        category="semantic_duplicate",
-        candidate_title="React useEffect 清理函数防止内存泄漏",
-        existing_title="useEffect 返回清理函数",
-        candidate_content="在 React 中使用 useEffect 时，必须返回一个清理函数来取消订阅或清除定时器，否则组件卸载后会导致内存泄漏。",
-        existing_content="useEffect hook 的返回值作为清理回调，在组件卸载或依赖变化时执行，用于释放订阅、定时器等资源。",
-        expected_relation="similar",
-        difficulty="easy",
-        notes="同一知识点的不同表述",
-    ))
+    cases.append(
+        RelationTestCase(
+            id="dup-001",
+            category="semantic_duplicate",
+            candidate_title="SQLite WAL 同步前必须 checkpoint",
+            existing_title="WAL checkpoint 是同步前置条件",
+            candidate_content="cwiki 使用 SQLite WAL 模式，多设备同步前需执行 PRAGMA wal_checkpoint(TRUNCATE)，确保数据库提交内容完整无 WAL 残留。",
+            existing_content="同步数据库之前必须先运行 wal_checkpoint(TRUNCATE) 命令，这是 SQLite WAL 模式下的必要步骤，保证数据完整性。",
+            expected_relation="similar",
+            difficulty="medium",
+            notes="措辞不同但核心事实相同",
+        )
+    )
+    cases.append(
+        RelationTestCase(
+            id="dup-002",
+            category="semantic_duplicate",
+            candidate_title="React useEffect 清理函数防止内存泄漏",
+            existing_title="useEffect 返回清理函数",
+            candidate_content="在 React 中使用 useEffect 时，必须返回一个清理函数来取消订阅或清除定时器，否则组件卸载后会导致内存泄漏。",
+            existing_content="useEffect hook 的返回值作为清理回调，在组件卸载或依赖变化时执行，用于释放订阅、定时器等资源。",
+            expected_relation="similar",
+            difficulty="easy",
+            notes="同一知识点的不同表述",
+        )
+    )
 
     # 2. 内容高度相似、结论却相反（事实冲突）
-    cases.append(RelationTestCase(
-        id="conflict-001",
-        category="contradiction",
-        candidate_title="Python 3.12 已支持自由线程模式",
-        existing_title="Python 不支持真正的多线程并行",
-        candidate_content="Python 3.12 引入了实验性的 free-threaded 模式（PEP 703），通过 --disable-gil 编译可启用无 GIL 的真正并行执行。",
-        existing_content="CPython 的 GIL 限制使得多线程无法实现真正的 CPU 并行，需要多进程或异步来绕过。",
-        expected_relation="similar",
-        difficulty="hard",
-        notes="新版本引入了例外，旧结论在特定条件下不再成立",
-    ))
-    cases.append(RelationTestCase(
-        id="conflict-002",
-        category="contradiction",
-        candidate_title="推荐用 npm ci 替代 npm install",
-        existing_title="项目统一使用 npm install",
-        candidate_content="CI 环境和生产部署应使用 npm ci 而非 npm install，前者严格按 lockfile 安装，保证可重现性。",
-        existing_content="团队统一使用 npm install 安装依赖，确保 node_modules 与 package.json 一致。",
-        expected_relation="similar",
-        difficulty="medium",
-        notes="新结论是对旧约定的修正，适用于特定场景",
-    ))
+    cases.append(
+        RelationTestCase(
+            id="conflict-001",
+            category="contradiction",
+            candidate_title="Python 3.12 已支持自由线程模式",
+            existing_title="Python 不支持真正的多线程并行",
+            candidate_content="Python 3.12 引入了实验性的 free-threaded 模式（PEP 703），通过 --disable-gil 编译可启用无 GIL 的真正并行执行。",
+            existing_content="CPython 的 GIL 限制使得多线程无法实现真正的 CPU 并行，需要多进程或异步来绕过。",
+            expected_relation="similar",
+            difficulty="hard",
+            notes="新版本引入了例外，旧结论在特定条件下不再成立",
+        )
+    )
+    cases.append(
+        RelationTestCase(
+            id="conflict-002",
+            category="contradiction",
+            candidate_title="推荐用 npm ci 替代 npm install",
+            existing_title="项目统一使用 npm install",
+            candidate_content="CI 环境和生产部署应使用 npm ci 而非 npm install，前者严格按 lockfile 安装，保证可重现性。",
+            existing_content="团队统一使用 npm install 安装依赖，确保 node_modules 与 package.json 一致。",
+            expected_relation="similar",
+            difficulty="medium",
+            notes="新结论是对旧约定的修正，适用于特定场景",
+        )
+    )
 
     # 3. 新记忆补全旧记忆缺失的条件
-    cases.append(RelationTestCase(
-        id="complement-001",
-        category="complementary",
-        candidate_title="数据库连接池超时配置",
-        existing_title="数据库连接池大小配置",
-        candidate_content="PostgreSQL 连接池除了大小（默认 20），还需设置超时：idle_timeout=300s，connection_timeout=10s，statement_timeout=30s。超时配置直接影响连接回收和查询可靠性。",
-        existing_content="数据库连接池大小建议设为 20，根据并发量调整。过小会导致请求排队，过大会耗尽数据库资源。",
-        expected_relation="similar",
-        difficulty="medium",
-        notes="候选补全了旧记忆缺失的超时配置维度",
-    ))
-    cases.append(RelationTestCase(
-        id="complement-002",
-        category="complementary",
-        candidate_title="FastAPI 异常处理中间件",
-        existing_title="FastAPI 路由错误处理",
-        candidate_content="除了路由级 try/except，还应注册全局异常处理器：app.add_exception_handler(RequestValidationError, handler)，统一处理 422 响应格式。",
-        existing_content="FastAPI 路由中使用 try/except 捕获异常，返回合适的 HTTP 状态码和错误信息。",
-        expected_relation="similar",
-        difficulty="easy",
-        notes="候选补充了全局异常处理这一旧记忆未覆盖的层面",
-    ))
+    cases.append(
+        RelationTestCase(
+            id="complement-001",
+            category="complementary",
+            candidate_title="数据库连接池超时配置",
+            existing_title="数据库连接池大小配置",
+            candidate_content="PostgreSQL 连接池除了大小（默认 20），还需设置超时：idle_timeout=300s，connection_timeout=10s，statement_timeout=30s。超时配置直接影响连接回收和查询可靠性。",
+            existing_content="数据库连接池大小建议设为 20，根据并发量调整。过小会导致请求排队，过大会耗尽数据库资源。",
+            expected_relation="similar",
+            difficulty="medium",
+            notes="候选补全了旧记忆缺失的超时配置维度",
+        )
+    )
+    cases.append(
+        RelationTestCase(
+            id="complement-002",
+            category="complementary",
+            candidate_title="FastAPI 异常处理中间件",
+            existing_title="FastAPI 路由错误处理",
+            candidate_content="除了路由级 try/except，还应注册全局异常处理器：app.add_exception_handler(RequestValidationError, handler)，统一处理 422 响应格式。",
+            existing_content="FastAPI 路由中使用 try/except 捕获异常，返回合适的 HTTP 状态码和错误信息。",
+            expected_relation="similar",
+            difficulty="easy",
+            notes="候选补充了全局异常处理这一旧记忆未覆盖的层面",
+        )
+    )
 
     # 4. 相同技术在不同版本下的适用差异
-    cases.append(RelationTestCase(
-        id="variant-001",
-        category="context_variant",
-        candidate_title="React 19 Server Components 数据获取",
-        existing_title="React 数据获取使用 useEffect",
-        candidate_content="React 19 Server Components 中直接在组件内 async/await 获取数据，无需 useEffect。服务端组件在构建时执行，数据随 HTML 流式传输。",
-        existing_content="React 组件中使用 useEffect + useState 在客户端获取数据，处理 loading 和 error 状态。",
-        expected_relation="new",
-        difficulty="hard",
-        notes="不同版本/模式下的不同做法，都有效但适用条件不同",
-    ))
-    cases.append(RelationTestCase(
-        id="variant-002",
-        category="context_variant",
-        candidate_title="Python 3.11 异常组处理",
-        existing_title="Python 异常处理最佳实践",
-        candidate_content="Python 3.11 引入 ExceptionGroup 和 except* 语法，可同时捕获多个并发异常。适用于 asyncio.TaskGroup 等并发场景。",
-        existing_content="Python 异常处理应使用具体的异常类型而非 bare except，配合 try/except/else/finally 结构化处理。",
-        expected_relation="new",
-        difficulty="medium",
-        notes="新语法补充了并发异常处理，与通用异常实践互补",
-    ))
+    cases.append(
+        RelationTestCase(
+            id="variant-001",
+            category="context_variant",
+            candidate_title="React 19 Server Components 数据获取",
+            existing_title="React 数据获取使用 useEffect",
+            candidate_content="React 19 Server Components 中直接在组件内 async/await 获取数据，无需 useEffect。服务端组件在构建时执行，数据随 HTML 流式传输。",
+            existing_content="React 组件中使用 useEffect + useState 在客户端获取数据，处理 loading 和 error 状态。",
+            expected_relation="new",
+            difficulty="hard",
+            notes="不同版本/模式下的不同做法，都有效但适用条件不同",
+        )
+    )
+    cases.append(
+        RelationTestCase(
+            id="variant-002",
+            category="context_variant",
+            candidate_title="Python 3.11 异常组处理",
+            existing_title="Python 异常处理最佳实践",
+            candidate_content="Python 3.11 引入 ExceptionGroup 和 except* 语法，可同时捕获多个并发异常。适用于 asyncio.TaskGroup 等并发场景。",
+            existing_content="Python 异常处理应使用具体的异常类型而非 bare except，配合 try/except/else/finally 结构化处理。",
+            expected_relation="new",
+            difficulty="medium",
+            notes="新语法补充了并发异常处理，与通用异常实践互补",
+        )
+    )
 
     # 5. 版本迭代更新
-    cases.append(RelationTestCase(
-        id="update-001",
-        category="update",
-        candidate_title="部署流程 v2.1.0：蓝绿发布",
-        existing_title="部署流程 v2.0.0：滚动发布",
-        candidate_content="部署流程使用 v2.1.0，采用蓝绿发布策略：先部署到 green 环境，健康检查通过后切换流量，失败可秒级回滚。",
-        existing_content="部署流程使用 v2.0.0，采用滚动发布策略：逐批替换实例，每批 25%，间隔 30 秒健康检查。",
-        expected_relation="update_candidate",
-        difficulty="easy",
-        notes="明确的版本号迭代",
-    ))
-    cases.append(RelationTestCase(
-        id="update-002",
-        category="update",
-        candidate_title="2026-10 会议决定迁移到 PostgreSQL 16",
-        existing_title="2026-06 会议记录：数据库选型",
-        candidate_content="2026-10-15 架构评审会议决定从 PostgreSQL 14 迁移到 16，主要动机是 JSON 查询性能提升 30% 和逻辑复制改进。迁移计划 2026-11 完成。",
-        existing_content="2026-06-01 技术选型会议讨论了数据库方案，最终选择 PostgreSQL 14 作为主数据库，理由是成熟稳定和团队经验。",
-        expected_relation="update_candidate",
-        difficulty="easy",
-        notes="时间推进带来的决策更新",
-    ))
+    cases.append(
+        RelationTestCase(
+            id="update-001",
+            category="update",
+            candidate_title="部署流程 v2.1.0：蓝绿发布",
+            existing_title="部署流程 v2.0.0：滚动发布",
+            candidate_content="部署流程使用 v2.1.0，采用蓝绿发布策略：先部署到 green 环境，健康检查通过后切换流量，失败可秒级回滚。",
+            existing_content="部署流程使用 v2.0.0，采用滚动发布策略：逐批替换实例，每批 25%，间隔 30 秒健康检查。",
+            expected_relation="update_candidate",
+            difficulty="easy",
+            notes="明确的版本号迭代",
+        )
+    )
+    cases.append(
+        RelationTestCase(
+            id="update-002",
+            category="update",
+            candidate_title="2026-10 会议决定迁移到 PostgreSQL 16",
+            existing_title="2026-06 会议记录：数据库选型",
+            candidate_content="2026-10-15 架构评审会议决定从 PostgreSQL 14 迁移到 16，主要动机是 JSON 查询性能提升 30% 和逻辑复制改进。迁移计划 2026-11 完成。",
+            existing_content="2026-06-01 技术选型会议讨论了数据库方案，最终选择 PostgreSQL 14 作为主数据库，理由是成熟稳定和团队经验。",
+            expected_relation="update_candidate",
+            difficulty="easy",
+            notes="时间推进带来的决策更新",
+        )
+    )
 
     # 6. 多条旧记忆合并后仍需保留的独立信息
-    cases.append(RelationTestCase(
-        id="merge-001",
-        category="merge_preserve",
-        candidate_title="前端 Vite 构建优化",
-        existing_title="后端 FastAPI 部署配置",
-        candidate_content="前端 Vite 构建优化要点：1) 使用 rollup 分包策略，vendor chunk 单独缓存；2) 图片资源走 CDN；3) 开启 gzip/brotli 压缩。",
-        existing_content="后端 FastAPI 部署配置：1) uvicorn worker 数 = CPU 核心数；2) 端口 8000；3) 日志格式 JSON；4) 健康检查端点 /health。",
-        expected_relation="new",
-        difficulty="easy",
-        notes="主题完全不同，不应合并",
-    ))
-    cases.append(RelationTestCase(
-        id="merge-002",
-        category="merge_preserve",
-        candidate_title="Git rebase 与 merge 的选择",
-        existing_title="Git 分支命名规范",
-        candidate_content="团队 Git 工作流：feature 分支用 rebase 保持线性历史，main 分支用 merge commit 保留合并点。禁止 force push 到 main。",
-        existing_content="Git 分支命名规范：feature/xxx、bugfix/xxx、release/x.y.z。分支名全小写，单词用连字符分隔。",
-        expected_relation="new",
-        difficulty="easy",
-        notes="同属 Git 约定但角度不同，应保留为独立记忆",
-    ))
+    cases.append(
+        RelationTestCase(
+            id="merge-001",
+            category="merge_preserve",
+            candidate_title="前端 Vite 构建优化",
+            existing_title="后端 FastAPI 部署配置",
+            candidate_content="前端 Vite 构建优化要点：1) 使用 rollup 分包策略，vendor chunk 单独缓存；2) 图片资源走 CDN；3) 开启 gzip/brotli 压缩。",
+            existing_content="后端 FastAPI 部署配置：1) uvicorn worker 数 = CPU 核心数；2) 端口 8000；3) 日志格式 JSON；4) 健康检查端点 /health。",
+            expected_relation="new",
+            difficulty="easy",
+            notes="主题完全不同，不应合并",
+        )
+    )
+    cases.append(
+        RelationTestCase(
+            id="merge-002",
+            category="merge_preserve",
+            candidate_title="Git rebase 与 merge 的选择",
+            existing_title="Git 分支命名规范",
+            candidate_content="团队 Git 工作流：feature 分支用 rebase 保持线性历史，main 分支用 merge commit 保留合并点。禁止 force push 到 main。",
+            existing_content="Git 分支命名规范：feature/xxx、bugfix/xxx、release/x.y.z。分支名全小写，单词用连字符分隔。",
+            expected_relation="new",
+            difficulty="easy",
+            notes="同属 Git 约定但角度不同，应保留为独立记忆",
+        )
+    )
 
     return cases
 

@@ -9,11 +9,13 @@ export interface SearchResult {
   content: string
   type: string
   score?: number | null
+  similarity_score?: number | null
 }
 
 export interface SearchResponse {
   results: SearchResult[]
   total: number
+  insufficient?: boolean
 }
 
 // 类型过滤在结果级应用：后端返回的 type 为空时按 'fact' 兜底归类
@@ -31,7 +33,11 @@ async function executeSearch(
 ): Promise<SearchResponse> {
   if (mode === 'semantic') {
     const data = await api.semanticSearch(query, 50)
-    const results = filterByType(data.results || [], opts.memoryType)
+    // semantic 端点的相似度字段为 similarity_score，归一化为 score 供结果行统一展示
+    const results = filterByType(data.results || [], opts.memoryType).map((r) => ({
+      ...r,
+      score: r.score ?? r.similarity_score ?? null,
+    }))
     return { results, total: results.length }
   }
   if (mode === 'hybrid') {

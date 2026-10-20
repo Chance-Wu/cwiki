@@ -16,8 +16,8 @@ from unittest.mock import Mock
 
 import pytest
 
-from adapters.qoder import outbox as outbox_module
-from adapters.qoder.outbox import (
+from adapters.mcp import outbox as outbox_module
+from adapters.mcp.outbox import (
     WriteAheadOutbox,
     _atomic_write_json,
     _load_json,
@@ -500,7 +500,7 @@ class TestPurgeExhausted:
         # 手动把 exhausted_at 时间戳改旧
         all_entries = outbox.load_all("ws-1")
         all_entries[0]["exhausted_at"] = (datetime.now(UTC) - timedelta(days=8)).isoformat()
-        from adapters.qoder.outbox import _atomic_write_json
+        from adapters.mcp.outbox import _atomic_write_json
 
         _atomic_write_json(tmp_path / "ws-1.json", all_entries)
 
@@ -547,7 +547,7 @@ class TestPurgeExhausted:
         for ws in ["ws-1", "ws-2"]:
             entries = outbox.load_all(ws)
             entries[0]["exhausted_at"] = (datetime.now(UTC) - timedelta(days=10)).isoformat()
-            from adapters.qoder.outbox import _atomic_write_json
+            from adapters.mcp.outbox import _atomic_write_json
 
             _atomic_write_json(tmp_path / f"{ws}.json", entries)
 

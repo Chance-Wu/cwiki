@@ -13,19 +13,21 @@ description: 按需检索和保存知识。会话开始或话题切换时用 mem
 
 先写清值得保留的信息，再选类型。篇幅和条数不是目标。满足任一即可保存：(1) 帮助未来 agent 建立在已有知识之上；(2) 帮助用户学习、回顾或检索技术知识。
 
-**工具概览**（14 个，均 `memory_` 前缀）：核心 `search`/`save`/`update`；状态 `status`/`types`；检查点 `checkpoint`；恢复 `retry_failed`；辅助 `relations`/`history`（拆分前查 relations，更新前查 history）；复习 `review_due`/`review_submit`/`review_stats`；运维 `export`/`import`。
+**工具概览**（16 个，均 `memory_` 前缀）：核心 `search`/`save`/`update`/`feedback`/`forget`；状态 `status`/`types`；检查点 `checkpoint`；恢复 `retry_failed`；辅助 `relations`/`history`（拆分前查 relations，更新前查 history）；复习 `review_due`/`review_submit`/`review_stats`；运维 `export`/`import`。
 
 首次使用：确认 `save`/`search` 可用，调 `status` 核对工作区和限制。
 
 ## 工具参数速查
 
-**工作区参数名是 `workspace_name`（取当前项目目录名）；所有工具 schema 均为 `additionalProperties: false`，传入表中未列出的键会被直接拒绝。**
+**所有工具 schema 均为 `additionalProperties: false`，传入表中未列出的键会被直接拒绝。工作区自动使用 Agent 当前绑定的项目（宿主 hook 实时同步），`workspace_name` 仅在明确要跨项目操作时才传。**
 
 | 工具 | 必填 | 可选 | 接收 workspace_name |
 |------|------|------|:---:|
 | `memory_search` | `keyword` 或 `query`（二选一） | `limit`(非 curated 1–100，curated 1–50，默认 10)、`mode`(hybrid/semantic)、`curated`、`max_tokens`、`project`、`filters`(`type`/`min_confidence`) | ✓ |
 | `memory_save` | `title`(≤80 字符)、`content`(≥20 字符) | `type` | ✓ |
 | `memory_update` | `memory_id` | `content`、`title`、`expected_version`、`confidence`、`importance`、`reason`、`is_permanent`、`permanent_reason` | ✗ |
+| `memory_feedback` | `memory_id`、`feedback_type` | `reason` | ✓ |
+| `memory_forget` | `memory_id` | `reason` | ✓ |
 | `memory_history` | `memory_id` | `view`(lifecycle/content)、`limit`(仅 content 视图) | ✗ |
 | `memory_relations` | `memory_id` | `depth`(默认 1) | ✗ |
 | `memory_checkpoint` | `trigger_reason` | `dry_run`、`event_session_id` | ✓ |
@@ -41,13 +43,13 @@ description: 按需检索和保存知识。会话开始或话题切换时用 mem
 常见调用形态：
 
 ```text
-memory_search(keyword="业务关键词", workspace_name="当前项目目录名", limit=5)   # 业务召回：限定工作区
+memory_search(keyword="业务关键词", limit=5)                                  # 工作区自动绑定当前项目
 memory_search(keyword="关键词", limit=5)                                        # 通用召回 / 查重：跨全部工作区
-memory_save(title="主题", content="完整正文…", type="lesson", workspace_name="当前项目目录名")
+memory_save(title="主题", content="完整正文…", type="lesson")                  # 自动写入当前项目
 memory_update(memory_id="<id>", content="新正文…", reason="补充边界条件")
 ```
 
-标注 ✗ 的工具不接收工作区参数。`keyword` 与 `query` 等价，传其一即可；`trigger_reason` 枚举见「检查点与结束前回顾」；`max_tokens` 与 `project` 仅在 `curated=true` 时使用。`memory_search` 省略 `workspace_name` 时跨全部工作区搜索（业务召回传当前项目目录名，通用召回/查重省略）；`curated=true` 省略时回落默认工作区。
+标注 ✗ 的工具不接收工作区参数。`keyword` 与 `query` 等价，传其一即可；`trigger_reason` 枚举见「检查点与结束前回顾」；`max_tokens` 与 `project` 仅在 `curated=true` 时使用。**工作区默认自动绑定 Agent 当前项目**（宿主 hook 实时同步，`memory_save` 不需要传 `workspace_name`）；`memory_search` 省略时跨全部工作区搜索，传 `workspace_name` 只用于显式限定。
 
 ## 信号识别
 
@@ -89,7 +91,7 @@ memory_update(memory_id="<id>", content="新正文…", reason="补充边界条�
 
 识别到信号后，先查重再决定动作。后端在提交时也会自动检测相似记忆并返回提示。
 
-**搜索策略**：提取 2-3 个核心关键词，用 `memory_search(keyword=..., limit=5)` 查重——**省略 `workspace_name` 跨工作区比对**，同一知识可能已存在于其他工作区。若已知类型可用 `filters={"type": "lesson"}` 缩小范围。首轮无相关时换词再试（去修饰词、上位概念、中英互换），两轮无相关 → 新建（`memory_save` 传当前项目工作区）。
+**搜索策略**：提取 2-3 个核心关键词，用 `memory_search(keyword=..., limit=5)` 查重——**省略 `workspace_name` 跨工作区比对**，同一知识可能已存在于其他工作区。若已知类型可用 `filters={"type": "lesson"}` 缩小范围。首轮无相关时换词再试（去修饰词、上位概念、中英互换），两轮无相关 → 新建（`memory_save` 自动写入当前项目工作区）。
 
 **决策流程**：
 
@@ -149,7 +151,7 @@ memory_update(memory_id="<id>", content="新正文…", reason="补充边界条�
 
 ## 保存与更新
 
-`memory_save(title=标题, content=完整正文, type=可选, workspace_name=当前项目目录名)`。**`title`（≤80 字符）与 `content` 均必填**；type 不传自动推断；workspace_name 应传当前项目目录名（不传则回落会话默认工作区，可能不在目标工作区）。最低 `len(content.strip()) >= 20`，**有效最低 30 字符**（排除规则会拒绝 <30 或 >80% 代码的内容）。`#memory/{type}` 和 `#memory/{workspace}` 标签由服务端自动注入。新候选为 `pending_review`，需人工批准。
+`memory_save(title=标题, content=完整正文, type=可选)`。**`title`（≤80 字符）与 `content` 均必填**；type 不传自动推断；**workspace_name 通常不传**——宿主 hook 会把工作区实时同步到当前项目。**返回结果回显 `workspace` 字段：每次保存后核对它是当前项目；若落到 `default` 或他区（hook 未激活、注册表过期、宿主刚切换项目），补传 `workspace_name=<项目目录名>` 重提一次；错误归属的 pending 候选不审批即可（人工拒绝或在 Web 控制台删除），绝不留到转正。**最低 `len(content.strip()) >= 20`，**有效最低 30 字符**（排除规则会拒绝 <30 或 >80% 代码的内容）。`#memory/{type}` 和 `#memory/{workspace}` 标签由服务端自动注入。新候选为 `pending_review`，需人工批准。
 
 ### 服务端处理链
 
@@ -197,6 +199,12 @@ memory_update(memory_id="<id>", content="新正文…", reason="补充边界条�
 | 内容被排除规则拒绝 | 正文去空白后 <30 字符或代码占比 >80%；补充分析、背景或结论后重新提交 |
 | 更新超时 | 可能已生效；先读当前正文与版本再决定是否重试，支持 `expected_version` |
 | 用户要求只读 | 不调用 save/update/重试/非预览 checkpoint |
+
+## 反馈与遗忘
+
+- 回答中实际使用了某条记忆 → `memory_feedback(memory_id=..., feedback_type="useful")`；帮助不大 → `not_useful`；内容过时/错误 → `outdated` / `wrong`。
+- 确认一条记忆错误且不应继续出现 → `memory_forget(memory_id=..., reason="...")`。这是软归档，可在控制台恢复；不要用更新正文来“假装删除”。
+- 反馈是后续排序和归档的依据，只对真正相关的记忆调用，不刷量。
 
 ## 检查点与结束前回顾
 

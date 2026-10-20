@@ -11,9 +11,17 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, model_validator
 
 MemoryType = Literal[
-    "fact", "decision", "lesson", "issue", "convention",
-    "pattern", "procedure", "feedback", "reference",
-    "constraint", "rule",
+    "fact",
+    "decision",
+    "lesson",
+    "issue",
+    "convention",
+    "pattern",
+    "procedure",
+    "feedback",
+    "reference",
+    "constraint",
+    "rule",
 ]
 
 ConfidenceLevel = Literal["high", "medium", "low", "unverified"]
@@ -99,10 +107,11 @@ class MemoryCandidateContract(BaseModel):
         missing: list[str] = []
         for field in required:
             value = getattr(self, field, None)
-            if not value or (isinstance(value, str) and not value.strip()):
-                missing.append(field)
-            elif isinstance(value, BaseModel) and not any(
-                getattr(value, f_name, None) for f_name in value.model_fields
+            if (
+                not value
+                or (isinstance(value, str) and not value.strip())
+                or isinstance(value, BaseModel)
+                and not any(getattr(value, f_name, None) for f_name in value.model_fields)
             ):
                 missing.append(field)
         # 不抛异常——记录缺失项供质量报告使用
@@ -114,10 +123,11 @@ class MemoryCandidateContract(BaseModel):
         missing: list[str] = []
         for field in required:
             value = getattr(self, field, None)
-            if not value or (isinstance(value, str) and not value.strip()):
-                missing.append(field)
-            elif isinstance(value, BaseModel) and not any(
-                getattr(value, f_name, None) for f_name in value.model_fields
+            if (
+                not value
+                or (isinstance(value, str) and not value.strip())
+                or isinstance(value, BaseModel)
+                and not any(getattr(value, f_name, None) for f_name in value.model_fields)
             ):
                 missing.append(field)
         return missing

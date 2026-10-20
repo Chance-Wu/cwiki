@@ -21,6 +21,7 @@ class AnalyzedQuery:
     negations: list[str] = field(default_factory=list)
     phrases: list[str] = field(default_factory=list)
     key_terms: list[str] = field(default_factory=list)
+    is_historical_query: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         # 序列化结果中排除 raw 与 is_question（对下游无分析价值）。
@@ -109,6 +110,49 @@ _INTENT_KEYWORDS: dict[str, list[str]] = {
 
 # 意图达到满置信度所需的命中关键词数。
 _CONFIDENCE_FULL_MATCH = 3
+
+# 历史意图查询标记：明确在问"X 出来之前/当初/演进"等往事的查询。
+# 此类查询下过期（valid_to 已过）记忆正是答案，temporal 信号与
+# stale 过滤应豁免，否则 gold 被压成底分/剔除（W4 C5-q2 实测）。
+# "之前/以前"单独出现太宽（"检索之前先分词"是流程顺序非历史），
+# 用"之前是怎么/之前用/X 之前"等组合限定误报。
+_HISTORICAL_QUERY_PATTERNS: list[re.Pattern[str]] = [
+    re.compile(p, re.IGNORECASE)
+    for p in [
+        r"以前",
+        r"之前是怎么",
+        r"之前是",
+        r"之前用",
+        r"出来之前",
+        r"推出之前",
+        r"上线之前",
+        r"发布之前",
+        r"引入之前",
+        r"出现之前",
+        r"诞生之前",
+        r"存在之前",
+        r"当初",
+        r"当年",
+        r"曾经",
+        r"历史上",
+        r"历史方案",
+        r"旧方案",
+        r"旧版本",
+        r"老版本",
+        r"老方案",
+        r"过去用",
+        r"原来用",
+        r"演进",
+        r"演变",
+        r"变迁",
+        r"used to",
+        r"previously",
+        r"historically",
+        r"legacy",
+        r"old (?:version|approach|way)",
+        r"before (?:switching|migrating|upgrading|we (?:used|adopted))",
+    ]
+]
 
 # 预编译意图关键词正则（避免每个查询重复编译）。
 _INTENT_KEYWORD_PATTERNS: dict[str, list[re.Pattern[str]]] = {
@@ -318,6 +362,7 @@ def analyze_query(query: str) -> AnalyzedQuery:
     result.key_terms = _extract_key_terms(query)
     result.expanded_terms = _expand_synonyms(query, result.key_terms)
     result.needs = _infer_needs(result.intent, result.is_question)
+    result.is_historical_query = any(p.search(query) for p in _HISTORICAL_QUERY_PATTERNS)
 
     return result
 
@@ -348,11 +393,18 @@ def _expand_synonyms(query: str, key_terms: list[str] | None = None) -> list[str
     return expanded[:8]
 
 
+# 否定提取。疑问句式（"要不要加"、"需不需要"）形如"X 不 X"，其"不"字
+# 子串会撞上否定模式——实测把"要不要加"提取出否定"加"，正文含该词的
+# gold 记忆被 negation_penalty 乘 0.3 沉底（C11-q3 评测翻车根因）。
+# 负向后顾断言排除前字相同的疑问式；真否定（"不要用 root"）不受影响。
 _NEGATION_PATTERNS = [
-    re.compile(r"不要([^\s,，。]+)"),
+    re.compile(r"(?<!要)不要([^\s,，。]+)"),
     re.compile(r"排除([^\s,，。]+)"),
     re.compile(r"除了([^\s,，。]+)(?:之外|以外)"),
-    re.compile(r"不(?:需要|想要|包括|包含)([^\s,，。]+)"),
+    re.compile(r"(?<!需)不需要([^\s,，。]+)"),
+    re.compile(r"(?<!想)不想要([^\s,，。]+)"),
+    re.compile(r"(?<!包)不包括([^\s,，。]+)"),
+    re.compile(r"(?<!含)不包含([^\s,，。]+)"),
     re.compile(r"without\s+([^\s,]+)", re.IGNORECASE),
     re.compile(r"exclude?\s+([^\s,]+)", re.IGNORECASE),
 ]

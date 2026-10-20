@@ -127,7 +127,7 @@ async def batch_compute_freshness(
     last_used_map: dict[uuid.UUID, datetime | None] = {}
     for row in result.all():
         mem_id: uuid.UUID = row[0]
-        last_used_dt: datetime | None = row[1]  # type: ignore[assignment]
+        last_used_dt: datetime | None = row[1]
         last_used_map[mem_id] = last_used_dt
 
     freshness_map: dict[uuid.UUID, dict[str, Any]] = {}

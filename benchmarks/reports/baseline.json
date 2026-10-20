@@ -1,0 +1,36 @@
+{
+  "dataset": "eval-fixture",
+  "description": "CI 回归门槛基线（允许 3% 容差）。W6-B 后实测：rerank 接入语义相似度信号（reranker_semantic_weight=0.15，与 RRF 同类不参与元数据封顶）+ W5-B/C/D/E + 否定提取修复",
+  "pipelines": {
+    "baseline_bm25": {
+      "recall_at_10": 0.8625,
+      "mrr": 0.9285,
+      "ndcg_at_10": 0.7694,
+      "useful_at_10": 0.1881
+    },
+    "baseline_vector": {
+      "recall_at_10": 0.7753,
+      "mrr": 0.9116,
+      "ndcg_at_10": 0.7312,
+      "useful_at_10": 0.1614
+    },
+    "full_pipeline": {
+      "recall_at_10": 0.8743,
+      "mrr": 0.9212,
+      "ndcg_at_10": 0.7698,
+      "useful_at_10": 0.1891
+    },
+    "hybrid_rrf": {
+      "recall_at_10": 0.8693,
+      "mrr": 0.9282,
+      "ndcg_at_10": 0.7756,
+      "useful_at_10": 0.1881
+    },
+    "hybrid_rrf_rerank": {
+      "recall_at_10": 0.8664,
+      "mrr": 0.922,
+      "ndcg_at_10": 0.7655,
+      "useful_at_10": 0.1881
+    }
+  }
+}

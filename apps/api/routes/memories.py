@@ -13,7 +13,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import String, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer, noload
 
@@ -56,6 +56,10 @@ from packages.domain.schemas import (
     MemoryUpdate,
     MemoryVersionRead,
     PaginatedResponse,
+    RelationCreate,
+    RelationUpdate,
+    TagMergeRequest,
+    TagRenameRequest,
 )
 from packages.domain.schemas.memory import MemoryContent
 from packages.domain.task_queue import queue as task_queue
@@ -66,6 +70,12 @@ from packages.memory.utility_aggregation import aggregate_utility_scores, latest
 from packages.retrieval.optimizer import optimize_memory
 
 logger = logging.getLogger(__name__)
+
+__all__ = [
+    "invalidate_context_cache",
+    "invalidate_merge_suggestions_cache",
+    "invalidate_search_cache",
+]
 
 # 合并建议的 TTL 缓存（计算开销大）
 _merge_suggestions_cache: dict[str, tuple[float, dict[str, Any]]] = {}
@@ -78,8 +88,158 @@ def invalidate_merge_suggestions_cache(workspace_id: str) -> None:
 
 
 router = APIRouter(prefix=f"{API_V1_PREFIX}/memories", tags=["memories"])
+tags_router = APIRouter(prefix=f"{API_V1_PREFIX}/tags", tags=["tags"])
 
 _MEMORY_NO_EMBED = (defer(Memory.embedding),)
+
+
+@tags_router.get("")
+async def list_tags(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    workspace_id: str | None = Query(None, min_length=1, description="工作区（名称或 UUID）"),
+    _identity: Annotated[AgentIdentity | None, Depends(get_current_agent)] = None,
+) -> dict[str, Any]:
+    """列出 workspace 下所有标签及使用计数。"""
+    resolved_ws_id = await resolve_workspace(workspace_id, db) if workspace_id else None
+
+    stmt = select(Memory.tags).where(Memory.status == "active")
+    if resolved_ws_id:
+        stmt = stmt.where(Memory.workspace_id == resolved_ws_id)
+
+    result = await db.execute(stmt)
+    tag_counts: dict[str, int] = {}
+    for row in result.all():
+        mem_tags = row[0] or []
+        for tag in mem_tags:
+            tag_counts[tag] = tag_counts.get(tag, 0) + 1
+
+    sorted_tags = sorted(tag_counts.items(), key=lambda x: (-x[1], x[0]))
+    return {
+        "tags": [{"name": name, "count": count} for name, count in sorted_tags],
+        "total": len(tag_counts),
+    }
+
+
+@tags_router.put("/{tag_name}")
+async def rename_tag(
+    tag_name: str,
+    body: TagRenameRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    workspace_id: str | None = Query(None, min_length=1),
+    _identity: Annotated[AgentIdentity | None, Depends(get_current_agent)] = None,
+) -> dict[str, Any]:
+    """重命名标签（跨工作区或指定工作区）。"""
+    new_name = body.new_name.strip().lower()
+    if not new_name:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "新标签名不能为空")
+
+    old_name = tag_name.strip().lower()
+    if old_name == new_name:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "新旧标签名相同")
+
+    stmt = select(Memory).where(Memory.status == "active")
+    if workspace_id:
+        resolved = await resolve_workspace(workspace_id, db)
+        if resolved:
+            stmt = stmt.where(Memory.workspace_id == resolved)
+    # SQLite JSON 数组匹配：包含旧标签名的记忆
+    stmt = stmt.where(Memory.tags.cast(String).contains(f'"{old_name}"'))
+
+    result = await db.execute(stmt)
+    memories = result.scalars().all()
+
+    updated_count = 0
+    for memory in memories:
+        tags = memory.tags or []
+        if old_name in tags:
+            new_tags = [new_name if t == old_name else t for t in tags]
+            memory.tags = new_tags
+            updated_count += 1
+
+    await db.commit()
+    return {"old_name": old_name, "new_name": new_name, "updated_count": updated_count}
+
+
+@tags_router.post("/merge")
+async def merge_tags(
+    body: TagMergeRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    workspace_id: str | None = Query(None, min_length=1),
+    _identity: Annotated[AgentIdentity | None, Depends(get_current_agent)] = None,
+) -> dict[str, Any]:
+    """将多个标签合并为一个目标标签。"""
+    target = body.target_tag.strip().lower()
+    if not target:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "目标标签名不能为空")
+
+    sources = [s.strip().lower() for s in body.source_tags if s.strip()]
+    if target in sources:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "目标标签不能在源标签列表中")
+
+    stmt = select(Memory).where(Memory.status == "active")
+    if workspace_id:
+        resolved = await resolve_workspace(workspace_id, db)
+        if resolved:
+            stmt = stmt.where(Memory.workspace_id == resolved)
+
+    # 查找包含任一源标签的记忆
+    conditions = [Memory.tags.cast(String).contains(f'"{s}"') for s in sources]
+    stmt = stmt.where(or_(*conditions))
+
+    result = await db.execute(stmt)
+    memories = result.scalars().all()
+
+    updated_count = 0
+    for memory in memories:
+        tags = memory.tags or []
+        has_source = any(s in tags for s in sources)
+        if not has_source:
+            continue
+        new_tags = [t for t in tags if t not in sources]
+        if target not in new_tags:
+            new_tags.append(target)
+        memory.tags = new_tags
+        updated_count += 1
+
+    await db.commit()
+    return {
+        "source_tags": sources,
+        "target_tag": target,
+        "updated_count": updated_count,
+    }
+
+
+@tags_router.delete("/{tag_name}")
+async def delete_tag(
+    tag_name: str,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    workspace_id: str | None = Query(None, min_length=1),
+    _identity: Annotated[AgentIdentity | None, Depends(get_current_agent)] = None,
+) -> dict[str, Any]:
+    """从所有记忆中删除指定标签。"""
+    tag = tag_name.strip().lower()
+    if not tag:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "标签名不能为空")
+
+    stmt = select(Memory).where(Memory.status == "active")
+    if workspace_id:
+        resolved = await resolve_workspace(workspace_id, db)
+        if resolved:
+            stmt = stmt.where(Memory.workspace_id == resolved)
+    stmt = stmt.where(Memory.tags.cast(String).contains(f'"{tag}"'))
+
+    result = await db.execute(stmt)
+    memories = result.scalars().all()
+
+    updated_count = 0
+    for memory in memories:
+        tags = memory.tags or []
+        if tag in tags:
+            memory.tags = [t for t in tags if t != tag]
+            updated_count += 1
+
+    await db.commit()
+    return {"tag": tag, "updated_count": updated_count}
 
 
 @router.get("/merge-suggestions")
@@ -327,7 +487,7 @@ async def trigger_consolidate(
             detail="Auto-consolidation is disabled. Enable it in config.yaml first.",
         )
 
-    await task_queue.enqueue("auto_consolidate_similar", {})
+    await task_queue.enqueue("auto_consolidate_similar")
 
     return {
         "status": "enqueued",
@@ -454,6 +614,7 @@ async def list_memories(
     memory_type: MemoryType | None = Query(None, alias="type"),
     memory_status: MemoryStatus | None = Query(None, alias="status"),
     project_id: uuid.UUID | None = Query(None),
+    tags: str | None = Query(None, description="按标签过滤，逗号分隔（AND 逻辑）"),
     offset: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     _identity: Annotated[AgentIdentity | None, Depends(get_current_agent)] = None,
@@ -477,6 +638,11 @@ async def list_memories(
         conditions.append(Memory.status == memory_status)
     if project_id:
         conditions.append(Memory.project_id == project_id)
+    if tags:
+        tag_list = [t.strip() for t in tags.split(",") if t.strip()]
+        for tag in tag_list:
+            # SQLite JSON 查询：tags 以 JSON 数组存储，用 LIKE 匹配标签值
+            conditions.append(Memory.tags.cast(String).contains(f'"{tag}"'))
     stmt, count_stmt = apply_optional_filters(stmt, count_stmt, conditions)
 
     total, memories = await execute_paginated(
@@ -584,6 +750,8 @@ async def update_memory(
         memory.confidence = body.confidence
     if body.importance is not None:
         memory.importance = body.importance
+    if body.tags is not None:
+        memory.tags = body.tags
     if body.is_permanent is not None:
         memory.is_permanent = body.is_permanent
         memory.permanent_reason = body.permanent_reason
@@ -826,6 +994,117 @@ async def get_memory_relations(
         "relations": relations,
         "related_memories": related_memories,
         "total_relations": len(relations),
+    }
+
+
+@router.post("/{memory_id}/relations", status_code=status.HTTP_201_CREATED)
+async def create_memory_relation(
+    memory_id: str,
+    body: RelationCreate,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _identity: Annotated[AgentIdentity | None, Depends(get_current_agent)] = None,
+) -> dict[str, Any]:
+    """手动创建两条记忆之间的关系。"""
+    try:
+        source_uid = uuid.UUID(memory_id)
+    except ValueError:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "无效的 memory_id")
+
+    source = await db.get(Memory, source_uid, options=_MEMORY_NO_EMBED)
+    if source is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "源记忆不存在")
+
+    target = await db.get(Memory, body.target_memory_id, options=_MEMORY_NO_EMBED)
+    if target is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "目标记忆不存在")
+
+    if source_uid == body.target_memory_id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "不能与自身建立关系")
+
+    stmt = select(MemoryRelation).where(
+        MemoryRelation.source_memory_id == source_uid,
+        MemoryRelation.target_memory_id == body.target_memory_id,
+        MemoryRelation.relation_type == body.relation_type,
+    )
+    result = await db.execute(stmt)
+    if result.scalar_one_or_none() is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "该关系已存在")
+
+    relation = MemoryRelation(
+        id=uuid.uuid4(),
+        source_memory_id=source_uid,
+        target_memory_id=body.target_memory_id,
+        relation_type=body.relation_type,
+        confidence=body.confidence,
+        created_at=datetime.now(UTC),
+    )
+    db.add(relation)
+    await db.commit()
+    await db.refresh(relation)
+
+    return {
+        "id": str(relation.id),
+        "source_memory_id": str(relation.source_memory_id),
+        "target_memory_id": str(relation.target_memory_id),
+        "relation_type": relation.relation_type,
+        "confidence": relation.confidence,
+    }
+
+
+@router.delete("/{memory_id}/relations/{relation_id}")
+async def delete_memory_relation(
+    memory_id: str,
+    relation_id: str,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _identity: Annotated[AgentIdentity | None, Depends(get_current_agent)] = None,
+) -> dict[str, str]:
+    """删除指定的记忆关系。"""
+    try:
+        rel_uid = uuid.UUID(relation_id)
+    except ValueError:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "无效的 relation_id")
+
+    relation = await db.get(MemoryRelation, rel_uid)
+    if relation is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "关系不存在")
+
+    await db.delete(relation)
+    await db.commit()
+    return {"status": "deleted", "id": relation_id}
+
+
+@router.patch("/{memory_id}/relations/{relation_id}")
+async def update_memory_relation(
+    memory_id: str,
+    relation_id: str,
+    body: RelationUpdate,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _identity: Annotated[AgentIdentity | None, Depends(get_current_agent)] = None,
+) -> dict[str, Any]:
+    """更新关系的类型或置信度。"""
+    try:
+        rel_uid = uuid.UUID(relation_id)
+    except ValueError:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "无效的 relation_id")
+
+    relation = await db.get(MemoryRelation, rel_uid)
+    if relation is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "关系不存在")
+
+    if body.relation_type is not None:
+        relation.relation_type = body.relation_type
+    if body.confidence is not None:
+        relation.confidence = body.confidence
+
+    await db.commit()
+    await db.refresh(relation)
+
+    return {
+        "id": str(relation.id),
+        "source_memory_id": str(relation.source_memory_id),
+        "target_memory_id": str(relation.target_memory_id),
+        "relation_type": relation.relation_type,
+        "confidence": relation.confidence,
     }
 
 

@@ -41,14 +41,17 @@ def extract_candidates_for_annotation(
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
 
-    cur.execute("""
+    cur.execute(
+        """
         SELECT id, title, content, type, source,
                value_score, quality_gate_score, quality_gate_reason,
                novelty, status, created_at
         FROM candidate_memory
         ORDER BY created_at DESC
         LIMIT ?
-    """, (limit,))
+    """,
+        (limit,),
+    )
 
     dataset = []
     for row in cur.fetchall():
@@ -60,7 +63,9 @@ def extract_candidates_for_annotation(
             "type": row["type"],
             "source": row["source"],
             "value_score": round(row["value_score"], 4) if row["value_score"] else None,
-            "quality_gate_score": round(row["quality_gate_score"], 4) if row["quality_gate_score"] else None,
+            "quality_gate_score": round(row["quality_gate_score"], 4)
+            if row["quality_gate_score"]
+            else None,
             "quality_gate_reason": row["quality_gate_reason"],
             "novelty": round(row["novelty"], 4) if row["novelty"] else None,
             "status": row["status"],

@@ -15,9 +15,13 @@ export const getHealth = () => request<HealthResponse>('/health')
 export const getConsistency = () => request<ConsistencyReport>('/consistency')
 
 export const getDashboardStats = () =>
-  request<{ candidates: number; high_value: number; conflicts: number; approved: number }>(
-    '/dashboard-stats',
-  )
+  request<{
+    candidates: number
+    high_value: number
+    conflicts: number
+    approved: number
+    pending_notes: number
+  }>('/dashboard-stats')
 
 export const getMetrics = () =>
   request<{

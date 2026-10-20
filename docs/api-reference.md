@@ -1,18 +1,20 @@
 # API 参考
 
-所有接口前缀 `/v1`。单用户本地部署，无认证（`apps/api/auth.py` 默认信任所有本地请求），默认仅监听 127.0.0.1（局域网访问见 `config.yaml` 的 `app.api_host` 注释）。共 20 个路由模块。
+所有接口前缀 `/v1`。单用户本地部署，无认证（`apps/api/auth.py` 默认信任所有本地请求），默认仅监听 127.0.0.1（局域网访问见 `config.yaml` 的 `app.api_host` 注释）。共 24 个路由模块。
 
 ## 路由模块总览
 
 | 模块 | 职责 |
 |------|------|
-| `workspaces` | 工作区 CRUD |
+| `workspaces` | 工作区 CRUD + 治理（脏名预览 / 归并迁移） |
 | `agents` | Agent 注册与管理 |
 | `agent_sessions` | Agent 会话管理 |
+| `agent_capture` | 宿主无关的 Agent 捕获（compact / 工具失败 / 会话结束） |
 | `events` | 事件上报（支持批量） |
 | `candidates` | 候选记忆 CRUD |
 | `reviews` | 审核操作（approve / reject / merge） |
 | `memories` | 正式记忆 CRUD + 状态更新 |
+| `tags` | 标签管理：列表 + 按标签过滤记忆 |
 | `search` | 关键词 / 混合 / 语义检索 |
 | `context` | 检索 + 上下文组装 |
 | `memory_quality` | 质量评分查询 |
@@ -23,8 +25,10 @@
 | `task_queue` | 队列诊断（状态快照 + 死信重试） |
 | `config` | 配置读写 |
 | `data_io` | 数据导入导出 |
+| `markdown_export` | 记忆导出为完整 Markdown |
 | `skills` | 技能管理 |
 | `spaced_review` | 间隔重复复习 |
+| `weekly_review` | 本周学习回顾聚合（新增/复习/掌握提升/高频复用/待整理） |
 | `system` | 系统管理（服务重启等） |
 
 ---
@@ -36,9 +40,17 @@
 | `POST` | `/v1/events` | 上报 Agent 事件（支持批量） |
 | `GET` | `/v1/candidates` | 候选记忆列表 |
 | `POST` | `/v1/reviews` | 提交审核结果（approve / edit / reject / merge） |
-| `GET` | `/v1/memories` | 正式记忆列表 |
+| `GET` | `/v1/memories` | 正式记忆列表；支持 `tags` 参数（逗号分隔，AND 逻辑） |
+| `PATCH` | `/v1/memories/{id}` | 更新记忆；`status=archived` 即软遗忘（可恢复）；支持 `tags` 字段更新 |
+| `GET` | `/v1/tags` | 标签列表（含计数） |
+| `GET` | `/v1/review/weekly` | 本周回顾：新增/复习/掌握提升/高频复用/待整理 |
 | `POST` | `/v1/search` | 关键词检索 |
 | `POST` | `/v1/context` | 混合检索 + 上下文组装 |
+| `POST` | `/v1/integrations/agent/capture` | 任意 Agent 提交 compact summary / 工具失败 / 会话结束 |
+| `GET` | `/v1/integrations/agent/stats` | 按宿主统计捕获量、待整理数与近 7 天新增 |
+| `GET` | `/v1/export/markdown` | 导出完整 Markdown（frontmatter + 正文） |
+| `GET` | `/v1/workspaces/hygiene/preview` | 预览哈希名/路径编码名脏工作区（含记忆/笔记计数） |
+| `POST` | `/v1/workspaces/hygiene/merge` | 把脏工作区归并进目标（迁移记忆/笔记/会话后删除源） |
 
 ### 乐观并发控制
 
@@ -61,7 +73,7 @@
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| `POST` | `/v1/feedback` | 提交记忆反馈 |
+| `POST` | `/v1/feedback` | 提交记忆反馈（Agent 可用 `memory_feedback`） |
 | `GET` | `/v1/feedback/{memory_id}` | 查看记忆反馈 |
 | `POST` | `/v1/conflicts` | 创建冲突记录 |
 | `GET` | `/v1/conflicts` | 冲突列表 |
@@ -73,7 +85,7 @@
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| `GET` | `/v1/health` | 健康检查 |
+| `GET` | `/v1/health` | 健康检查；响应 `version` 取 `pyproject.toml` 的 `[project] version`（权威源），与 `/openapi.json` 的 `info.version`、MCP 握手 `serverInfo.version` 同源 |
 | `GET` | `/v1/consistency` | DB / Markdown / 索引 / 向量四方只读对账报告（`healthy`、各方计数、缺失与孤儿 id 列表、载体错误），发现漂移供人工排查，不做自动修复 |
 | `GET` | `/v1/memory-status` | 工作区整体状态 |
 | `GET` | `/v1/memory-health/{memory_id}` | 单条记忆健康度 |
@@ -111,7 +123,8 @@
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | `GET/PUT` | `/v1/config` | 配置读写 |
-| `GET/POST/DELETE` | `/v1/skills` | 技能管理 |
+| `GET` | `/v1/skills/agents` | 列出可发布技能的目标 Agent（来自 `config.yaml` 的 `skills.agents`，含 `dsh`） |
+| `GET/POST/DELETE` | `/v1/skills` | 技能管理（项目 skills + 各 Agent 目录扫描） |
 | `POST` | `/v1/spaced-review` | 提交复习结果 |
 | `POST` | `/v1/system/restart` | 重启服务 |
 

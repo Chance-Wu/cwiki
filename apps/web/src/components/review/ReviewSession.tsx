@@ -12,6 +12,9 @@ interface ReviewItem {
   title: string
   content: string
   memory_type: string
+  source?: string | null
+  confidence?: number | null
+  updated_at?: string | null
   ease_factor: number
   interval_days: number
   repetitions: number

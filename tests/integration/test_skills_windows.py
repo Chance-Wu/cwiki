@@ -463,6 +463,180 @@ DANGEROUS_NAMES = [
     {"name": "demo"},
 ]
 
+# dsh（@deepseek-ai/dsh-skill 的 SKILL_NAME）不接受前导/连续/尾随连字符，
+# 这类名字会被 dsh 以 invalid skill name 静默忽略，因此创建时必须拒绝。
+DSH_INVALID_NAMES = ["-leading", "trailing-", "double--hyphen", "UPPER", "under_score", "-", "--"]
+
+
+@pytest.fixture
+def dsh_paths(
+    skill_paths: tuple[Path, Path, Path],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[Path, Path, Path]:
+    """在既有 qoder/codex 夹具之上追加 dsh 目标目录。"""
+    project, qoder, codex = skill_paths
+    dsh = tmp_path / "agents" / "dsh"
+    dsh.mkdir(parents=True)
+    monkeypatch.setattr(
+        skills_config,
+        "agents",
+        {
+            "qoder": {"skills_dir": qoder},
+            "codex": {"skills_dir": codex},
+            "dsh": {"skills_dir": dsh},
+        },
+    )
+    skills._invalidate_skills_cache()
+    return project, qoder, dsh
+
+
+def test_agents_endpoint_includes_dsh(
+    dsh_paths: tuple[Path, Path, Path], skill_client: TestClient
+) -> None:
+    """配置了 dsh 后，agents 端点必须把它列为一等发布目标。"""
+    agents = skill_client.get("/v1/skills/agents").json()
+    assert "dsh" in agents
+    assert set(agents) == {"qoder", "codex", "dsh"}
+
+
+def test_publish_and_unpublish_roundtrip_to_dsh(
+    dsh_paths: tuple[Path, Path, Path], skill_client: TestClient
+) -> None:
+    """发布到 dsh：symlink 落到 ~/.dsh/skills/<name>，dsh 会解引用跟随该链接。"""
+    project, _, dsh = dsh_paths
+    source = _write_skill(project / "demo")
+
+    response = skill_client.post("/v1/skills/demo/publish", json={"agents": ["dsh"]})
+    assert response.status_code == 200
+    assert response.json()["agents"] == ["dsh"]
+
+    target = dsh / "demo"
+    assert target.is_symlink()
+    assert (target / "SKILL.md").read_bytes() == (source / "SKILL.md").read_bytes()
+    assert skills._get_agents_for_skill("demo") == ["dsh"]
+
+    listed = skill_client.get("/v1/skills").json()
+    entry = next(s for s in listed if s["source"] == "project")
+    assert entry["agents"] == ["dsh"]
+    assert entry["publishable_to"] == ["codex", "dsh", "qoder"]
+    assert entry["available_to"] == ["dsh"]
+    assert not (source / skills.SOURCE_MARKER).exists()
+
+    response = skill_client.post("/v1/skills/demo/unpublish", json={"agents": ["dsh"]})
+    assert response.status_code == 200
+    assert response.json()["agents"] == []
+    assert not target.exists()
+    assert source.is_dir()
+
+
+def test_dsh_copy_fallback_when_symlink_unavailable(
+    dsh_paths: tuple[Path, Path, Path],
+    skill_client: TestClient,
+    force_copy: list[Path],
+) -> None:
+    """Windows/无 symlink 权限时回退带标记的副本，dsh 目标同样可用。"""
+    project, _, dsh = dsh_paths
+    source = _write_skill(project / "demo")
+
+    assert skill_client.post("/v1/skills/demo/publish", json={"agents": ["dsh"]}).status_code == 200
+    target = dsh / "demo"
+    assert not target.is_symlink()
+    assert (target / "SKILL.md").read_bytes() == (source / "SKILL.md").read_bytes()
+    assert (target / skills.SOURCE_MARKER).is_file()
+    assert force_copy == [dsh / "demo"]
+
+    # 源变更后重新发布应刷新副本而非重建。
+    _write_skill(source, body="updated body")
+    assert skill_client.post("/v1/skills/demo/publish", json={"agents": ["dsh"]}).status_code == 200
+    assert (target / "SKILL.md").read_bytes() == (source / "SKILL.md").read_bytes()
+    assert len(force_copy) == 1
+
+    assert skill_client.delete("/v1/skills/demo").status_code == 204
+    assert not target.exists()
+    assert not source.exists()
+
+
+def test_dsh_publish_creates_missing_skills_root(
+    dsh_paths: tuple[Path, Path, Path], skill_client: TestClient
+) -> None:
+    """~/.dsh/skills 尚未创建时，发布应自动建出该根目录。"""
+    project, _, dsh = dsh_paths
+    dsh.rmdir()
+    assert not dsh.exists()
+    _write_skill(project / "demo")
+
+    assert skill_client.post("/v1/skills/demo/publish", json={"agents": ["dsh"]}).status_code == 200
+    assert dsh.is_dir()
+    assert (dsh / "demo" / "SKILL.md").is_file()
+
+
+def test_dsh_unmanaged_target_conflict_is_preserved(
+    dsh_paths: tuple[Path, Path, Path], skill_client: TestClient
+) -> None:
+    """dsh 目录下已有的非托管技能不得被覆盖或删除。"""
+    project, _, dsh = dsh_paths
+    _write_skill(project / "demo")
+    target = _write_skill(dsh / "demo", body="independent dsh skill")
+    original = (target / "SKILL.md").read_bytes()
+
+    response = skill_client.post("/v1/skills/demo/publish", json={"agents": ["dsh"]})
+    assert response.status_code == 409
+    assert (target / "SKILL.md").read_bytes() == original
+    assert skills._get_agents_for_skill("demo") == []
+
+    # dsh 侧独立技能仍以 builtin 形式出现。
+    listed = skill_client.get("/v1/skills").json()
+    independent = next(s for s in listed if s["source"] == "dsh")
+    assert independent["body"] == "independent dsh skill"
+    assert independent["editable"] is False
+
+    assert (
+        skill_client.post("/v1/skills/demo/unpublish", json={"agents": ["dsh"]}).status_code == 200
+    )
+    assert (target / "SKILL.md").read_bytes() == original
+
+
+def test_dsh_only_publish_does_not_touch_other_agents(
+    dsh_paths: tuple[Path, Path, Path], skill_client: TestClient
+) -> None:
+    """显式只发布 dsh 时，不得顺带发布到 qoder/codex。"""
+    project, qoder, dsh = dsh_paths
+    _write_skill(project / "demo")
+
+    assert skill_client.post("/v1/skills/demo/publish", json={"agents": ["dsh"]}).status_code == 200
+    assert (dsh / "demo").exists()
+    assert not (qoder / "demo").exists()
+    assert skills._get_agents_for_skill("demo") == ["dsh"]
+
+
+@pytest.mark.parametrize("name", DSH_INVALID_NAMES)
+def test_create_rejects_names_dsh_cannot_load(
+    dsh_paths: tuple[Path, Path, Path], skill_client: TestClient, name: str
+) -> None:
+    """前导/连续/尾随连字符与非 kebab 名字必须在创建阶段被拒绝。"""
+    project, _, dsh = dsh_paths
+    response = skill_client.post(
+        "/v1/skills",
+        json={"name": name, "description": "test", "body": "test", "agents": ["dsh"]},
+    )
+    assert response.status_code == 422
+    for directory in (project, dsh):
+        assert list(directory.iterdir()) == []
+
+
+def test_project_scan_ignores_non_kebab_directories(
+    dsh_paths: tuple[Path, Path, Path], skill_client: TestClient
+) -> None:
+    """项目 skills 下不合 dsh 语法的目录名不得进入索引。"""
+    project, _, _ = dsh_paths
+    _write_skill(project / "bad--name", name="bad--name")
+    _write_skill(project / "trailing-", name="trailing-")
+    _write_skill(project / "good-name", name="good-name")
+
+    names = sorted(s["name"] for s in skill_client.get("/v1/skills").json())
+    assert names == ["good-name"]
+
 
 @pytest.mark.parametrize("name", DANGEROUS_NAMES)
 def test_create_rejects_unsafe_names_without_writing(

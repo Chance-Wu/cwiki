@@ -33,6 +33,10 @@ WORKSPACES_FILENAME = "_workspaces.json"
 # 旧版导出无此文件时重建后队列为空（向前兼容）。
 REVIEW_QUEUE_FILENAME = "_review_queue.json"
 
+# store 级伴随文件，保存 Agent 捕获会话与待整理笔记。笔记不经 Markdown
+# 承载，重建/换设备时靠这份文件恢复“未整理内容”，避免内容丢失。
+CAPTURE_FILENAME = "_capture_notes.json"
+
 # 记忆伴随文件一律命名为 ``{uuid}.json``。其他文件（如
 # ``_workspaces.json``）属于 store 级文件，绝不能当作 memory_id。
 _MEMORY_ID_RE = re.compile(
@@ -147,6 +151,38 @@ class MetaStore:
             logger.warning("%s does not contain a JSON object, ignoring", REVIEW_QUEUE_FILENAME)
             return None
 
+        return data
+
+    # ------------------------------------------------------------------
+    # Agent 捕获会话 / 待整理笔记
+    # ------------------------------------------------------------------
+
+    def export_capture(self, payload: dict[str, Any]) -> Path:
+        """写入 ``_meta/_capture_notes.json``（会话 + 待整理笔记全文）。"""
+        file_path = self.base_path / CAPTURE_FILENAME
+        try:
+            file_path.write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2, default=str),
+                encoding="utf-8",
+            )
+        except Exception:
+            logger.exception("Failed to write %s", CAPTURE_FILENAME)
+            raise
+        return file_path
+
+    def import_capture(self) -> dict[str, Any] | None:
+        """读取 ``_meta/_capture_notes.json``；缺失/损坏时返回 None。"""
+        file_path = self.base_path / CAPTURE_FILENAME
+        if not file_path.exists():
+            return None
+        try:
+            data = json.loads(file_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            logger.warning("Failed to read %s", CAPTURE_FILENAME, exc_info=True)
+            return None
+        if not isinstance(data, dict):
+            logger.warning("%s does not contain a JSON object, ignoring", CAPTURE_FILENAME)
+            return None
         return data
 
     # ------------------------------------------------------------------

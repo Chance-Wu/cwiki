@@ -27,6 +27,7 @@ from packages.retrieval.context.token_counter import (
     normalize_budget,
 )
 from packages.retrieval.embedding import get_embedding_service
+from packages.retrieval.query.analyzer import analyze_query
 from packages.retrieval.ranking.diversity import apply_diversity
 from packages.retrieval.vector_utils import batch_cosine_similarities
 
@@ -83,7 +84,13 @@ def _format_memory_text(mem: dict[str, Any], index: int) -> str:
     mem_type = mem.get("type", "fact").upper()
     title = mem.get("title", "Untitled")
     content = mem.get("content", "")
-    return f"[{index}] [{mem_type}] {title}\n    {content}"
+    memory_id = str(mem.get("id", ""))
+    return (
+        f"[{index}] [{mem_type}] {title}\n"
+        f'<memory type="{mem.get("type", "fact")}" id="{memory_id}">\n'
+        f"{content}\n"
+        f"</memory>"
+    )
 
 
 def _build_conflict_warning(conflicts: list[ConflictReference]) -> str:
@@ -350,6 +357,7 @@ def assemble_context(
         confidence_floor=settings.confidence_floor,
         relevance_mode=settings.relevance_floor_mode,
         relevance_floor=settings.relevance_floor,
+        skip_stale=analyze_query(query).is_historical_query,
     )
     for mem_id, stage, reason in entry_events:
         reasons.append(FilterReason(memory_id=mem_id, stage=stage, reason=reason))
@@ -414,6 +422,7 @@ async def assemble_context_with_embedding(
         confidence_floor=settings.confidence_floor,
         relevance_mode=settings.relevance_floor_mode,
         relevance_floor=settings.relevance_floor,
+        skip_stale=analyze_query(query).is_historical_query,
     )
     for mem_id, stage, reason in entry_events:
         reasons.append(FilterReason(memory_id=mem_id, stage=stage, reason=reason))

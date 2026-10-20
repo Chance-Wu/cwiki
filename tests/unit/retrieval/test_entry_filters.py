@@ -232,3 +232,39 @@ class TestModeValidation:
         assert result == items
         assert result is not items
         assert events == []
+
+
+class TestSkipStale:
+    def test_skip_stale_bypasses_hard(self):
+        # 历史意图查询豁免：hard 档过期候选不剔除
+        items = [_mem("old", 0.9, valid_to=_expired()), _mem("fresh", 0.8)]
+
+        result, events = apply_entry_filters(items, stale_mode="hard", skip_stale=True, now=NOW)
+
+        assert [m["id"] for m in result] == ["old", "fresh"]
+        assert events == []
+
+    def test_skip_stale_bypasses_demote(self):
+        # 历史意图查询豁免：demote 档过期候选分数不被乘惩罚因子
+        items = [_mem("old", 0.9, valid_to=_expired())]
+
+        result, events = apply_entry_filters(items, stale_mode="demote", skip_stale=True, now=NOW)
+
+        assert result[0]["score"] == 0.9
+        assert events == []
+
+    def test_skip_stale_does_not_affect_other_judgments(self):
+        # 豁免只作用于 stale：低置信/低相关判定照常执行
+        items = [_mem("weak", 0.9, valid_to=_expired(), confidence=0.1)]
+
+        result, events = apply_entry_filters(
+            items,
+            stale_mode="hard",
+            confidence_mode="demote",
+            confidence_floor=0.3,
+            skip_stale=True,
+            now=NOW,
+        )
+
+        assert result[0]["score"] == pytest.approx(0.9 * CONFIDENCE_DEMOTE_FACTOR)
+        assert events == [("weak", "confidence", "low_confidence_demoted")]

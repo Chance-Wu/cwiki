@@ -97,8 +97,22 @@ class AgentSessionRead(BaseModel):
 
 
 class SessionNoteCreate(BaseModel):
-    content: str = Field(..., max_length=2000)
+    # 内容完整性优先：全文入库，不在捕获阶段截断。列表接口只返回预览，
+    # 详情接口返回全文；上限用于防止异常超大 payload，而不是摘要化。
+    content: str = Field(..., min_length=1, max_length=50000)
     signal_type: str = Field(default="other", max_length=50)
+    candidate_id: UUID | None = None
+
+
+class SessionNoteFormalize(BaseModel):
+    """把笔记整理为候选记忆或正式记忆。
+
+    - candidate_id：整理动作生成了候选，note 仍可在候选详情中追溯；
+    - memory_id：候选已批准/直接整理为正式记忆，建立最终反向链接。
+    """
+
+    candidate_id: UUID | None = None
+    memory_id: UUID | None = None
 
 
 class SessionNoteRead(BaseModel):
@@ -106,8 +120,16 @@ class SessionNoteRead(BaseModel):
     id: UUID
     session_id: UUID
     workspace_id: UUID
-    content: str
+    # preview 视图为 None；详情/创建/整理响应返回全文
+    content: str | None = None
+    content_preview: str
+    content_length: int
     signal_type: str
     formalized: bool
     formalized_memory_id: UUID | None
+    candidate_id: UUID | None = None
+    discarded_at: datetime | None = None
+    # 来源宿主与工作区名称（由 join 填充，便于收件箱展示）
+    host: str | None = None
+    workspace_name: str | None = None
     created_at: datetime

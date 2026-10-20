@@ -44,6 +44,8 @@ export type {
   ReviewStats,
 } from './types'
 
+export type { TagInfo } from './memories'
+
 export type { PaginatedResponse } from './base'
 
 // 导入各领域模块函数
@@ -66,11 +68,19 @@ import {
   applyMemoryUpdate,
   getMemoryLifecycle,
   getMemoryRelations,
+  createMemoryRelation,
+  deleteMemoryRelation,
+  updateMemoryRelation,
   getMergeSuggestions,
   triggerConsolidate,
   mergeMemories,
+  listTags,
+  updateMemoryTags,
+  renameTag,
+  mergeTags,
+  deleteTag,
 } from './memories'
-import { getCandidates, getCandidate, revertAutoApprove } from './candidates'
+import { getCandidates, getCandidate, createCandidate, revertAutoApprove } from './candidates'
 import {
   reviewCandidate,
   batchReview,
@@ -81,6 +91,7 @@ import {
   getDueReviews,
   submitReview,
   getReviewStats,
+  getWeeklyReview,
   scheduleMemoryReview,
   undoReview,
 } from './review'
@@ -89,8 +100,10 @@ import {
   getAgentProfile,
   getAgentStats,
   getSessionNotes,
+  getSessionNote,
   searchSessionNotes,
   formalizeNote,
+  discardNote,
 } from './agents'
 import {
   getSkills,
@@ -116,7 +129,7 @@ import {
   getHealthSummary,
   getCandidateQuality,
 } from './health'
-import { exportData, importData } from './data'
+import { exportData, exportMarkdown, importData } from './data'
 
 // 组装 api 对象（保持拆分前的原始结构，调用方无感知）
 export const api = {
@@ -124,6 +137,7 @@ export const api = {
   getWorkspaces,
   getCandidates,
   getCandidate,
+  createCandidate,
   revertAutoApprove,
   getMemories,
   getMemoryStats,
@@ -150,9 +164,17 @@ export const api = {
   applyMemoryUpdate,
   getMemoryLifecycle,
   getMemoryRelations,
+  createMemoryRelation,
+  deleteMemoryRelation,
+  updateMemoryRelation,
   getMergeSuggestions,
   triggerConsolidate,
   mergeMemories,
+  listTags,
+  updateMemoryTags,
+  renameTag,
+  mergeTags,
+  deleteTag,
   getMemoryStatus,
   getAgentSessions,
   getAgentProfile,
@@ -166,11 +188,14 @@ export const api = {
   getMemoryHealth,
   getLearningSuggestions,
   getSessionNotes,
+  getSessionNote,
   searchSessionNotes,
   formalizeNote,
+  discardNote,
   getDueReviews,
   submitReview,
   getReviewStats,
+  getWeeklyReview,
   scheduleMemoryReview,
   undoReview,
   getSkills,
@@ -186,5 +211,6 @@ export const api = {
   patchConfig,
   restartService,
   exportData,
+  exportMarkdown,
   importData,
 }

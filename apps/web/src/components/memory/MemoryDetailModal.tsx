@@ -13,12 +13,13 @@ import { Tabs, TabsList, TabsTrigger, AnimatedTabsContent } from '../ui/Tabs'
 import MarkdownContent from '../MarkdownContent'
 import { useToast } from '../Toast'
 import MemoryEvidenceSection from './MemoryEvidenceSection'
+import TagsEditor from './TagsEditor'
 
 const MemoryVersionsTab = lazy(() => import('./MemoryVersionsTab'))
 const MemoryFeedbackTab = lazy(() => import('./MemoryFeedbackTab'))
 const MemoryRetrievalTab = lazy(() => import('./MemoryRetrievalTab'))
 const MemoryLifecycleTab = lazy(() => import('./MemoryLifecycleTab'))
-const MemoryRelationsTab = lazy(() => import('./MemoryRelationsTab'))
+const MemoryRelationsTab = lazy(() => import('./RelationGraph'))
 const MemoryHealthTab = lazy(() => import('./MemoryHealthTab'))
 
 const TabFallback = () => (
@@ -269,7 +270,25 @@ export default function MemoryDetailModal({
             {sourceLabel(t.common, memory.source || '')}
           </Badge>
           <Badge variant={statusVariant}>{statusLbl}</Badge>
+          {/* 标签显示 */}
+          {Array.isArray(memory.tags) && memory.tags.length > 0 && memory.tags.map((tag) => (
+            <Badge 
+              key={tag} 
+              variant="default" 
+              className="bg-brand-badge-bg text-brand-badge-text border-brand-border"
+              title={`标签 (${memory.tags!.length}): ${memory.tags!.join(', ')}`}
+            >
+              {tag}
+            </Badge>
+          ))}
         </div>
+        {/* 标签编辑 */}
+        <TagsEditor
+          tags={Array.isArray(memory.tags) ? memory.tags : []}
+          memoryId={memory.id}
+          onTagsChanged={onMemoryUpdated}
+          compact
+        />
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[var(--text-tertiary)]">
           <span className="flex items-center gap-1.5" title={freshnessLabel}>
             <span className={`w-1.5 h-1.5 rounded-full ${freshnessColor}`} />

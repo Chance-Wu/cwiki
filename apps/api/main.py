@@ -14,10 +14,13 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from apps.api.deps import get_memory_indexer, init_storage_components
+from packages.domain.config import parasitic_evolution_config, scheduler_config
 from packages.domain.database import async_session_maker, close_db, init_db
+from packages.domain.scheduler import PeriodicScheduler
 from packages.domain.settings import get_settings
 from packages.domain.task_queue import shutdown as task_queue_shutdown
 from packages.domain.task_queue import startup as task_queue_startup
+from packages.domain.version import app_version
 from packages.retrieval.engine import get_retrieval_engine
 from packages.storage import config as storage_config
 from packages.storage.file_store import FileStore
@@ -26,6 +29,7 @@ from packages.storage.indexer import MemoryIndexer
 logger = logging.getLogger(__name__)
 
 _indexer: MemoryIndexer | None = None
+_scheduler: PeriodicScheduler | None = None
 
 
 async def _sync_index_background(indexer: MemoryIndexer) -> None:
@@ -60,8 +64,38 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     global _indexer
 
     logger.info("cwiki API starting up")
+    # 安全告警（W7-05 审计）：监听非回环地址且未配置 token 时，
+    # 局域网内任何设备都能调用全部端点（含 data/import 与死信重试）
+    cfg = get_settings()
+    if cfg.api_host not in ("127.0.0.1", "localhost") and not cfg.api_auth_token:
+        logger.warning(
+            "API is listening on %s without an auth token — set app.auth_token "
+            "(config.local.yaml) to require Bearer auth on LAN-exposed endpoints",
+            cfg.api_host,
+        )
     await init_db()
     await task_queue_startup()
+
+    # 周期调度器：按固定间隔触发后台任务（自动整合/复习提醒/_meta 导出）
+    global _scheduler
+    from packages.domain.task_queue import queue as task_queue
+
+    _scheduler = PeriodicScheduler(queue=task_queue)
+    if parasitic_evolution_config.auto_consolidate_enabled:
+        _scheduler.add(
+            "auto_consolidate_similar",
+            scheduler_config.auto_consolidate_interval_hours * 3600,
+        )
+    if parasitic_evolution_config.review_reminders_enabled:
+        _scheduler.add(
+            "check_review_reminders",
+            scheduler_config.review_reminders_interval_hours * 3600,
+        )
+    _scheduler.add(
+        "periodic_meta_export",
+        scheduler_config.meta_export_interval_hours * 3600,
+    )
+    await _scheduler.start()
 
     # 一次性清理：拒绝即删除语义，移除历史遗留的 rejected 候选
     try:
@@ -99,6 +133,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         _indexer.stop_watching()
         await _indexer.save_vector_index()
         await _indexer.close()
+    if _scheduler:
+        await _scheduler.stop()
     await task_queue_shutdown()
     await close_db()
     logger.info("cwiki API shut down")
@@ -110,7 +146,8 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title=settings.app_name,
-        version="0.4.1",
+        # 版本号权威源是 pyproject.toml，勿在此处硬编码（见 packages/domain/version.py）
+        version=app_version(),
         description="Agent Persistent Memory Infrastructure",
         lifespan=lifespan,
     )
@@ -137,6 +174,7 @@ def create_app() -> FastAPI:
         )
 
     # 挂载全部路由（每个路由自带 /v1 前缀）
+    from apps.api.routes.agent_capture import router as agent_capture_router
     from apps.api.routes.agent_sessions import router as agent_sessions_router
     from apps.api.routes.agents import router as agents_router
     from apps.api.routes.candidates import router as candidates_router
@@ -146,7 +184,9 @@ def create_app() -> FastAPI:
     from apps.api.routes.events import router as events_router
     from apps.api.routes.file_memories import router as file_memories_router
     from apps.api.routes.health import router as health_router
+    from apps.api.routes.markdown_export import router as markdown_export_router
     from apps.api.routes.memories import router as memories_router
+    from apps.api.routes.memories import tags_router
     from apps.api.routes.memory_quality import router as memory_quality_router
     from apps.api.routes.memory_status import router as memory_status_router
     from apps.api.routes.notes import router as notes_router
@@ -156,20 +196,24 @@ def create_app() -> FastAPI:
     from apps.api.routes.spaced_review import router as spaced_review_router
     from apps.api.routes.system import router as system_router
     from apps.api.routes.task_queue import router as task_queue_router
+    from apps.api.routes.weekly_review import router as weekly_review_router
     from apps.api.routes.workspaces import router as workspaces_router
 
     app.include_router(health_router)
+    app.include_router(markdown_export_router)
     app.include_router(workspaces_router)
     app.include_router(agents_router)
     app.include_router(events_router)
     app.include_router(candidates_router)
     app.include_router(memories_router)
+    app.include_router(tags_router)
     app.include_router(reviews_router)
     app.include_router(context_router)
     app.include_router(search_router)
     app.include_router(memory_quality_router)
     app.include_router(memory_status_router)
     app.include_router(agent_sessions_router)
+    app.include_router(agent_capture_router)
     app.include_router(file_memories_router)
     app.include_router(notes_router)
     app.include_router(data_io_router)
@@ -178,6 +222,7 @@ def create_app() -> FastAPI:
     app.include_router(config_router)
     app.include_router(system_router)
     app.include_router(task_queue_router)
+    app.include_router(weekly_review_router)
 
     return app
 

@@ -41,6 +41,10 @@ class QueryMetrics:
     ndcg_at_10: float = 0.0
     useful_at_10: float = 0.0
     relevant_count: int = 0
+    # 负例探针：无任何 ≥2 分（相关）判定的查询，衡量"应答'无'"的失败。
+    # 误召回 = top-10 出现 ≥1 分（弱相关）结果，困难负例的弱相关干扰项在此生效。
+    is_negative_probe: bool = False
+    negative_fp_at_10: bool = False
 
 
 @dataclass
@@ -57,6 +61,9 @@ class BenchmarkReport:
     useful_at_10: float = 0.0
     avg_latency_ms: float = 0.0
     per_query: list[QueryMetrics] = field(default_factory=list)
+    # 负例探针汇总（探针不进主指标平均，避免"全 0 查询"稀释分数）
+    negative_probes: int = 0
+    negative_fp_rate_at_10: float = 0.0
 
 
 RELEVANCE_THRESHOLD = 2
@@ -136,6 +143,13 @@ def evaluate_query(
         ndcg_at_10=ndcg_at_k(result.ranked_memory_ids, judgment.judgments, 10),
         useful_at_10=useful_at_k(result.ranked_memory_ids, judgment.judgments, 10),
     )
+    # 负例探针：无任何 ≥2 分判定时视为探针（困难负例可含 1 分干扰项），
+    # top-10 出现 ≥1 分结果记误召回
+    if not any(grade >= RELEVANCE_THRESHOLD for grade in judgment.judgments.values()):
+        qm.is_negative_probe = True
+        qm.negative_fp_at_10 = any(
+            judgment.judgments.get(mid, 0) >= 1 for mid in result.ranked_memory_ids[:10]
+        )
     return qm
 
 
@@ -148,19 +162,31 @@ def aggregate_report(
     if n == 0:
         return BenchmarkReport(pipeline=pipeline, total_queries=0)
 
+    # 探针查询（无 ≥2 分判定）不进主指标平均，避免"无相关答案"查询把分数拉向 0 造成失真
+    probes = [qm for qm in query_metrics if qm.is_negative_probe]
+    mains = [qm for qm in query_metrics if not qm.is_negative_probe]
+    m = len(mains)
+
     report = BenchmarkReport(
         pipeline=pipeline,
         total_queries=n,
         per_query=query_metrics,
+        negative_probes=len(probes),
     )
-    report.recall_at_5 = sum(qm.recall_at_5 for qm in query_metrics) / n
-    report.recall_at_10 = sum(qm.recall_at_10 for qm in query_metrics) / n
-    report.recall_at_20 = sum(qm.recall_at_20 for qm in query_metrics) / n
-    report.precision_at_5 = sum(qm.precision_at_5 for qm in query_metrics) / n
-    report.precision_at_10 = sum(qm.precision_at_10 for qm in query_metrics) / n
-    report.mrr = sum(qm.rr for qm in query_metrics) / n
-    report.ndcg_at_10 = sum(qm.ndcg_at_10 for qm in query_metrics) / n
-    report.useful_at_10 = sum(qm.useful_at_10 for qm in query_metrics) / n
+    if probes:
+        fp = sum(1 for qm in probes if qm.negative_fp_at_10)
+        report.negative_fp_rate_at_10 = fp / len(probes)
+    if m == 0:
+        return report
+
+    report.recall_at_5 = sum(qm.recall_at_5 for qm in mains) / m
+    report.recall_at_10 = sum(qm.recall_at_10 for qm in mains) / m
+    report.recall_at_20 = sum(qm.recall_at_20 for qm in mains) / m
+    report.precision_at_5 = sum(qm.precision_at_5 for qm in mains) / m
+    report.precision_at_10 = sum(qm.precision_at_10 for qm in mains) / m
+    report.mrr = sum(qm.rr for qm in mains) / m
+    report.ndcg_at_10 = sum(qm.ndcg_at_10 for qm in mains) / m
+    report.useful_at_10 = sum(qm.useful_at_10 for qm in mains) / m
 
     if latencies:
         report.avg_latency_ms = sum(latencies) / len(latencies)
@@ -189,4 +215,13 @@ def format_report_md(report: BenchmarkReport) -> str:
         f"| Avg Latency (ms) | {report.avg_latency_ms:.1f} |",
         "",
     ]
+    if report.negative_probes:
+        lines.append(f"## Negative Probes ({report.negative_probes})")
+        lines.append("")
+        lines.append("应答「无相关记忆」的探针查询；误召回率越低越好。")
+        lines.append("")
+        lines.append("| Metric | Value |")
+        lines.append("|--------|-------|")
+        lines.append(f"| Negative FP@10 Rate | {report.negative_fp_rate_at_10:.4f} |")
+        lines.append("")
     return "\n".join(lines)

@@ -7,9 +7,9 @@ from unittest.mock import AsyncMock
 import httpx
 import pytest
 
-from adapters.qoder import mcp_server
-from adapters.qoder.client import CwikiClient
-from adapters.qoder.mcp_server import MCPServer
+from adapters.mcp import mcp_server
+from adapters.mcp.client import CwikiClient
+from adapters.mcp.mcp_server import MCPServer
 from packages.domain.text_utils import normalize_memory_content
 
 
@@ -50,7 +50,7 @@ async def checkpoint_env(
     monkeypatch.setattr("apps.api.routes.candidates.queue.enqueue", AsyncMock())
     server = MCPServer(api)
     # outbox 状态使用 tmp_path，避免污染用户主目录
-    from adapters.qoder.outbox import WriteAheadOutbox
+    from adapters.mcp.outbox import WriteAheadOutbox
 
     server.outbox = WriteAheadOutbox(state_dir=tmp_path / "outbox")
     return server, {
@@ -724,7 +724,7 @@ async def test_checkpoint_uses_auto_linked_event_session(
     monkeypatch.setattr("apps.api.routes.candidates.queue.enqueue", AsyncMock())
 
     server = MCPServer(api)
-    from adapters.qoder.outbox import WriteAheadOutbox
+    from adapters.mcp.outbox import WriteAheadOutbox
 
     server.outbox = WriteAheadOutbox(state_dir=tmp_path / "outbox")
 
@@ -814,7 +814,7 @@ async def test_checkpoint_explicit_event_session_overrides_auto_linked(
     monkeypatch.setattr("apps.api.routes.candidates.queue.enqueue", AsyncMock())
 
     server = MCPServer(api)
-    from adapters.qoder.outbox import WriteAheadOutbox
+    from adapters.mcp.outbox import WriteAheadOutbox
 
     server.outbox = WriteAheadOutbox(state_dir=tmp_path / "outbox")
 

@@ -171,6 +171,7 @@ class SessionNote(Base):
         Index("ix_session_note_signal_type", "signal_type"),
         Index("ix_session_note_workspace_id", "workspace_id"),
         Index("ix_session_note_formalized", "formalized"),
+        Index("ix_session_note_candidate_id", "candidate_id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUIDType(), primary_key=True, default=uuid.uuid4)
@@ -184,4 +185,7 @@ class SessionNote(Base):
     signal_type: Mapped[str] = mapped_column(String(50), nullable=False)
     formalized: Mapped[bool] = mapped_column(default=False, server_default="0")
     formalized_memory_id: Mapped[uuid.UUID | None] = mapped_column(UUIDType(), nullable=True)
+    # 整理后生成的候选记忆；note -> candidate -> memory 的追溯链中间节点
+    candidate_id: Mapped[uuid.UUID | None] = mapped_column(UUIDType(), nullable=True)
+    discarded_at: Mapped[datetime | None] = mapped_column(nullable=True)
     created_at: Mapped[datetime] = mapped_column(default=func.now(), server_default=func.now())

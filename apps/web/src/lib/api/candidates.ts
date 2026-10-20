@@ -23,6 +23,19 @@ export const getCandidates = (opts?: {
 
 export const getCandidate = (id: string) => request<Candidate>(`/candidates/${id}`)
 
+export const createCandidate = (body: {
+  workspace_id: string
+  title: string
+  content: string
+  type: string
+  source?: string
+  client_write_id?: string
+}) =>
+  request<{ candidate: Candidate; similar_items: unknown[]; hint: string | null }>('/candidates', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+
 /** 撤销自动生效：归档生成的正式记忆并留痕，候选保持 approved；
  *  候选不存在或无 auto_approve 审核记录时后端返回 404 */
 export const revertAutoApprove = (id: string) =>

@@ -100,3 +100,12 @@ export const undoReview = (memoryId: string, workspaceId?: string) => {
     { method: 'POST' },
   )
 }
+
+// --- Weekly Review ---
+
+export const getWeeklyReview = (workspaceId?: string) => {
+  const params = new URLSearchParams()
+  if (workspaceId) params.set('workspace_id', workspaceId)
+  const qs = params.toString()
+  return request<import('./types').WeeklyReview>(`/review/weekly${qs ? `?${qs}` : ''}`)
+}

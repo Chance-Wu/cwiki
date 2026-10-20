@@ -24,6 +24,7 @@ export const SOURCE_CONFIG: Record<
     ring: 'ring-subtle',
   },
   codex: { icon: Bot, color: 'text-success-fg', bg: 'bg-success/22', ring: 'ring-success/35' },
+  dsh: { icon: Bot, color: 'text-info-fg', bg: 'bg-info/22', ring: 'ring-info/35' },
   plugin: {
     icon: Puzzle,
     color: 'text-[var(--text-secondary)]',
@@ -36,11 +37,25 @@ export const SOURCE_BADGE: Record<string, string> = {
   project: NEUTRAL_CHIP,
   qoder: NEUTRAL_CHIP,
   codex: 'bg-success/22 text-success-fg border border-success/35',
+  dsh: 'bg-info/22 text-info-fg border border-info/35',
   plugin: NEUTRAL_CHIP,
 }
 
 export const AGENT_COLORS: Record<string, string> = {
   qoder: NEUTRAL_CHIP,
   codex: 'bg-success/22 text-success-fg border border-success/35',
+  dsh: 'bg-info/22 text-info-fg border border-info/35',
   zcode: 'bg-warning/22 text-warning-fg border border-warning/35',
+}
+
+/** Agent 键 → 展示名。缺省回落到首字母大写形式。 */
+export const AGENT_LABELS: Record<string, string> = {
+  dsh: 'DSH',
+  qoder: 'Qoder',
+  codex: 'Codex',
+  zcode: 'ZCode',
+}
+
+export function agentLabel(agent: string): string {
+  return AGENT_LABELS[agent] || agent.charAt(0).toUpperCase() + agent.slice(1)
 }

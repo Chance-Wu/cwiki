@@ -170,3 +170,20 @@ async def test_retrieve_injects_nonzero_utility_into_final_memories(utility_env,
     )
     assert by_id[env.a_id]["utility_score"] == expected
     assert by_id[env.a_id]["utility_score"] > 0
+
+
+async def test_normal_retrieval_not_marked_fallback(utility_env, monkeypatch):
+    """W5-D：有候选的正常路径 fallback=False，分数保持真实信号。"""
+    monkeypatch.setattr("packages.retrieval.engine.get_embedding_service", lambda: _StubEmbedding())
+    monkeypatch.setattr(
+        "packages.retrieval.context.assembler.get_embedding_service", lambda: _StubEmbedding()
+    )
+    monkeypatch.setattr(settings, "relevance_floor_mode", "none")
+
+    result = await utility_env.engine.retrieve(
+        "utility probe alpha", utility_env.workspace.id, utility_env.db, max_items=5
+    )
+
+    assert result["fallback"] is False
+    assert result["total"] >= 1
+    assert any(m["score"] > 0 for m in result["memories"])

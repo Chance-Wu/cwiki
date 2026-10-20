@@ -43,11 +43,9 @@ def is_stale_item(item: dict[str, Any], now: datetime | None = None) -> bool:
     valid_to = _ensure_aware(item.get("valid_to"))
     if valid_to is None:
         return False
-    if now is None:
-        now = datetime.now(UTC)
-    else:
-        now = _ensure_aware(now)
-    return valid_to < now
+    ref = datetime.now(UTC) if now is None else _ensure_aware(now)
+    assert ref is not None
+    return valid_to < ref
 
 
 def apply_stale_filter(
@@ -94,8 +92,19 @@ def temporal_score(
     valid_to: datetime | None,
     created_at: datetime | None,
     last_used_at: datetime | None,
+    ignore_expiry: bool = False,
+    now: datetime | None = None,
 ) -> float:
-    now = datetime.now(UTC)
+    """计算时态分。
+
+    Args:
+        ignore_expiry: 历史意图查询豁免——查询明确问"X 出来之前/演进"等
+            往事时，过期记忆正是答案，跳过过期 0.1 底分分支，改按
+            last_used/created 分档（此时新旧不构成相关性证据）。
+        now: 参考时间，默认当前 UTC（测试可注入固定时间）。
+    """
+    now = _ensure_aware(now) if now is not None else datetime.now(UTC)
+    assert now is not None
 
     valid_from = _ensure_aware(valid_from)
     valid_to = _ensure_aware(valid_to)
@@ -103,7 +112,7 @@ def temporal_score(
     last_used_at = _ensure_aware(last_used_at)
 
     # 已过有效期：保留 0.1 底分而非清零——参与排序但几乎必然沉底
-    if valid_to and valid_to < now:
+    if not ignore_expiry and valid_to and valid_to < now:
         return 0.1
 
     if valid_from and valid_from > now:

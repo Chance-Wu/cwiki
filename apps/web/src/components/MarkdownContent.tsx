@@ -140,6 +140,16 @@ function getCalloutConfig(t: TranslationKeys) {
 
 type CalloutType = 'note' | 'tip' | 'important' | 'warning' | 'caution'
 
+// GFM/Obsidian callout 的常见别名，归一到内置五类后用目标类型的图标与标题渲染
+const CALLOUT_ALIASES: Record<string, CalloutType> = {
+  abstract: 'note',
+  summary: 'note',
+  info: 'note',
+  example: 'tip',
+  question: 'tip',
+  danger: 'caution',
+}
+
 function extractCallInfo(
   children: React.ReactNode,
   t: TranslationKeys,
@@ -156,10 +166,13 @@ function extractCallInfo(
     if (!child) continue
 
     const text = extractText(child)
-    const match = text.match(/^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*([\s\S]*)/)
+    const match = text.match(
+      /^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION|ABSTRACT|SUMMARY|INFO|EXAMPLE|QUESTION|DANGER)\]\s*([\s\S]*)/,
+    )
     if (!match) continue
 
-    const type = match[1].toLowerCase() as CalloutType
+    const raw = match[1].toLowerCase()
+    const type = CALLOUT_ALIASES[raw] ?? (raw as CalloutType)
     const title = match[2].trim() || calloutConfig[type].label
     const restChildren = childArray.filter((_, idx) => idx !== i)
 
@@ -204,6 +217,18 @@ const Callout = memo(function Callout({
   )
 })
 
+// mermaid 体积大且 initialize 全局生效：只加载并初始化一次，所有图表块共享实例
+let mermaidPromise: Promise<(typeof import('mermaid'))['default']> | null = null
+let mermaidSeq = 0
+
+function loadMermaid() {
+  mermaidPromise ??= import('mermaid').then((mod) => {
+    mod.default.initialize({ startOnLoad: false, theme: 'default', securityLevel: 'loose' })
+    return mod.default
+  })
+  return mermaidPromise
+}
+
 function MermaidBlock({ code, t }: { code: string; t: TranslationKeys }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [error, setError] = useState<string | null>(null)
@@ -213,12 +238,11 @@ function MermaidBlock({ code, t }: { code: string; t: TranslationKeys }) {
     let cancelled = false
     ;(async () => {
       try {
-        const mod = await import('mermaid')
-        const mermaid = mod.default
-        mermaid.initialize({ startOnLoad: false, theme: 'default', securityLevel: 'loose' })
+        const mermaid = await loadMermaid()
         if (cancelled || !containerRef.current) return
 
-        const id = `mermaid-${Date.now()}`
+        // 时间戳+序号：多个块同毫秒渲染时 Date.now() 会撞 id
+        const id = `mermaid-${Date.now()}-${++mermaidSeq}`
         const { svg } = await mermaid.render(id, code)
         if (!cancelled && containerRef.current) {
           containerRef.current.innerHTML = svg

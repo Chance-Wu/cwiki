@@ -25,6 +25,9 @@ interface ReviewItem {
   title: string
   content: string
   memory_type: string
+  source?: string | null
+  confidence?: number | null
+  updated_at?: string | null
   ease_factor: number
   interval_days: number
   repetitions: number
@@ -63,6 +66,12 @@ export function ReviewCard({
             <Badge variant="danger" className="animate-pulse">
               {t.review.daysOverdue.replace('{n}', String(item.days_overdue))}
             </Badge>
+          )}
+          {item.source && (
+            <span className="ml-auto text-xs text-[var(--text-tertiary)]">
+              {item.source}
+              {item.updated_at ? ` · ${formatTimeShort(item.updated_at, locale)}` : ''}
+            </span>
           )}
         </div>
         <h2 className="text-lg font-semibold text-[var(--text-primary)] break-words leading-snug">

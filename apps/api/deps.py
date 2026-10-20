@@ -2,18 +2,21 @@
 
 from __future__ import annotations
 
+import hmac
 import time
 import uuid
 from collections.abc import AsyncGenerator, Callable, Sequence
 from typing import Annotated, Any
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.auth import AgentIdentity
+from packages.domain.config import settings
 from packages.domain.database import async_session_maker
 from packages.domain.models import Workspace
+from packages.domain.paths import validate_path_component
 from packages.storage.file_store import FileStore
 from packages.storage.indexer import MemoryIndexer
 
@@ -60,16 +63,41 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 _DEFAULT_IDENTITY = AgentIdentity()
 
 
-async def get_current_agent() -> AgentIdentity:
-    """返回本地默认 Agent 身份（单用户模式，无认证环节）。"""
-    return _DEFAULT_IDENTITY
+async def get_current_agent(request: Request) -> AgentIdentity:
+    """校验 Bearer token 并返回本地 Agent 身份。
+
+    app.auth_token 未配置（默认）时保持单用户本地零鉴权体验；
+    配置后要求 `Authorization: Bearer <token>`，不匹配返回 401。
+    每次请求实时读 settings，支持 config 热更新后立即生效。
+    """
+    token = settings.api_auth_token
+    if not token:
+        return _DEFAULT_IDENTITY
+
+    auth_header = request.headers.get("Authorization", "")
+    supplied = auth_header[7:].strip() if auth_header.startswith("Bearer ") else ""
+    # 常数时间比较，避免逐字节短路泄露 token 前缀
+    if supplied and hmac.compare_digest(supplied, token):
+        return _DEFAULT_IDENTITY
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid or missing Authorization bearer token",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
 
 
 def require_scope(required_scope: str) -> Callable[..., Any]:
-    """返回空操作依赖：本地模式不校验 scope，但保留注入点以便未来扩展。"""
+    """要求已鉴权身份；scope 目前仅声明，细粒度权限暂不做。
 
-    async def _check() -> AgentIdentity:
-        return _DEFAULT_IDENTITY
+    鉴权本身由 get_current_agent 完成（配置 app.auth_token 后生效），
+    此依赖仅保留 scope 声明注入点。
+    """
+
+    async def _check(
+        agent: Annotated[AgentIdentity, Depends(get_current_agent)],
+    ) -> AgentIdentity:
+        return agent
 
     return _check
 
@@ -146,6 +174,11 @@ async def resolve_workspace(
 
     workspace_id 为空时解析到 "default" workspace（不存在则自动创建）。
     结果缓存 60 秒，减少高频请求对 DB 的重复查询。
+
+    名称会直接用作 Markdown 文件的路径组件：自动创建新工作区前必须通过
+    validate_path_component，否则会出现"DB 有行、MD 永远写不出去、且经
+    _workspaces.json 随重建复活"的三层存储永久不对称（400 拒绝）。
+    已存在的工作区不复查名称——历史脏名行仍可读写，由 /workspaces/hygiene 治理。
     """
     if not workspace_id:
         workspace_id = "default"
@@ -166,6 +199,14 @@ async def resolve_workspace(
     if workspace is not None:
         _workspace_cache[workspace_id] = (workspace.id, time.monotonic())
         return workspace.id
+
+    try:
+        validate_path_component(workspace_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "invalid_workspace_name", "name": workspace_id, "reason": str(exc)},
+        ) from exc
 
     new_ws = Workspace(name=workspace_id)
     db.add(new_ws)

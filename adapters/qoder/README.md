@@ -6,8 +6,9 @@ Qoder plugin for cwiki - persistent memory infrastructure for AI agents.
 
 cwiki-qoder integrates cwiki into the Qoder agent lifecycle:
 
-- **Local reminders** - SessionStart adds static context reminding the agent to consult cwiki as needed; it does not capture prompts, transcripts, tool calls or errors, and does not guarantee automatic saving
-- **Human review** - Candidate memories submitted through MCP go through approval before becoming verified knowledge
+- **Auto recall** - `UserPromptSubmit` queries local cwiki and injects a small, bounded memory context
+- **Capture** - `PostCompact` stores the host summary, `PostToolUseFailure` stores redacted failures, and `SessionEnd` closes the agent session; captured content goes to the “待整理” inbox, not directly to verified memory
+- **Human review** - Captured notes are organized into candidates and go through approval before becoming verified knowledge
 - **MCP recall** - Verified memories can be retrieved when the API and MCP connection are available
 
 ## Installation
@@ -30,25 +31,23 @@ Alternatively, manually load `adapters/qoder` using Qoder's plugin workflow. `ho
 python tasks.py serve
 ```
 
-The reminder hook itself needs neither the API nor a network connection.
+Hooks are fail-open: when the API is unavailable, capture records are written to a local spool and delivered on the next session-start/session-end/drain.
 
-## Reminder hook protocol
+## Hook protocol
 
-The hook follows the [official Qoder CLI hooks protocol](https://docs.qoder.com/cli/hooks). It reads one UTF-8 JSON object from stdin, limited to 1 MiB. Common fields are `session_id`, `transcript_path`, `cwd` and `hook_event_name`; SessionStart can also supply `source`/`model`.
+Hooks use the host-neutral runtime in `adapters/hooks` and follow the [Qoder CLI hooks protocol](https://docs.qoder.com/cli/hooks). Each command reads one UTF-8 JSON object from stdin (≤1 MiB), validates the native `hook_event_name`, and exits 0 even on invalid input.
 
-Only `hook_event_name` is used to validate the command/event pair. Other fields are ignored: no prompt echo, transcript reads, network requests, application file writes or stdin interpolation into context. The CLI emits ASCII-safe JSON with `hookSpecificOutput.hookEventName` and a static `hookSpecificOutput.additionalContext`, then exits 0. Empty/invalid JSON, non-object input, duplicate keys, oversized input and mismatched events produce only a short sanitized stderr diagnostic and exit 0 (fail-open), never exit 2 to block a user.
-
-| Command | Required `hook_event_name` | Reminder |
+| Command | Event | Behavior |
 |---|---|---|
-| `python -m adapters.qoder.hooks session-start` | `SessionStart` | 会话开始或话题切换时检索相关记忆；出现用户纠正、调试转折、技术决策等信号时提交 |
+| `python -m adapters.hooks qoder session-start` | `SessionStart` | Short reminder + spool drain |
+| `python -m adapters.hooks qoder user-prompt-submit` | `UserPromptSubmit` | Local recall (≤3 memories, ≤1200 chars, no trace) |
+| `python -m adapters.hooks qoder pre-tool-use` | `PreToolUse` (matcher `mcp_call\|mcp__.*`) | Deterministic workspace attribution: inject `workspace_name` from the call's session `cwd` via `updatedInput` (never overrides explicit params; not applied to `memory_search`) |
+| `python -m adapters.hooks qoder post-compact` | `PostCompact` | Store `compact_summary` as a full capture note |
+| `python -m adapters.hooks qoder post-tool-failure` | `PostToolUseFailure` | Store redacted failure (skip user interrupts) |
+| `python -m adapters.hooks qoder session-end` | `SessionEnd` | Close session, drain spool |
+| `python -m adapters.hooks qoder drain` | manual | Flush spool to `/v1/integrations/agent/capture` |
 
-To test the reminder manually, run from the repository root with JSON on stdin:
-
-```sh
-python -B -m adapters.qoder.hooks session-start
-```
-
-`-B` disables Python bytecode cache writes. The command accepts `{"hook_event_name":"SessionStart"}`. This command only tests the reminder; it does not register hooks with Qoder. Reminder execution is not evidence of transcript/event collection, completed extraction or successful memory delivery; those remain separate agent/MCP operations.
+No transcript is read by default; prompts are used only for local retrieval and are not written to logs or retrieval traces. `adapters/qoder/hooks.py` remains as a compatibility shim for older installed configs; new installs use `adapters/hooks`.
 
 ## Configuration
 
@@ -71,17 +70,20 @@ Environment variables:
 
 ## MCP tools
 
-14 tools:
+17 tools:
 
 | Tool | Description |
 |---|---|
 | `memory_search` | Search memories or retrieve curated context |
 | `memory_save` | Submit a memory candidate for human review |
 | `memory_status` | Show workspace statistics and outbox backlog |
+| `memory_tags` | List tags with usage counts, or filter memories by tags (AND logic) |
 | `memory_types` | View available memory types |
 | `memory_history` | View lifecycle events or content version history |
 | `memory_relations` | Query memory relationships |
 | `memory_update` | Update an existing memory |
+| `memory_feedback` | Mark a memory useful/not_useful/outdated/wrong |
+| `memory_forget` | Archive a wrong or unwanted memory (restorable) |
 | `memory_retry_failed` | Retry failed memory writes |
 | `memory_checkpoint` | Extract candidates from collected events/notes |
 | `memory_export` | Export workspace data |
@@ -93,7 +95,7 @@ Environment variables:
 - `memory_search` defaults to `curated=false`; only this mode uses `mode` (`hybrid` by default, or `semantic`) and `filters` (`type` for memory type, `min_confidence` for minimum confidence 0.0–1.0). `limit` defaults to 10 (1–100); regular search retains the backend limit range. Omitting `workspace_name` searches across all workspaces; pass it to scope recall to one workspace.
 - With `curated=true`, search returns the original `get_context` result, including `context`, `items` and optional `_hints`. `limit` replaces `max_items` and accepts 1–50; `max_tokens` is 100–20000 (default 5000), and the optional `project` context filter is preserved. `max_tokens` and `project` apply only to curated context. Curated context is always assembled per workspace: an omitted `workspace_name` falls back to the default workspace.
 - `memory_history` defaults to `view="lifecycle"`; `view="content"` returns stored content version history, not the current memory body. Its `limit` is 1–50 (default 10) and applies only to the content view.
-- Tool schemas are strict (`additionalProperties: false`): unknown parameter names are rejected. The workspace parameter is `workspace_name` (name or UUID), supported by `memory_search`, `memory_save`, `memory_checkpoint`, `memory_status`, `memory_export`, `memory_import`, `memory_review_due`, `memory_review_submit` and `memory_review_stats`; `memory_update`, `memory_types`, `memory_relations`, `memory_history` and `memory_retry_failed` take no workspace parameter.
+- Tool schemas are strict (`additionalProperties: false`): unknown parameter names are rejected. The workspace parameter is `workspace_name` (name or UUID), supported by `memory_search`, `memory_save`, `memory_checkpoint`, `memory_status`, `memory_tags`, `memory_export`, `memory_import`, `memory_review_due`, `memory_review_submit` and `memory_review_stats`; `memory_update`, `memory_types`, `memory_relations`, `memory_history` and `memory_retry_failed` take no workspace parameter; `memory_feedback` and `memory_forget` accept `workspace_name` for scoping.
 
 Backend APIs remain available. Extraction strategy stays in `cwiki-save`; reminder hooks do not supply checkpoint events/notes.
 

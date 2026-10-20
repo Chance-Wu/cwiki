@@ -16,6 +16,7 @@ from apps.api.deps import get_db, invalidate_workspace_cache
 from apps.api.routes import search as search_route
 from packages.domain.database import Base
 from packages.domain.models import Memory, Workspace
+from packages.retrieval import engine as retrieval_engine
 from packages.retrieval.engine import RetrievalEngine
 
 KEYWORD = "过滤验证"
@@ -68,7 +69,8 @@ async def filter_env(tmp_path, monkeypatch):
     retrieval = RetrievalEngine()
     monkeypatch.setattr(search_route, "get_retrieval_engine", lambda: retrieval)
     fake_embedding = SimpleNamespace(generate_embedding=AsyncMock(return_value=[1.0, 0.0]))
-    monkeypatch.setattr(search_route, "get_embedding_service", lambda: fake_embedding)
+    # embedding 由检索引擎管线内部调用，patch 引擎模块而非路由模块
+    monkeypatch.setattr(retrieval_engine, "get_embedding_service", lambda: fake_embedding)
     invalidate_workspace_cache("filter-ws")
     search_route.invalidate_search_cache()
 
@@ -165,3 +167,50 @@ async def test_search_filters_cache_key_distinct(filter_env):
     ids2 = {row["id"] for row in response2.json()["results"]}
     assert ids2 == {env.decision}
     assert ids1 != ids2
+
+
+async def test_search_threshold_filters_low_similarity(filter_env):
+    """threshold 只保留向量相似度达标的候选。
+
+    查询向量 [1,0]：lesson cos=1.0、decision≈0.994、fact≈0.970，
+    threshold=0.995 时仅 lesson 存活。
+    """
+    env = filter_env
+    response = await env.http.post(
+        "/v1/search", json={"keyword": KEYWORD, "threshold": 0.995, "limit": 10}
+    )
+    assert response.status_code == 200
+    ids = {row["id"] for row in response.json()["results"]}
+    assert ids == {env.lesson}
+
+
+async def test_search_threshold_blocks_gibberish(filter_env, monkeypatch):
+    """乱码查询在向量路同样无命中时返回空结果，不再返回凑数条目。"""
+    monkeypatch.setattr(
+        retrieval_engine,
+        "get_embedding_service",
+        lambda: SimpleNamespace(generate_embedding=AsyncMock(return_value=[0.0, 1.0])),
+    )
+    env = filter_env
+    response = await env.http.post(
+        "/v1/search", json={"keyword": "zzzz qqqqq wkwk", "threshold": 0.5, "limit": 10}
+    )
+    assert response.status_code == 200
+    assert response.json()["results"] == []
+
+
+async def test_search_no_candidates_marks_insufficient(filter_env, monkeypatch):
+    """两路均无候选时返回按重要度兜底的列表并显式标记不足。"""
+    monkeypatch.setattr(
+        retrieval_engine,
+        "get_embedding_service",
+        lambda: SimpleNamespace(generate_embedding=AsyncMock(return_value=None)),
+    )
+    env = filter_env
+    response = await env.http.post("/v1/search", json={"keyword": "zzzz qqqqq wkwk", "limit": 10})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["insufficient"] is True
+    assert body["insufficient_reason"]
+    assert body["results"]
+    assert all(row["score"] == 0.0 for row in body["results"])

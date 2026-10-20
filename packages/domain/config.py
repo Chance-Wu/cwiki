@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-import yaml  # type: ignore[import-untyped]
+import yaml
 
 logger = logging.getLogger(__name__)
 
@@ -19,11 +19,12 @@ API_V1_PREFIX = "/v1"
 
 _DEFAULT_RERANKER_WEIGHTS: dict[str, float] = {
     "rrf_weight": 0.38,
-    "confidence_weight": 0.13,
-    "importance_weight": 0.16,
-    "freshness_weight": 0.13,
-    "usage_weight": 0.08,
-    "intent_weight": 0.12,
+    "semantic_weight": 0.15,
+    "confidence_weight": 0.10,
+    "importance_weight": 0.12,
+    "freshness_weight": 0.10,
+    "usage_weight": 0.06,
+    "intent_weight": 0.09,
     "key_term_bonus": 0.08,
 }
 
@@ -109,6 +110,10 @@ class Settings:
         self.api_port: int = app_cfg.get("api_port", 5172)
         # list() 拷贝避免外部修改 settings.cors_origins 时污染模块级默认值
         self.cors_origins: list[str] = app_cfg.get("cors_origins", list(_DEFAULT_CORS_ORIGINS))
+        # 本机 API 鉴权 token（app.auth_token）：默认空 = 不鉴权，保持单用户
+        # 本地零配置体验；配置后受保护端点要求 Authorization: Bearer <token>。
+        # 建议 token 写在 config.local.yaml（随设备、不入代码仓库）
+        self.api_auth_token: str = app_cfg.get("auth_token", "")
 
         self._load_runtime_fields()
 
@@ -119,6 +124,9 @@ class Settings:
         self.vector_weight = retrieval_cfg.get("vector_weight", 0.6)
         self.reranker_rrf_weight = retrieval_cfg.get(
             "reranker_rrf_weight", _DEFAULT_RERANKER_WEIGHTS["rrf_weight"]
+        )
+        self.reranker_semantic_weight = retrieval_cfg.get(
+            "reranker_semantic_weight", _DEFAULT_RERANKER_WEIGHTS["semantic_weight"]
         )
         self.reranker_confidence_weight = retrieval_cfg.get(
             "reranker_confidence_weight", _DEFAULT_RERANKER_WEIGHTS["confidence_weight"]
@@ -227,6 +235,7 @@ class Settings:
         app_cfg = _yaml_config.get("app", {})
         self.debug = app_cfg.get("debug", False)
         self.cors_origins = app_cfg.get("cors_origins", list(_DEFAULT_CORS_ORIGINS))
+        self.api_auth_token = app_cfg.get("auth_token", "")
         self._load_runtime_fields()
 
 
@@ -274,6 +283,19 @@ class ParasiticEvolutionConfig:
 parasitic_evolution_config = ParasiticEvolutionConfig()
 
 
+class SchedulerConfig:
+    """周期调度器间隔配置（小时）。"""
+
+    def __init__(self) -> None:
+        cfg = _yaml_config.get("scheduler", {})
+        self.auto_consolidate_interval_hours: float = cfg.get("auto_consolidate_interval_hours", 6)
+        self.review_reminders_interval_hours: float = cfg.get("review_reminders_interval_hours", 24)
+        self.meta_export_interval_hours: float = cfg.get("meta_export_interval_hours", 12)
+
+
+scheduler_config = SchedulerConfig()
+
+
 class SkillsConfig:
     """技能系统配置 —— 支持技能加载的 Agent 类型。"""
 
@@ -291,6 +313,10 @@ class SkillsConfig:
             if plugins_dir:
                 entry["plugins_dir"] = Path(plugins_dir).expanduser()
             self.agents[name] = entry
+
+        # skills/import 允许导入的源路径前缀；空列表 = 不限制
+        raw_paths = cfg.get("import_allowed_paths", [])
+        self.import_allowed_paths: list[Path] = [Path(p).expanduser().resolve() for p in raw_paths]
 
 
 skills_config = SkillsConfig()
