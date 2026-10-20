@@ -262,7 +262,7 @@ def build_extended_dataset() -> dict:
             )
 
     DATASET_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with open(DATASET_PATH, "w") as f:
+    with open(DATASET_PATH, "w", encoding="utf-8") as f:
         f.writelines(json.dumps(line, ensure_ascii=False) + "\n" for line in lines)
 
     queries = {qid for qid, _, _, _ in QUERIES}

@@ -669,7 +669,9 @@ def ensure_skill(agent_key: str) -> None:
 
 def init_db() -> None:
     print_message("\n[4/5] 初始化数据库")
-    if run([sys.executable, "-m", "alembic", "upgrade", "head"], cwd=str(PROJECT_ROOT)) != 0:
+    # 经 run_alembic.py 包装，绕过加密软件损坏 entry_points.txt 导致的导入失败
+    wrapper = PROJECT_ROOT / "scripts" / "run_alembic.py"
+    if run([sys.executable, str(wrapper), "upgrade", "head"], cwd=str(PROJECT_ROOT)) != 0:
         warn("数据库迁移失败，可稍后手动运行：python tasks.py migrate-init")
 
 

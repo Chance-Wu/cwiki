@@ -82,6 +82,23 @@ python -m benchmarks.runners.context_runner
 python -m benchmarks.performance.perf_runner --scale 10000 --queries 100
 ```
 
+### 真实查询导出（人工标注）
+
+把运行期 `retrieval_trace` 中的真实查询聚合后，连同 BM25 + 向量双路候选池导出，
+供人工标注相关性：
+
+```bash
+# 单个 workspace
+python scripts/export_eval_queries.py --workspace cwiki \
+  --output benchmarks/labeling/cwiki.jsonl
+
+# 全部 workspace（固定写入 benchmarks/labeling/，不随当前目录漂移）
+python scripts/export_eval_queries.py --all-workspaces
+```
+
+标注完成后按 `query_id/query/memory_id/relevance` 回填到
+`datasets/retrieval/{workspace}.jsonl`。`benchmarks/labeling/` 为本地中间产物，不入库。
+
 ## 基线回归（CI 门槛）
 
 `benchmarks/reports/baseline.json` 记录各管线在 eval-fixture 夹具上的门槛值（容差 3%）。

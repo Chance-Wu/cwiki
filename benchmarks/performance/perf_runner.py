@@ -433,11 +433,11 @@ def save_performance_report(results: list[ScaleResult], output_dir: Path | None 
     }
 
     json_path = output_dir / "performance-report.json"
-    with open(json_path, "w") as f:
+    with open(json_path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
 
     md_path = output_dir / "performance-report.md"
-    with open(md_path, "w") as f:
+    with open(md_path, "w", encoding="utf-8") as f:
         f.write(_format_performance_md(results))
 
     return json_path

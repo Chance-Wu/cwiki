@@ -44,7 +44,7 @@ from scripts.common import patch_metadata, print_message
 
 patch_metadata()
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from packages.domain.config import settings
@@ -320,8 +320,7 @@ async def main(argv: list[str] | None = None) -> int:
     session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
     async with session_factory() as session:
-        db_memory_count = (await session.execute(select(Memory))).scalars().all()
-        db_count = len(db_memory_count)
+        db_count = (await session.execute(select(func.count()).select_from(Memory))).scalar_one()
         print_message(f"[DB]   Memory rows: {db_count}")
         print_message()
 
@@ -391,8 +390,9 @@ async def main(argv: list[str] | None = None) -> int:
 
         db_relation_counts: dict[str, int] = {}
         for name, model in relation_tables.items():
-            count = len((await session.execute(select(model))).scalars().all())
-            db_relation_counts[name] = count
+            db_relation_counts[name] = (
+                await session.execute(select(func.count()).select_from(model))
+            ).scalar_one()
 
         # 从 _meta 侧统计
         meta_relation_counts: dict[str, int] = {
@@ -446,8 +446,10 @@ async def main(argv: list[str] | None = None) -> int:
             len(c.get("reviews") or []) if isinstance(c.get("reviews"), list) else 0
             for c in queue_entries
         )
-        db_candidates = len((await session.execute(select(CandidateMemory))).scalars().all())
-        db_reviews = len((await session.execute(select(Review))).scalars().all())
+        db_candidates = (
+            await session.execute(select(func.count()).select_from(CandidateMemory))
+        ).scalar_one()
+        db_reviews = (await session.execute(select(func.count()).select_from(Review))).scalar_one()
         for name, db_c, export_c in (
             ("candidate_memory", db_candidates, queue_candidates),
             ("review", db_reviews, queue_reviews),
@@ -463,8 +465,12 @@ async def main(argv: list[str] | None = None) -> int:
             capture.get("sessions") if isinstance(capture.get("sessions"), list) else []
         )
         export_notes = capture.get("notes") if isinstance(capture.get("notes"), list) else []
-        db_sessions = len((await session.execute(select(AgentSession))).scalars().all())
-        db_notes = len((await session.execute(select(SessionNote))).scalars().all())
+        db_sessions = (
+            await session.execute(select(func.count()).select_from(AgentSession))
+        ).scalar_one()
+        db_notes = (
+            await session.execute(select(func.count()).select_from(SessionNote))
+        ).scalar_one()
         for name, db_c, export_c in (
             ("agent_session", db_sessions, len(export_sessions)),
             ("session_note", db_notes, len(export_notes)),

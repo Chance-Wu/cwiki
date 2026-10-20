@@ -180,9 +180,9 @@ def save_report(report: ContextBenchmarkReport) -> None:
         "conflict_warning_recall": report.conflict_warning_recall,
         "per_query": [m.__dict__ for m in report.per_query],
     }
-    with open(REPORTS_DIR / "context-report.json", "w") as f:
+    with open(REPORTS_DIR / "context-report.json", "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
-    with open(REPORTS_DIR / "context-report.md", "w") as f:
+    with open(REPORTS_DIR / "context-report.md", "w", encoding="utf-8") as f:
         f.write(format_context_report_md(report))
 
 
@@ -194,5 +194,5 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Context assembly benchmark runner")
+    argparse.ArgumentParser(description="Context assembly benchmark runner").parse_args()
     asyncio.run(main())

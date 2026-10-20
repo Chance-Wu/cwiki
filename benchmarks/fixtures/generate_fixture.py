@@ -1443,7 +1443,7 @@ def build_fixture() -> dict:
     # 黄金数据集：按标签重叠度分级判定
     dataset_lines = build_gold_dataset()
     DATASET_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with open(DATASET_PATH, "w") as f:
+    with open(DATASET_PATH, "w", encoding="utf-8") as f:
         f.writelines(json.dumps(line, ensure_ascii=False) + "\n" for line in dataset_lines)
 
     queries = {line["query_id"] for line in dataset_lines}
@@ -1460,7 +1460,7 @@ def build_fixture() -> dict:
         "judgments": judgments,
         "generated_at": now.isoformat(),
     }
-    with open(META_PATH, "w") as f:
+    with open(META_PATH, "w", encoding="utf-8") as f:
         json.dump(meta, f, ensure_ascii=False, indent=2)
 
     return meta

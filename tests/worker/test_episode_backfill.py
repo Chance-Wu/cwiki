@@ -40,7 +40,7 @@ TEST_DB_URL = "sqlite+aiosqlite:///:memory:"
 def _naive(*args: int) -> datetime:
     """构造 naive 时间戳：SQLite DateTime 列按 naive 存取，
     Event.occurred_at 与 CandidateMemory.created_at 刻意保持一致。"""
-    return datetime(*args)  # noqa: DTZ001
+    return datetime(*args)
 
 
 @pytest_asyncio.fixture

@@ -122,13 +122,13 @@ async def test_aggregate_empty_input_returns_empty(agg_env):
 def test_latest_used_at_picks_newest_and_normalizes_naive():
     """融合多来源取最新者：naive 视为 UTC，返回统一为 naive。"""
     # 以下 naive datetime 均为故意构造，用于验证 naive/aware 混合融合口径
-    naive_older = datetime(2025, 1, 1, 0, 0, 0)  # noqa: DTZ001
+    naive_older = datetime(2025, 1, 1, 0, 0, 0)
     aware_newer = datetime(2025, 6, 1, 0, 0, 0, tzinfo=UTC)
-    naive_newest = datetime(2025, 8, 1, 0, 0, 0)  # noqa: DTZ001
+    naive_newest = datetime(2025, 8, 1, 0, 0, 0)
 
     # aware 来源比 naive_older 新，胜出后去 tzinfo 输出
     result = latest_used_at(naive_older, aware_newer, None)
-    assert result == datetime(2025, 6, 1, 0, 0, 0)  # noqa: DTZ001
+    assert result == datetime(2025, 6, 1, 0, 0, 0)
     assert result.tzinfo is None
 
     # naive_newest 比 aware_newer 更新，胜出

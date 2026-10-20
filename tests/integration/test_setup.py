@@ -876,7 +876,7 @@ def test_database_and_serve_use_system_python(
     ):
         getattr(setup, command)()
     args = (
-        ["-m", "alembic", "upgrade", "head"]
+        [str(root / "scripts" / "run_alembic.py"), "upgrade", "head"]
         if command == "init_db"
         else ["-m", "uvicorn", "apps.api.main:app", "--reload", "--port", "5172"]
     )

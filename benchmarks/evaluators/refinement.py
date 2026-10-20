@@ -169,9 +169,11 @@ if __name__ == "__main__":
     report = generate_report(results)
     print(report)
 
-    # 保存结果
-    out_dir = Path("benchmarks/reports/refinement")
+    # 保存结果（固定项目内路径，且显式 UTF-8，避免 Windows 默认 GBK）
+    out_dir = Path(__file__).resolve().parent.parent / "reports" / "refinement"
     out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / "baseline.json").write_text(json.dumps(results, ensure_ascii=False, indent=2))
-    (out_dir / "report.md").write_text(report)
+    (out_dir / "baseline.json").write_text(
+        json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    (out_dir / "report.md").write_text(report, encoding="utf-8")
     print(f"\n结果已保存到 {out_dir}/baseline.json 和 {out_dir}/report.md")

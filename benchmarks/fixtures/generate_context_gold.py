@@ -556,7 +556,7 @@ def build_records() -> list[dict]:
 def main() -> None:
     records = build_records()
     DATASET_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with open(DATASET_PATH, "w") as f:
+    with open(DATASET_PATH, "w", encoding="utf-8") as f:
         f.writelines(json.dumps(r, ensure_ascii=False) + "\n" for r in records)
     print(f"Wrote {len(records)} context gold records to {DATASET_PATH}")
 

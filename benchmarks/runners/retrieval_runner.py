@@ -78,7 +78,7 @@ REPORTS_DIR = Path(__file__).parent.parent / "reports"
 
 def load_gold_dataset(path: Path) -> list[QueryJudgment]:
     judgments: dict[str, QueryJudgment] = {}
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line:
@@ -342,11 +342,11 @@ def save_report(report: BenchmarkReport, output_dir: Path, prefix: str = "") -> 
         ],
     }
     json_path = output_dir / f"{prefix}retrieval-report-{report.pipeline}.json"
-    with open(json_path, "w") as f:
+    with open(json_path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
 
     md_path = output_dir / f"{prefix}retrieval-report-{report.pipeline}.md"
-    with open(md_path, "w") as f:
+    with open(md_path, "w", encoding="utf-8") as f:
         f.write(format_report_md(report))
 
     logger.info("Reports saved to %s", output_dir)

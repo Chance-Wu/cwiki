@@ -33,12 +33,17 @@ from packages.retrieval.embedding import get_embedding_service
 
 logger = logging.getLogger(__name__)
 
+ROOT = Path(__file__).resolve().parent.parent
 MIN_QUERY_LEN = 4  # 过短查询（如单词命令）标注价值低，跳过
 TOP_K = 20
 
 
 def _quiet_sql() -> None:
-    logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
+    # settings.debug=true 时共享引擎带 echo，SQL 会直接打到日志；本工具只需结果
+    for name in ("sqlalchemy.engine", "sqlalchemy.engine.Engine"):
+        logging.getLogger(name).disabled = True
+    # jieba 首次分词会自行打开 DEBUG 日志，与导出结果无关
+    logging.getLogger("jieba").setLevel(logging.WARNING)
 
 
 async def _real_queries(db: AsyncSession, workspace_id) -> list[str]:
@@ -134,7 +139,7 @@ def _write_export(
     output: Path, queries: list[str], pools: dict[str, list[dict]], workspace_name: str
 ) -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
-    with open(output, "w") as f:
+    with open(output, "w", encoding="utf-8") as f:
         f.writelines(
             json.dumps(
                 {
@@ -173,7 +178,8 @@ async def main(workspace: str | None, output: Path | None, all_workspaces: bool)
     if all_workspaces:
         async with async_session_maker() as db:
             names = (await db.execute(select(Workspace.name))).scalars().all()
-        out_dir = Path("benchmarks") / "labeling"
+        # 固定落在项目内，避免结果随当前工作目录漂移
+        out_dir = ROOT / "benchmarks" / "labeling"
         for name in sorted(names):
             await export_workspace(name, out_dir / f"{name}.jsonl")
         return

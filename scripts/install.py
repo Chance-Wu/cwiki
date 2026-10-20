@@ -269,15 +269,15 @@ def check_git(dry_run: bool) -> bool:
 # ── 阶段 2：虚拟环境 ─────────────────────────────────────────────────
 
 
-def ensure_venv(dry_run: bool) -> None:
-    """确保 .venv 存在；缺失时用系统 python 创建。"""
+def ensure_venv(dry_run: bool) -> bool:
+    """确保 .venv 存在；返回本次是否新建了虚拟环境。"""
     venv_dir = PROJECT_ROOT / ".venv"
     if venv_dir.is_dir():
         info(f"虚拟环境已存在：{venv_dir}")
-        return
+        return False
     if dry_run:
         print_message(f"  [dry-run] 创建虚拟环境：{venv_dir}")
-        return
+        return False
 
     print_message(f"  创建虚拟环境：{venv_dir}")
     # 用当前解释器（已满足 MIN_PYTHON）创建，保证 venv 内版本一致
@@ -286,9 +286,8 @@ def ensure_venv(dry_run: bool) -> None:
         fail(f"创建虚拟环境失败（exit {rc}），请手动运行：python -m venv .venv")
 
     info(f"已创建虚拟环境：{venv_dir}")
-    print_message("  提示：请重新运行 install 脚本以使用 .venv 解释器继续安装")
-    print_message(f"    source {venv_dir}/bin/activate  # Linux/Mac")
-    print_message(f"    {venv_dir}\\Scripts\\activate     # Windows")
+    print_message("  正在切换到 .venv 解释器继续安装...")
+    return True
 
 
 # ── 阶段 3：Python 依赖 ─────────────────────────────────────────────
@@ -385,10 +384,12 @@ def init_database(dry_run: bool) -> bool:
         return True
 
     print_message("  运行 Alembic 迁移初始化数据库...")
-    rc = run([sys.executable, "-m", "alembic", "upgrade", "head"], cwd=PROJECT_ROOT)
+    # 经 run_alembic.py 包装，绕过加密软件损坏 entry_points.txt 导致的导入失败
+    alembic_wrapper = PROJECT_ROOT / "scripts" / "run_alembic.py"
+    rc = run([sys.executable, str(alembic_wrapper), "upgrade", "head"], cwd=PROJECT_ROOT)
     if rc != 0:
         warn(f"Alembic 迁移失败（exit {rc}）")
-        print_message("    重试命令: python -m alembic upgrade head")
+        print_message("    重试命令: python scripts/run_alembic.py upgrade head")
         return False
     info(f"数据库已初始化：{db_path}")
     return True
@@ -518,45 +519,55 @@ def main() -> int:
         warn("Node.js 不可用，自动跳过前端安装（等同于 --skip-web）")
         args.skip_web = True
 
+    failed = False
+
     # 阶段 2：虚拟环境
     step_header(2, TOTAL_STEPS, "虚拟环境")
-    ensure_venv(dry_run)
+    if ensure_venv(dry_run):
+        # 必须切到新建的 .venv 再继续，否则后续 pip/迁移会装进系统 Python
+        ensure_venv_interpreter(PROJECT_ROOT)
+        warn("未能切换到新建的虚拟环境，请重新运行 install")
+        return 1
 
     # 阶段 3：Python 依赖
     step_header(3, TOTAL_STEPS, "安装 Python 依赖")
     py_ok = install_python_deps(dry_run, force=args.force)
-    if py_ok and not args.skip_verify:
-        verify_python_deps()
-    elif not py_ok:
+    if py_ok:
+        if not args.skip_verify and not verify_python_deps():
+            failed = True
+    else:
         warn("Python 依赖安装失败，后续步骤可能受影响")
+        failed = True
 
     # 阶段 4：前端依赖
     step_header(4, TOTAL_STEPS, "安装前端依赖")
     if args.skip_web:
         info("已跳过（--skip-web 或 Node.js 不可用）")
-    else:
-        install_web_deps(npm, dry_run, force=args.force)
+    elif not install_web_deps(npm, dry_run, force=args.force):
+        failed = True
 
     # 阶段 5：数据目录与数据库
     step_header(5, TOTAL_STEPS, "初始化数据与数据库")
     ensure_data_dir(dry_run)
     if args.skip_db:
         info("已跳过数据库初始化（--skip-db）")
-    else:
-        init_database(dry_run)
+    elif not init_database(dry_run):
+        failed = True
 
     # 阶段 6：Agent 接入配置
     step_header(6, TOTAL_STEPS, "Agent 接入配置")
     if args.skip_setup:
         info("已跳过（--skip-setup）")
-    else:
-        run_agent_setup(dry_run)
+    elif not run_agent_setup(dry_run):
+        failed = True
 
     if not dry_run:
         cfg = load_app_config(PROJECT_ROOT)
         print_next_steps(cfg)
 
-    return 0
+    if failed:
+        print_message("\n  安装未完全成功，请按上方提示处理失败步骤后重试。")
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":

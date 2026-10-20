@@ -131,6 +131,8 @@ class TestCliIntegration:
                 "PYTHONPATH": str(ROOT),
                 "PATH": "/usr/bin:/bin",
                 "HOME": str(Path.home()),
+                # Windows 的 Path.home() 只认 USERPROFILE，不认 HOME
+                "USERPROFILE": str(Path.home()),
                 **(env or {}),
             },
         )

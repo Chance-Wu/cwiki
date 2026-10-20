@@ -53,7 +53,8 @@ def force_kill_port(port: int) -> None:
                 parts = line.split()
                 if (
                     len(parts) >= 5
-                    and f":{port}" in parts[1]
+                    # 只比较端口号本身，避免 :5172 误匹配 15172 / 51720
+                    and parts[1].rsplit(":", 1)[-1] == str(port)
                     and parts[3] in ("LISTENING", "ESTABLISHED")
                 ):
                     pid = parts[4].strip()
