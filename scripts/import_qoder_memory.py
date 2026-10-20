@@ -79,11 +79,14 @@ def parse_memory(path: Path) -> dict[str, Any] | None:
 def _related_paths(body: str) -> list[Path]:
     paths: list[Path] = []
     for match in _PATH_RE.findall(body):
+        raw = match.strip()
         try:
-            path = Path(match.strip())
+            path = Path(raw)
         except (OSError, ValueError):
             continue
-        if path.is_absolute() and path not in paths:
+        # Windows 上 Path("/Users/...") 因缺盘符不被视为绝对路径，
+        # 但记忆可能从 macOS/Linux 同步而来，仍需保留。
+        if (path.is_absolute() or raw.startswith("/")) and path not in paths:
             paths.append(path)
     return paths[:20]
 

@@ -32,8 +32,9 @@ async def reliability_env(
     使 omitted/empty 走静态推导（测试 CWD=cwiki 仓库 → default）。
     """
     monkeypatch.setenv("CWIKI_STATE_DIR", str(tmp_path / "state"))
-    monkeypatch.setattr("adapters.mcp.mcp_server._DYNAMIC_WS_FILE",
-                        tmp_path / "state" / "current-workspace.json")
+    monkeypatch.setattr(
+        "adapters.mcp.mcp_server._DYNAMIC_WS_FILE", tmp_path / "state" / "current-workspace.json"
+    )
     workspace = await client.post("/v1/workspaces", json={"name": f"reliability-{uuid.uuid4()}"})
     assert workspace.status_code == 201
     workspace_id = workspace.json()["id"]

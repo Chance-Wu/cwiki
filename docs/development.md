@@ -337,8 +337,8 @@ Qoder MCP 适配器另有独立环境变量：`CWIKI_API_URL`、`CWIKI_WORKSPACE
 ```python
 from packages.domain.version import app_version
 
-FastAPI(version=app_version())      # apps/api/main.py
-APP_VERSION = app_version()         # packages/domain/schemas/common.py → /v1/health
+FastAPI(version=app_version())  # apps/api/main.py
+APP_VERSION = app_version()  # packages/domain/schemas/common.py → /v1/health
 ```
 
 | 消费方 | 取法 | 说明 |

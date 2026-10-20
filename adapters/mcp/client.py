@@ -56,6 +56,9 @@ class CwikiClient:
         if self._http is None or self._http.is_closed:
             self._http = httpx.AsyncClient(
                 timeout=self.timeout,
+                # 后端固定在本机 127.0.0.1，禁用环境/注册表代理，
+                # 否则本地请求会被系统代理转发而超时。
+                trust_env=False,
                 limits=httpx.Limits(
                     max_connections=20,
                     max_keepalive_connections=10,
@@ -441,9 +444,7 @@ class CwikiClient:
             },
         )
 
-    async def delete_memory_relation(
-        self, memory_id: str, relation_id: str
-    ) -> dict[str, Any]:
+    async def delete_memory_relation(self, memory_id: str, relation_id: str) -> dict[str, Any]:
         return await self._request(
             "DELETE",
             f"{API_V1_PREFIX}/memories/{memory_id}/relations/{relation_id}",
@@ -475,9 +476,7 @@ class CwikiClient:
             params=params,
         )
 
-    async def delete_tag(
-        self, tag_name: str, workspace_id: str | None = None
-    ) -> dict[str, Any]:
+    async def delete_tag(self, tag_name: str, workspace_id: str | None = None) -> dict[str, Any]:
         params: dict[str, Any] = {}
         if workspace_id:
             params["workspace_id"] = workspace_id

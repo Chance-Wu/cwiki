@@ -17,26 +17,32 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, NamedTuple
+from types import TracebackType
+from typing import Any, Literal, NamedTuple, Self
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
-from scripts.common import ensure_venv_interpreter, load_app_config, print_message
+from scripts.common import ensure_venv_interpreter, load_app_config, patch_metadata, print_message
 
 ensure_venv_interpreter(PROJECT_ROOT)
 
 
 class NodeCheckResult(NamedTuple):
     """Node.js 环境检查结果。"""
+
     available: bool
     version: tuple[int, ...] | None
+
 
 # ── 版本要求 ─────────────────────────────────────────────────────────
 
 MIN_PYTHON = (3, 11)
 MIN_NODE = (18, 0, 0)
+
+# Windows STATUS_DLL_INIT_FAILED：子进程在解释器初始化前就失败（安全软件注入 / 资源瞬时紧张），可重试
+DLL_INIT_FAILED = 0xC0000142
 
 # 核心 Python 依赖：安装后必须能导入，作为环境健康的硬指标
 CORE_PYTHON_MODULES = (
@@ -103,52 +109,70 @@ def step_header(number: int, total: int, title: str) -> None:
 
 class Spinner:
     """简单的进度指示器 — 用于长时间命令。"""
-    
+
     def __init__(self, message: str):
         self.message = message
         self.running = False
-        
-    def __enter__(self):
+
+    def __enter__(self) -> Self:
         if not _supports_color():
             print_message(f"  {self.message}...")
             return self
         self.running = True
-        import threading
         import itertools
-        
-        def spin():
+        import threading
+
+        def spin() -> None:
             for char in itertools.cycle(["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]):
                 if not self.running:
                     break
                 print(f"\r  {Colors.CYAN}{char}{Colors.RESET} {self.message}", end="", flush=True)
                 import time
+
                 time.sleep(0.1)
             print(f"\r  {Colors.GREEN}✓{Colors.RESET} {self.message}{' ' * 20}")
-        
+
         self.thread = threading.Thread(target=spin, daemon=True)
         self.thread.start()
         return self
-        
-    def __exit__(self, exc_type, exc_val, exc_tb):
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> Literal[False]:
         self.running = False
         if hasattr(self, "thread"):
             self.thread.join(timeout=0.5)
         return False
 
 
-def run(cmd: list[str], *, cwd: Path | None = None, dry_run: bool = False, show_spinner: bool = False) -> int:
+def _needs_shell(cmd: list[str]) -> bool:
+    """Windows 上只有 npm.cmd / .bat 等脚本需要 shell 解析；exe 直接调用少一层 cmd.exe。"""
+    if os.name != "nt":
+        return False
+    return Path(cmd[0]).suffix.lower() != ".exe"
+
+
+def run(
+    cmd: list[str], *, cwd: Path | None = None, dry_run: bool = False, show_spinner: bool = False
+) -> int:
     if dry_run:
         print_message(f"  [dry-run] {' '.join(cmd)}")
         return 0
-    
+
     cmd_str = " ".join(cmd)
     if show_spinner and _supports_color():
         # 长时间命令：显示进度指示器
         with Spinner(f"执行: {cmd_str[:50]}..."):
             try:
                 return subprocess.call(
-                    cmd, cwd=str(cwd) if cwd else None, shell=(os.name == "nt"),
-                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                    cmd,
+                    cwd=str(cwd) if cwd else None,
+                    shell=_needs_shell(cmd),
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
                 )
             except FileNotFoundError:
                 warn(f"命令不存在: {cmd[0]}")
@@ -157,10 +181,7 @@ def run(cmd: list[str], *, cwd: Path | None = None, dry_run: bool = False, show_
                 return 130
     else:
         try:
-            # Windows 必须经 shell 执行，才能解析 npm.cmd / .bat 等非 exe 命令
-            return subprocess.call(
-                cmd, cwd=str(cwd) if cwd else None, shell=(os.name == "nt")
-            )
+            return subprocess.call(cmd, cwd=str(cwd) if cwd else None, shell=_needs_shell(cmd))
         except FileNotFoundError:
             warn(f"命令不存在: {cmd[0]}")
             return 127
@@ -277,16 +298,19 @@ def install_python_deps(dry_run: bool, force: bool = False) -> bool:
     cmd = [sys.executable, "-m", "pip", "install", "-e", ".[dev]"]
     if force:
         cmd.append("--force-reinstall")
-    print_message(f"  安装 Python 依赖（pip install -e .[dev]）...")
+    print_message("  安装 Python 依赖（pip install -e .[dev]）...")
     rc = run(cmd, dry_run=dry_run, show_spinner=True)
     if rc != 0:
         warn(f"pip install 失败（exit {rc}）")
-        print_message(f"    重试命令: python -m pip install -e .[dev]")
+        print_message("    重试命令: python -m pip install -e .[dev]")
         return False
     return True
 
 
 def verify_python_deps() -> bool:
+    # 加密软件会让 entry_points.txt 不可读，alembic 等模块导入时会扫描全部
+    # 发行版元数据；先打补丁再验证，避免把环境问题误报成依赖缺失。
+    patch_metadata()
     missing: list[tuple[str, str]] = []
     for module in CORE_PYTHON_MODULES:
         try:
@@ -330,7 +354,7 @@ def install_web_deps(npm: str | None, dry_run: bool, force: bool = False) -> boo
 
 def ensure_data_dir(dry_run: bool) -> Path:
     cfg = load_app_config(PROJECT_ROOT)
-    memory_dir_rel = cfg.get("storage", {}).get("memory_dir", "./cwiki-data")
+    memory_dir_rel: str = cfg.get("storage", {}).get("memory_dir", "./cwiki-data")
     memory_dir = PROJECT_ROOT / memory_dir_rel
     if memory_dir.is_dir():
         info(f"数据目录已存在：{memory_dir}")
@@ -364,7 +388,7 @@ def init_database(dry_run: bool) -> bool:
     rc = run([sys.executable, "-m", "alembic", "upgrade", "head"], cwd=PROJECT_ROOT)
     if rc != 0:
         warn(f"Alembic 迁移失败（exit {rc}）")
-        print_message(f"    重试命令: python -m alembic upgrade head")
+        print_message("    重试命令: python -m alembic upgrade head")
         return False
     info(f"数据库已初始化：{db_path}")
     return True
@@ -381,9 +405,12 @@ def run_agent_setup(dry_run: bool) -> bool:
     print_message("  运行 Agent 接入配置（setup.py --sync-instructions）...")
     cmd = [sys.executable, str(setup_script), "--sync-instructions"]
     rc = run(cmd, dry_run=dry_run)
+    if rc == DLL_INIT_FAILED:
+        warn("子进程初始化失败（0xC0000142），重试一次...")
+        rc = run(cmd, dry_run=dry_run)
     if rc != 0:
         warn(f"setup.py 失败（exit {rc}）")
-        print_message(f"    重试命令: python scripts/setup.py --sync-instructions")
+        print_message(f"    重试命令: {sys.executable} {setup_script} --sync-instructions")
         return False
     return True
 

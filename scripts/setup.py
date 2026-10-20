@@ -91,8 +91,32 @@ def read_json(path: Path) -> dict[str, Any]:
     return data
 
 
+def write_text_atomic(path: Path, text: str) -> None:
+    """原子写入：先写同目录临时文件再替换，避免目标被宿主进程占用时截断失败。
+
+    Agent 宿主（Qoder 等）可能映射或锁定自己的配置文件，直接 open("w")
+    截断会抛 PermissionError；替换文件不受该限制，也避免写入中断损坏配置。
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
+        if path.exists():
+            shutil.copymode(path, tmp)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.remove(tmp)
+        except FileNotFoundError:
+            pass
+        raise
+
+
 def write_json(path: Path, data: dict[str, Any]) -> None:
-    path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    write_text_atomic(path, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
 
 
 def run(cmd: list[str], **kw: Any) -> int:
@@ -567,7 +591,7 @@ def ensure_agents_md(agent_key: str) -> None:
     block = f"{CWIKI_AGENTS_START}\n{CWIKI_AGENTS_MD}{CWIKI_AGENTS_END}"
 
     if not agents_md.exists():
-        agents_md.write_text(GLOBAL_AGENTS_MD, encoding="utf-8")
+        write_text_atomic(agents_md, GLOBAL_AGENTS_MD)
         info(f"AGENTS.md 已写入 cwiki 工具契约：{agents_md}")
         return
 
@@ -601,7 +625,7 @@ def ensure_agents_md(agent_key: str) -> None:
     if updated == existing:
         info(f"cwiki 工具契约已是最新：{agents_md}")
         return
-    agents_md.write_text(updated, encoding="utf-8")
+    write_text_atomic(agents_md, updated)
     info(f"cwiki 工具契约已更新，区块外内容保持不变：{agents_md}")
 
 
