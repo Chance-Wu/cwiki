@@ -907,233 +907,16 @@ class DatabaseRebuilder:
             if meta is None:
                 continue
 
-            # --- feedback ---
-            for item in meta.get("feedback", []):
-                try:
-                    feedback_batch.append(
-                        MemoryFeedback(
-                            id=uuid.UUID(item["id"]) if item.get("id") else uuid.uuid4(),
-                            workspace_id=uuid.UUID(item["workspace_id"]),
-                            memory_id=uuid.UUID(memory_id_str),
-                            feedback_type=item.get("feedback_type", "unknown"),
-                            source_type=item.get("source_type", "agent"),
-                            source_id=item.get("source_id"),
-                            reason=item.get("reason"),
-                            created_at=_parse_dt(item.get("created_at")),
-                        )
-                    )
-                    counts["feedback"] += 1
-                except (ValueError, KeyError) as exc:
-                    logger.debug("Skipping feedback for %s: %s", memory_id_str, exc)
-
-            # --- usage ---
-            for item in meta.get("usage", []):
-                try:
-                    usage_batch.append(
-                        MemoryUsage(
-                            id=uuid.UUID(item["id"]) if item.get("id") else uuid.uuid4(),
-                            workspace_id=uuid.UUID(item["workspace_id"]),
-                            memory_id=uuid.UUID(memory_id_str),
-                            trace_id=uuid.UUID(item["trace_id"]) if item.get("trace_id") else None,
-                            session_id=(
-                                uuid.UUID(item["session_id"]) if item.get("session_id") else None
-                            ),
-                            position=item.get("position"),
-                            stage=item.get("stage", "retrieved"),
-                            created_at=_parse_dt(item.get("created_at")),
-                        )
-                    )
-                    counts["usage"] += 1
-                except (ValueError, KeyError) as exc:
-                    logger.debug("Skipping usage for %s: %s", memory_id_str, exc)
-
-            # --- conflict ---
-            for item in meta.get("conflict", []):
-                try:
-                    conflict_batch.append(
-                        MemoryConflict(
-                            id=uuid.UUID(item["id"]) if item.get("id") else uuid.uuid4(),
-                            workspace_id=uuid.UUID(item["workspace_id"]),
-                            memory_id=uuid.UUID(memory_id_str),
-                            candidate_id=(
-                                uuid.UUID(item["candidate_id"])
-                                if item.get("candidate_id")
-                                else None
-                            ),
-                            conflict_type=item.get("conflict_type", "contradiction"),
-                            description=item.get("description"),
-                            evidence=item.get("evidence"),
-                            status=item.get("status", "open"),
-                            resolution=item.get("resolution"),
-                            created_at=_parse_dt(item.get("created_at")),
-                            resolved_at=_parse_dt(item.get("resolved_at")),
-                        )
-                    )
-                    counts["conflict"] += 1
-                except (ValueError, KeyError) as exc:
-                    logger.debug("Skipping conflict for %s: %s", memory_id_str, exc)
-
-            # --- review_schedule (1:1) ---
-            rs = meta.get("review_schedule")
-            if rs and isinstance(rs, dict) and rs.get("id"):
-                try:
-                    # 此处需要该记忆的 workspace_id，
-                    # 从刚导入的记忆行中查得。
-                    mem_row = (
-                        await session.execute(
-                            select(Memory.workspace_id).where(Memory.id == uuid.UUID(memory_id_str))
-                        )
-                    ).scalar_one_or_none()
-                    if mem_row:
-                        schedule_batch.append(
-                            ReviewSchedule(
-                                id=uuid.UUID(rs["id"]),
-                                workspace_id=uuid.UUID(str(mem_row)),
-                                memory_id=uuid.UUID(memory_id_str),
-                                ease_factor=rs.get("ease_factor", 2.5),
-                                interval_days=rs.get("interval_days", 1),
-                                repetitions=rs.get("repetitions", 0),
-                                next_review=_parse_dt(rs.get("next_review"))
-                                or datetime.now(UTC).replace(tzinfo=None),
-                                last_review=_parse_dt(rs.get("last_review")),
-                                total_reviews=rs.get("total_reviews", 0),
-                                created_at=_parse_dt(rs.get("created_at")),
-                                updated_at=_parse_dt(rs.get("updated_at")),
-                            )
-                        )
-                        counts["review_schedule"] += 1
-                except (ValueError, KeyError) as exc:
-                    logger.debug("Skipping review_schedule for %s: %s", memory_id_str, exc)
-
-            # --- relation ---
-            for item in meta.get("relation", []):
-                try:
-                    relation_batch.append(
-                        MemoryRelation(
-                            id=uuid.UUID(item["id"]) if item.get("id") else uuid.uuid4(),
-                            source_memory_id=uuid.UUID(item.get("source_memory_id", memory_id_str)),
-                            target_memory_id=uuid.UUID(item["target_memory_id"]),
-                            relation_type=item.get("relation_type", "related"),
-                            confidence=item.get("confidence", 1.0),
-                            created_at=_parse_dt(item.get("created_at")),
-                        )
-                    )
-                    counts["relation"] += 1
-                except (ValueError, KeyError) as exc:
-                    logger.debug("Skipping relation for %s: %s", memory_id_str, exc)
-
-            # --- lifecycle_event ---
-            for item in meta.get("lifecycle_event", []):
-                try:
-                    lifecycle_batch.append(
-                        MemoryLifecycleEvent(
-                            id=uuid.UUID(item["id"]) if item.get("id") else uuid.uuid4(),
-                            memory_id=uuid.UUID(memory_id_str),
-                            event_type=item.get("event_type", "unknown"),
-                            metadata_json=(
-                                json.dumps(item["metadata_json"])
-                                if item.get("metadata_json")
-                                and isinstance(item["metadata_json"], dict)
-                                else item.get("metadata_json")
-                            ),
-                            created_at=_parse_dt(item.get("created_at")),
-                        )
-                    )
-                    counts["lifecycle_event"] += 1
-                except (ValueError, KeyError) as exc:
-                    logger.debug("Skipping lifecycle_event for %s: %s", memory_id_str, exc)
-
-            # --- evidence ---
-            for item in meta.get("evidence", []):
-                try:
-                    evidence_batch.append(
-                        Evidence(
-                            id=uuid.UUID(item["id"]) if item.get("id") else uuid.uuid4(),
-                            memory_id=uuid.UUID(memory_id_str),
-                            candidate_id=(
-                                uuid.UUID(item["candidate_id"])
-                                if item.get("candidate_id")
-                                else None
-                            ),
-                            episode_id=(
-                                uuid.UUID(item["episode_id"]) if item.get("episode_id") else None
-                            ),
-                            event_id=(
-                                uuid.UUID(item["event_id"]) if item.get("event_id") else None
-                            ),
-                            source_type=item.get("source_type", "unknown"),
-                            source_ref=item.get("source_ref"),
-                            content=item.get("content"),
-                            metadata_=item.get("metadata"),
-                            created_at=_parse_dt(item.get("created_at")),
-                        )
-                    )
-                    counts["evidence"] += 1
-                except (ValueError, KeyError) as exc:
-                    logger.debug("Skipping evidence for %s: %s", memory_id_str, exc)
-
-            # --- versions（版本快照）---
-            for item in meta.get("versions", []):
-                try:
-                    ver = int(item["version"])  # 缺失/非法 → 坏行跳过
-                    key = (memory_id_str, ver)
-                    if key in seen_versions:
-                        logger.debug("Skipping duplicate version %d for %s", ver, memory_id_str)
-                        continue
-                    version_kwargs: dict[str, Any] = {
-                        "id": uuid.UUID(item["id"]) if item.get("id") else uuid.uuid4(),
-                        "memory_id": uuid.UUID(memory_id_str),
-                        "version": ver,
-                        "title": item["title"],
-                        "content": item["content"],
-                        "change_type": item.get("change_type", "unknown"),
-                        "changed_by_type": item.get("changed_by_type", "agent"),
-                        "changed_by_id": item.get("changed_by_id"),
-                        "reason": item.get("reason"),
-                    }
-                    version_created = _parse_dt(item.get("created_at"))
-                    if version_created is not None:
-                        version_kwargs["created_at"] = version_created
-                    version_batch.append(MemoryVersion(**version_kwargs))
-                    seen_versions.add(key)
-                    counts["versions"] += 1
-                except (ValueError, KeyError, TypeError) as exc:
-                    logger.debug("Skipping version for %s: %s", memory_id_str, exc)
-
-            # --- review_history（复习事件史）---
-            for item in meta.get("review_history", []):
-                try:
-                    # NOT NULL 的调度时间字段解析失败视为坏行跳过，
-                    # 避免 flush 时 IntegrityError 回滚整个重建。
-                    reviewed_at = _parse_dt(item["reviewed_at"])
-                    next_before = _parse_dt(item["next_review_before"])
-                    next_after = _parse_dt(item["next_review_after"])
-                    if reviewed_at is None or next_before is None or next_after is None:
-                        raise ValueError("invalid required datetime field")
-                    history_kwargs: dict[str, Any] = {
-                        "id": uuid.UUID(item["id"]) if item.get("id") else uuid.uuid4(),
-                        "workspace_id": uuid.UUID(item["workspace_id"]),
-                        "memory_id": uuid.UUID(memory_id_str),
-                        "quality": int(item["quality"]),
-                        "ease_factor_before": float(item["ease_factor_before"]),
-                        "interval_before": int(item["interval_before"]),
-                        "repetitions_before": int(item["repetitions_before"]),
-                        "next_review_before": next_before,
-                        "mastery_level_before": item.get("mastery_level_before", "new"),
-                        "ease_factor_after": float(item["ease_factor_after"]),
-                        "interval_after": int(item["interval_after"]),
-                        "repetitions_after": int(item["repetitions_after"]),
-                        "next_review_after": next_after,
-                        "mastery_level_after": item.get("mastery_level_after", "new"),
-                        "reviewed_at": reviewed_at,
-                    }
-                    history_created = _parse_dt(item.get("created_at"))
-                    if history_created is not None:
-                        history_kwargs["created_at"] = history_created
-                    history_batch.append(ReviewHistory(**history_kwargs))
-                    counts["review_history"] += 1
-                except (ValueError, KeyError, TypeError) as exc:
-                    logger.debug("Skipping review_history for %s: %s", memory_id_str, exc)
+            # 调用各实体类型的处理方法
+            self._process_feedback(meta, memory_id_str, feedback_batch, counts)
+            self._process_usage(meta, memory_id_str, usage_batch, counts)
+            self._process_conflict(meta, memory_id_str, conflict_batch, counts)
+            await self._process_review_schedule(meta, memory_id_str, session, schedule_batch, counts)
+            self._process_relation(meta, memory_id_str, relation_batch, counts)
+            self._process_lifecycle_event(meta, memory_id_str, lifecycle_batch, counts)
+            self._process_evidence(meta, memory_id_str, evidence_batch, counts)
+            self._process_versions(meta, memory_id_str, version_batch, counts, seen_versions)
+            self._process_review_history(meta, memory_id_str, history_batch, counts)
 
         # 统一 flush 全部批次。
         batches: list[list[Any]] = [
@@ -1153,6 +936,263 @@ class DatabaseRebuilder:
         await session.flush()
 
         result.relation_counts = counts
+
+    def _process_feedback(
+        self, meta: dict[str, Any], memory_id_str: str, batch: list[Any], counts: dict[str, int]
+    ) -> None:
+        """处理 feedback 实体批次。"""
+        for item in meta.get("feedback", []):
+            try:
+                batch.append(
+                    MemoryFeedback(
+                        id=uuid.UUID(item["id"]) if item.get("id") else uuid.uuid4(),
+                        workspace_id=uuid.UUID(item["workspace_id"]),
+                        memory_id=uuid.UUID(memory_id_str),
+                        feedback_type=item.get("feedback_type", "unknown"),
+                        source_type=item.get("source_type", "agent"),
+                        source_id=item.get("source_id"),
+                        reason=item.get("reason"),
+                        created_at=_parse_dt(item.get("created_at")),
+                    )
+                )
+                counts["feedback"] += 1
+            except (ValueError, KeyError) as exc:
+                logger.debug("Skipping feedback for %s: %s", memory_id_str, exc)
+
+    def _process_usage(
+        self, meta: dict[str, Any], memory_id_str: str, batch: list[Any], counts: dict[str, int]
+    ) -> None:
+        """处理 usage 实体批次。"""
+        for item in meta.get("usage", []):
+            try:
+                batch.append(
+                    MemoryUsage(
+                        id=uuid.UUID(item["id"]) if item.get("id") else uuid.uuid4(),
+                        workspace_id=uuid.UUID(item["workspace_id"]),
+                        memory_id=uuid.UUID(memory_id_str),
+                        trace_id=uuid.UUID(item["trace_id"]) if item.get("trace_id") else None,
+                        session_id=(
+                            uuid.UUID(item["session_id"]) if item.get("session_id") else None
+                        ),
+                        position=item.get("position"),
+                        stage=item.get("stage", "retrieved"),
+                        created_at=_parse_dt(item.get("created_at")),
+                    )
+                )
+                counts["usage"] += 1
+            except (ValueError, KeyError) as exc:
+                logger.debug("Skipping usage for %s: %s", memory_id_str, exc)
+
+    def _process_conflict(
+        self, meta: dict[str, Any], memory_id_str: str, batch: list[Any], counts: dict[str, int]
+    ) -> None:
+        """处理 conflict 实体批次。"""
+        for item in meta.get("conflict", []):
+            try:
+                batch.append(
+                    MemoryConflict(
+                        id=uuid.UUID(item["id"]) if item.get("id") else uuid.uuid4(),
+                        workspace_id=uuid.UUID(item["workspace_id"]),
+                        memory_id=uuid.UUID(memory_id_str),
+                        candidate_id=(
+                            uuid.UUID(item["candidate_id"])
+                            if item.get("candidate_id")
+                            else None
+                        ),
+                        conflict_type=item.get("conflict_type", "contradiction"),
+                        description=item.get("description"),
+                        evidence=item.get("evidence"),
+                        status=item.get("status", "open"),
+                        resolution=item.get("resolution"),
+                        created_at=_parse_dt(item.get("created_at")),
+                        resolved_at=_parse_dt(item.get("resolved_at")),
+                    )
+                )
+                counts["conflict"] += 1
+            except (ValueError, KeyError) as exc:
+                logger.debug("Skipping conflict for %s: %s", memory_id_str, exc)
+
+    async def _process_review_schedule(
+        self, meta: dict[str, Any], memory_id_str: str, session: AsyncSession, batch: list[Any], counts: dict[str, int]
+    ) -> None:
+        """处理 review_schedule（1:1 关系，需查 workspace_id）。"""
+        rs = meta.get("review_schedule")
+        if not rs or not isinstance(rs, dict) or not rs.get("id"):
+            return
+        try:
+            mem_row = (
+                await session.execute(
+                    select(Memory.workspace_id).where(Memory.id == uuid.UUID(memory_id_str))
+                )
+            ).scalar_one_or_none()
+            if mem_row:
+                batch.append(
+                    ReviewSchedule(
+                        id=uuid.UUID(rs["id"]),
+                        workspace_id=uuid.UUID(str(mem_row)),
+                        memory_id=uuid.UUID(memory_id_str),
+                        ease_factor=rs.get("ease_factor", 2.5),
+                        interval_days=rs.get("interval_days", 1),
+                        repetitions=rs.get("repetitions", 0),
+                        next_review=_parse_dt(rs.get("next_review"))
+                        or datetime.now(UTC).replace(tzinfo=None),
+                        last_review=_parse_dt(rs.get("last_review")),
+                        total_reviews=rs.get("total_reviews", 0),
+                        created_at=_parse_dt(rs.get("created_at")),
+                        updated_at=_parse_dt(rs.get("updated_at")),
+                    )
+                )
+                counts["review_schedule"] += 1
+        except (ValueError, KeyError) as exc:
+            logger.debug("Skipping review_schedule for %s: %s", memory_id_str, exc)
+
+    def _process_relation(
+        self, meta: dict[str, Any], memory_id_str: str, batch: list[Any], counts: dict[str, int]
+    ) -> None:
+        """处理 relation 实体批次。"""
+        for item in meta.get("relation", []):
+            try:
+                batch.append(
+                    MemoryRelation(
+                        id=uuid.UUID(item["id"]) if item.get("id") else uuid.uuid4(),
+                        source_memory_id=uuid.UUID(item.get("source_memory_id", memory_id_str)),
+                        target_memory_id=uuid.UUID(item["target_memory_id"]),
+                        relation_type=item.get("relation_type", "related"),
+                        confidence=item.get("confidence", 1.0),
+                        created_at=_parse_dt(item.get("created_at")),
+                    )
+                )
+                counts["relation"] += 1
+            except (ValueError, KeyError) as exc:
+                logger.debug("Skipping relation for %s: %s", memory_id_str, exc)
+
+    def _process_lifecycle_event(
+        self, meta: dict[str, Any], memory_id_str: str, batch: list[Any], counts: dict[str, int]
+    ) -> None:
+        """处理 lifecycle_event 实体批次。"""
+        for item in meta.get("lifecycle_event", []):
+            try:
+                batch.append(
+                    MemoryLifecycleEvent(
+                        id=uuid.UUID(item["id"]) if item.get("id") else uuid.uuid4(),
+                        memory_id=uuid.UUID(memory_id_str),
+                        event_type=item.get("event_type", "unknown"),
+                        metadata_json=(
+                            json.dumps(item["metadata_json"])
+                            if item.get("metadata_json")
+                            and isinstance(item["metadata_json"], dict)
+                            else item.get("metadata_json")
+                        ),
+                        created_at=_parse_dt(item.get("created_at")),
+                    )
+               )
+                counts["lifecycle_event"] += 1
+            except (ValueError, KeyError) as exc:
+                logger.debug("Skipping lifecycle_event for %s: %s", memory_id_str, exc)
+
+    def _process_evidence(
+        self, meta: dict[str, Any], memory_id_str: str, batch: list[Any], counts: dict[str, int]
+    ) -> None:
+        """处理 evidence 实体批次。"""
+        for item in meta.get("evidence", []):
+            try:
+                batch.append(
+                    Evidence(
+                        id=uuid.UUID(item["id"]) if item.get("id") else uuid.uuid4(),
+                        memory_id=uuid.UUID(memory_id_str),
+                        candidate_id=(
+                            uuid.UUID(item["candidate_id"])
+                            if item.get("candidate_id")
+                            else None
+                        ),
+                        episode_id=(
+                            uuid.UUID(item["episode_id"]) if item.get("episode_id") else None
+                        ),
+                        event_id=(
+                            uuid.UUID(item["event_id"]) if item.get("event_id") else None
+                        ),
+                        source_type=item.get("source_type", "unknown"),
+                        source_ref=item.get("source_ref"),
+                        content=item.get("content"),
+                        metadata_=item.get("metadata"),
+                        created_at=_parse_dt(item.get("created_at")),
+                    )
+                )
+                counts["evidence"] += 1
+            except (ValueError, KeyError) as exc:
+                logger.debug("Skipping evidence for %s: %s", memory_id_str, exc)
+
+    def _process_versions(
+        self,
+        meta: dict[str, Any],
+        memory_id_str: str,
+        batch: list[Any],
+        counts: dict[str, int],
+        seen_versions: set[tuple[str, int]],
+    ) -> None:
+        """处理 versions 实体批次（带去重）。"""
+        for item in meta.get("versions", []):
+            try:
+                ver = int(item["version"])
+                key = (memory_id_str, ver)
+                if key in seen_versions:
+                    logger.debug("Skipping duplicate version %d for %s", ver, memory_id_str)
+                    continue
+                version_kwargs: dict[str, Any] = {
+                    "id": uuid.UUID(item["id"]) if item.get("id") else uuid.uuid4(),
+                    "memory_id": uuid.UUID(memory_id_str),
+                    "version": ver,
+                    "title": item["title"],
+                    "content": item["content"],
+                    "change_type": item.get("change_type", "unknown"),
+                    "changed_by_type": item.get("changed_by_type", "agent"),
+                    "changed_by_id": item.get("changed_by_id"),
+                    "reason": item.get("reason"),
+                }
+                version_created = _parse_dt(item.get("created_at"))
+                if version_created is not None:
+                    version_kwargs["created_at"] = version_created
+                batch.append(MemoryVersion(**version_kwargs))
+                seen_versions.add(key)
+                counts["versions"] += 1
+            except (ValueError, KeyError, TypeError) as exc:
+                logger.debug("Skipping version for %s: %s", memory_id_str, exc)
+
+    def _process_review_history(
+        self, meta: dict[str, Any], memory_id_str: str, batch: list[Any], counts: dict[str, int]
+    ) -> None:
+        """处理 review_history 实体批次（复杂时间字段验证）。"""
+        for item in meta.get("review_history", []):
+            try:
+                reviewed_at = _parse_dt(item["reviewed_at"])
+                next_before = _parse_dt(item["next_review_before"])
+                next_after = _parse_dt(item["next_review_after"])
+                if reviewed_at is None or next_before is None or next_after is None:
+                    raise ValueError("invalid required datetime field")
+                history_kwargs: dict[str, Any] = {
+                    "id": uuid.UUID(item["id"]) if item.get("id") else uuid.uuid4(),
+                    "workspace_id": uuid.UUID(item["workspace_id"]),
+                    "memory_id": uuid.UUID(memory_id_str),
+                    "quality": int(item["quality"]),
+                    "ease_factor_before": float(item["ease_factor_before"]),
+                    "interval_before": int(item["interval_before"]),
+                    "repetitions_before": int(item["repetitions_before"]),
+                    "next_review_before": next_before,
+                    "mastery_level_before": item.get("mastery_level_before", "new"),
+                    "ease_factor_after": float(item["ease_factor_after"]),
+                    "interval_after": int(item["interval_after"]),
+                    "repetitions_after": int(item["repetitions_after"]),
+                    "next_review_after": next_after,
+                    "mastery_level_after": item.get("mastery_level_after", "new"),
+                    "reviewed_at": reviewed_at,
+                }
+                history_created = _parse_dt(item.get("created_at"))
+                if history_created is not None:
+                    history_kwargs["created_at"] = history_created
+                batch.append(ReviewHistory(**history_kwargs))
+                counts["review_history"] += 1
+            except (ValueError, KeyError, TypeError) as exc:
+                logger.debug("Skipping review_history for %s: %s", memory_id_str, exc)
 
     async def close(self) -> None:
         """释放内部 engine。"""

@@ -102,87 +102,17 @@ async def task_auto_consolidate_similar(ctx: dict[str, Any]) -> dict[str, Any]:
                 "embedding": m.embedding,
             }
 
-        # 第一趟：BM25 预过滤，收集需要加载的命中 ID
-        bm25_candidates: dict[str, list[str]] = {}
-        extra_ids: set[str] = set()
-        for m in memories:
-            doc_id = str(m.id)
-            candidates = bm25.search(
-                format_memory_for_embedding(m.title, m.content),
-                top_k=settings.auto_consolidate_top_k,
-            )
-            valid = [oid for oid, _ in candidates if oid != doc_id]
-            bm25_candidates[doc_id] = valid
-            for oid in valid:
-                if oid not in id_to_data:
-                    extra_ids.add(oid)
+        # BM25 预过滤 + 加载额外记忆
+        bm25_candidates, extra_ids = _build_bm25_candidates(memories, bm25, id_to_data)
+        await _load_extra_memories(db_session, extra_ids, id_to_data)
 
-        # 批量加载限定集之外的 BM25 命中
-        if extra_ids:
-            extra_uuids = [uuid.UUID(mid) for mid in extra_ids]
-            detail_stmt = select(
-                Memory.id, Memory.title, Memory.content, Memory.embedding
-            ).where(Memory.id.in_(extra_uuids))
-            detail_result = await db_session.execute(detail_stmt)
-            for row in detail_result.all():
-                mid = str(row.id)
-                if mid not in id_to_data:
-                    id_to_data[mid] = {
-                        "title": row.title,
-                        "content": row.content,
-                        "embedding": row.embedding,
-                    }
-
-        # 对每条记忆用 BM25 预过滤 + 统一相似度验证找相似记忆；
-        # 用规范化键记录超阈值对（避免重复比较）
+        # 计算相似度并构建邻接表
         strategy = settings.similarity_strategy
         weights = HybridWeights(**settings.similarity_hybrid_weights)
-
-        pair_sims: dict[tuple[str, str], float] = {}
-        adjacency: dict[str, set[str]] = {str(m.id): set() for m in memories}
-
-        for m in memories:
-            doc_id = str(m.id)
-            data_i = id_to_data[doc_id]
-            for other_id in bm25_candidates[doc_id]:
-                # 规范化对键（排序去重）
-                pair_key = (min(doc_id, other_id), max(doc_id, other_id))
-                if pair_key in pair_sims:
-                    continue
-                data_j = id_to_data.get(other_id)
-                if data_j is None:
-                    continue
-                sim = await compute_similarity(data_i, data_j, strategy=strategy, weights=weights)
-                if sim > _CONSOLIDATE_THRESHOLD:
-                    pair_sims[pair_key] = sim
-                    adjacency[doc_id].add(other_id)
-                    adjacency[other_id].add(doc_id)
+        adjacency = await _compute_adjacency(memories, bm25_candidates, id_to_data, strategy, weights)
 
         # 按高相似连通性分组（连通分量）
-        processed: set[str] = set()
-        consolidation_groups: list[list[Any]] = []
-
-        for m in memories:
-            doc_id = str(m.id)
-            if doc_id in processed or not adjacency[doc_id]:
-                continue
-            # BFS 求连通分量
-            group_ids: list[str] = []
-            queue_bfs: list[str] = [doc_id]
-            while queue_bfs:
-                current = queue_bfs.pop(0)
-                if current in processed:
-                    continue
-                processed.add(current)
-                group_ids.append(current)
-                for neighbor in adjacency[current]:
-                    if neighbor not in processed:
-                        queue_bfs.append(neighbor)
-
-            if len(group_ids) >= 2:
-                group = [id_to_mem[did] for did in group_ids if did in id_to_mem]
-                if len(group) >= 2:
-                    consolidation_groups.append(group)
+        consolidation_groups = _find_groups(memories, adjacency, id_to_mem)
 
         suggestions: list[dict[str, Any]] = []
         for group in consolidation_groups:
@@ -402,3 +332,120 @@ async def _smart_merge_content(
             parts.append(f"\n\n{source_mem.content}")
 
     return "\n".join(parts)
+
+
+def _build_bm25_candidates(
+    memories: Any,
+    bm25: Any,
+    id_to_data: dict[str, dict[str, Any]],
+) -> tuple[dict[str, list[str]], set[str]]:
+    """BM25 预过滤：为每条记忆找 top-k 邻居，收集需要额外加载的记忆 ID。"""
+    bm25_candidates: dict[str, list[str]] = {}
+    extra_ids: set[str] = set()
+
+    for m in memories:
+        doc_id = str(m.id)
+        candidates = bm25.search(
+            format_memory_for_embedding(m.title, m.content),
+            top_k=settings.auto_consolidate_top_k,
+        )
+        valid = [oid for oid, _ in candidates if oid != doc_id]
+        bm25_candidates[doc_id] = valid
+        for oid in valid:
+            if oid not in id_to_data:
+                extra_ids.add(oid)
+
+    return bm25_candidates, extra_ids
+
+
+async def _load_extra_memories(
+    db_session: Any,
+    extra_ids: set[str],
+    id_to_data: dict[str, dict[str, Any]],
+) -> None:
+    """批量加载 BM25 命中但不在初始查询结果中的记忆。"""
+    if not extra_ids:
+        return
+
+    extra_uuids = [uuid.UUID(mid) for mid in extra_ids]
+    detail_stmt = select(
+        Memory.id, Memory.title, Memory.content, Memory.embedding
+    ).where(Memory.id.in_(extra_uuids))
+    detail_result = await db_session.execute(detail_stmt)
+
+    for row in detail_result.all():
+        mid = str(row.id)
+        if mid not in id_to_data:
+            id_to_data[mid] = {
+                "title": row.title,
+                "content": row.content,
+                "embedding": row.embedding,
+            }
+
+
+async def _compute_adjacency(
+    memories: Any,
+    bm25_candidates: dict[str, list[str]],
+    id_to_data: dict[str, dict[str, Any]],
+    strategy: str,
+    weights: HybridWeights,
+) -> dict[str, set[str]]:
+    """计算记忆间的相似度，构建邻接表（超阈值的边）。"""
+    pair_sims: dict[tuple[str, str], float] = {}
+    adjacency: dict[str, set[str]] = {str(m.id): set() for m in memories}
+
+    for m in memories:
+        doc_id = str(m.id)
+        data_i = id_to_data[doc_id]
+
+        for other_id in bm25_candidates[doc_id]:
+            # 规范化对键（排序去重）
+            pair_key = (min(doc_id, other_id), max(doc_id, other_id))
+            if pair_key in pair_sims:
+                continue
+
+            data_j = id_to_data.get(other_id)
+            if data_j is None:
+                continue
+
+            sim = await compute_similarity(data_i, data_j, strategy=strategy, weights=weights)
+            if sim > _CONSOLIDATE_THRESHOLD:
+                pair_sims[pair_key] = sim
+                adjacency[doc_id].add(other_id)
+                adjacency[other_id].add(doc_id)
+
+    return adjacency
+
+
+def _find_groups(
+    memories: Any,
+    adjacency: dict[str, set[str]],
+    id_to_mem: dict[str, Any],
+) -> list[list[Any]]:
+    """用 BFS 找连通分量，每个分量是一组待整理的高相似记忆。"""
+    processed: set[str] = set()
+    consolidation_groups: list[list[Any]] = []
+
+    for m in memories:
+        doc_id = str(m.id)
+        if doc_id in processed or not adjacency[doc_id]:
+            continue
+
+        # BFS 找所有连通节点
+        group: list[Any] = []
+        queue = [doc_id]
+        while queue:
+            current = queue.pop(0)
+            if current in processed:
+                continue
+            processed.add(current)
+            if current in id_to_mem:
+                group.append(id_to_mem[current])
+            for neighbor in adjacency[current]:
+                if neighbor not in processed:
+                    queue.append(neighbor)
+
+        if len(group) >= 2:
+            consolidation_groups.append(group)
+
+    return consolidation_groups
