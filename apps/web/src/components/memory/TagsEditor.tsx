@@ -27,9 +27,12 @@ export default function TagsEditor({ tags, memoryId, onTagsChanged, compact }: P
 
   useEffect(() => {
     if (editing) {
-      api.listTags().then((res) => {
-        setAvailableTags(res.tags?.map((t) => t.name) || [])
-      }).catch(() => {})
+      api
+        .listTags()
+        .then((res) => {
+          setAvailableTags(res.tags?.map((t) => t.name) || [])
+        })
+        .catch(() => {})
       setTimeout(() => inputRef.current?.focus(), 50)
     }
   }, [editing])

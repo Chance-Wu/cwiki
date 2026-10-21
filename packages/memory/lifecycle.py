@@ -9,7 +9,7 @@ from __future__ import annotations
 class InvalidStatusTransition(Exception):
     """非法状态转换。"""
 
-    def __init__(self, current: str, target: str, allowed: list[str]):
+    def __init__(self, current: str, target: str, allowed: list[str]) -> None:
         self.current = current
         self.target = target
         self.allowed = allowed

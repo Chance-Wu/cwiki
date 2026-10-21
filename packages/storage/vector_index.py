@@ -24,7 +24,7 @@ def _atomic_replace(src: str, dst: Path) -> None:
 class VectorIndex:
     """基于 numpy 余弦相似度检索的简易向量索引。"""
 
-    def __init__(self, dimensions: int = 1536, index_path: str | None = None):
+    def __init__(self, dimensions: int = 1536, index_path: str | None = None) -> None:
         self.dimensions = dimensions
         self.index_path = Path(index_path) if index_path else Path(storage_config.vector_index_path)
         self._meta_path = self.index_path.with_suffix(".json")
@@ -65,7 +65,9 @@ class VectorIndex:
                 self.metadata = meta.get("metadata", {})
                 logger.info("Loaded %d vectors from index", len(self.vectors))
             except Exception as e:
-                logger.warning("Failed to load vector index: %s, trying legacy", e)
+                logger.warning(
+                    "Failed to load vector index %s: %s, trying legacy", self.index_path, e
+                )
                 self._load_legacy()
         elif self.index_path.exists():
             self._load_legacy()
@@ -83,7 +85,7 @@ class VectorIndex:
             # 旧格式加载成功后立即按新格式落盘，完成格式升级
             self.save()
         except Exception as e:
-            logger.error("Error loading vector index: %s", e)
+            logger.error("Error loading vector index %s: %s", self.index_path, e)
 
     def save(self) -> None:
         """将索引原子写入磁盘。
@@ -130,7 +132,7 @@ class VectorIndex:
 
             logger.info("Saved %d vectors to index", len(self.vectors))
         except Exception as e:
-            logger.error("Error saving vector index: %s", e)
+            logger.error("Error saving vector index %s: %s", self.index_path, e)
 
     def add(
         self, memory_id: str, vector: list[float], metadata: dict[str, Any] | None = None

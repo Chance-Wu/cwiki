@@ -23,7 +23,7 @@ class GitVersionControl:
     不阻塞事件循环。构造函数保持同步，因为它只在模块导入时执行一次。
     """
 
-    def __init__(self, repo_path: str):
+    def __init__(self, repo_path: str) -> None:
         self.repo_path = Path(repo_path)
         self._ensure_repo()
 

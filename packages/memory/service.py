@@ -22,6 +22,21 @@ from packages.memory.entity_extractor import extract_entities
 from packages.memory.quality_gate import check_exclusion_list, compute_quality_gate
 from packages.memory.review_service import get_review_service
 
+
+def normalize_tags(tags: list[str] | None) -> list[str]:
+    """规范化标签列表：去空格、转小写、去重、过滤空串，保持首次出现顺序。"""
+    if not tags:
+        return []
+    seen: set[str] = set()
+    result: list[str] = []
+    for tag in tags:
+        normalized = tag.strip().lower()
+        if normalized and normalized not in seen:
+            seen.add(normalized)
+            result.append(normalized)
+    return result
+
+
 # 判重阈值从全局配置读取，便于按部署调整
 SIMILARITY_THRESHOLD = settings.similarity_threshold
 
@@ -288,6 +303,7 @@ async def create_candidate(
     importance: float = 0.5,
     project_id: uuid.UUID | None = None,
     client_write_id: str | None = None,
+    tags: list[str] | None = None,
 ) -> tuple[CandidateMemory, list[SimilarItem], bool]:
     """创建候选记忆，等待人工复核。
 
@@ -331,6 +347,7 @@ async def create_candidate(
         title=title,
         content=content,
         type=type,
+        tags=normalize_tags(tags),
         source=source,
         client_write_id=client_write_id,
         confidence=confidence,
@@ -405,6 +422,7 @@ async def approve_candidate(
         title=approved_title,
         content=approved_content,
         type=candidate.type,
+        tags=list(candidate.tags or []),
         source=candidate.source,
         confidence=candidate.confidence or 0.5,
         importance=candidate.importance or 0.5,

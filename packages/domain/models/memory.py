@@ -73,8 +73,8 @@ class Memory(Base):
     )
 
     project: Mapped[Project | None] = relationship(back_populates="memories")
-    versions: Mapped[list[MemoryVersion]] = relationship(back_populates="memory", lazy="noload")
-    evidences: Mapped[list[Evidence]] = relationship(back_populates="memory", lazy="noload")
+    versions: Mapped[list[MemoryVersion]] = relationship(back_populates="memory", lazy="raise")
+    evidences: Mapped[list[Evidence]] = relationship(back_populates="memory", lazy="raise")
 
 
 class MemoryVersion(Base):
@@ -129,6 +129,7 @@ class CandidateMemory(Base):
     title: Mapped[str] = mapped_column(String(512), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     type: Mapped[str] = mapped_column(String(64), nullable=False)
+    tags: Mapped[list[str] | None] = mapped_column(JSONBType(), nullable=True)
     # (workspace_id, client_write_id) 唯一：客户端重试不会产生重复候选（幂等写入）
     client_write_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -172,8 +173,8 @@ class CandidateMemory(Base):
     )
 
     episode: Mapped[Episode | None] = relationship(back_populates="candidate_memories")
-    evidences: Mapped[list[Evidence]] = relationship(back_populates="candidate", lazy="noload")
-    reviews: Mapped[list[Review]] = relationship(back_populates="candidate", lazy="noload")
+    evidences: Mapped[list[Evidence]] = relationship(back_populates="candidate", lazy="raise")
+    reviews: Mapped[list[Review]] = relationship(back_populates="candidate", lazy="raise")
 
 
 class Evidence(Base):
@@ -350,6 +351,9 @@ class MemoryRelation(Base):
     )
     relation_type: Mapped[str] = mapped_column(String(50), nullable=False)
     confidence: Mapped[float] = mapped_column(Float, default=1.0, server_default="1.0")
+    # Hebbian 强度：共检索强化、按半衰期衰减；与语义 confidence 分开存储
+    strength: Mapped[float] = mapped_column(Float, default=0.0, server_default="0")
+    last_reinforced_at: Mapped[datetime | None] = mapped_column(nullable=True)
     created_at: Mapped[datetime] = mapped_column(default=func.now(), server_default=func.now())
 
 

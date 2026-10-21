@@ -33,6 +33,7 @@ def memory_to_file(memory: Memory) -> MemoryFile:
         title=memory.title,
         content=memory.content,
         type=memory.type,
+        tags=list(getattr(memory, "tags", None) or []),
         version=getattr(memory, "version", 1),
         status=getattr(memory, "status", "active"),
         source=getattr(memory, "source", "mcp"),

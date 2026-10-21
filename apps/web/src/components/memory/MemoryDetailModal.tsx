@@ -271,16 +271,18 @@ export default function MemoryDetailModal({
           </Badge>
           <Badge variant={statusVariant}>{statusLbl}</Badge>
           {/* 标签显示 */}
-          {Array.isArray(memory.tags) && memory.tags.length > 0 && memory.tags.map((tag) => (
-            <Badge 
-              key={tag} 
-              variant="default" 
-              className="bg-brand-badge-bg text-brand-badge-text border-brand-border"
-              title={`标签 (${memory.tags!.length}): ${memory.tags!.join(', ')}`}
-            >
-              {tag}
-            </Badge>
-          ))}
+          {Array.isArray(memory.tags) &&
+            memory.tags.length > 0 &&
+            memory.tags.map((tag) => (
+              <Badge
+                key={tag}
+                variant="default"
+                className="bg-brand-badge-bg text-brand-badge-text border-brand-border"
+                title={`标签 (${memory.tags!.length}): ${memory.tags!.join(', ')}`}
+              >
+                {tag}
+              </Badge>
+            ))}
         </div>
         {/* 标签编辑 */}
         <TagsEditor

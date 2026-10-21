@@ -114,6 +114,35 @@ workspace 是**宿主当前绑定项目**的知识容器，也是唯一的组织
 - **清洗规则**：目录名只保留 `A-Za-z0-9._-`；以下形态一律拒绝并回落 `default`——8 位十六进制哈希名（如 `179cf7e8`，Qoder 会话 ID 截断误传）、路径编码名（`C--Users-…`、`--Users-…--`，宿主把会话路径当目录名传入）、含折叠连字符的名字、首字符非字母数字的名字（`.`/`..`/`.hidden`）。判据集中在 `adapters/hooks/profiles.clean_workspace_name`，由 hook、MCP 核心与安装器三处同源复用，不再产生垃圾工作区。
 - **历史治理**：`GET /v1/workspaces/hygiene/preview` 预览脏名工作区，`POST /v1/workspaces/hygiene/merge` 一次性归并（迁移记忆/笔记/会话后删除源工作区）。
 
+## 多标签系统
+
+记忆支持多标签分类，标签在写入时自动规范化并持久化到 Markdown frontmatter：
+
+- **规范化规则**：所有写入路径（MCP `memory_save`/`memory_update`、API 候选创建、审批）统一调用 `normalize_tags`——去前后空白、转小写、去重、过滤空串，保持首次出现顺序
+- **存储格式**：SQLite `tags` 列（JSON 数组）+ Markdown frontmatter `tags: ["tag1", "tag2"]`
+- **检索过滤**：`memory_search` 支持 `tags` 参数，按标签交集过滤（记忆必须包含所有指定标签）
+- **审批继承**：候选审批为正式记忆时，标签原样复制（已在候选创建时规范化）
+- **持久化全链路**：`file_sync`（MD 镜像）、`migrate_to_git`（数据同步）、`rebuilder`（DB 重建）、`export_import`（导出/导入）均保留标签
+
+示例 frontmatter：
+
+```yaml
+---
+id: 550e8400-e29b-41d4-a716-446655440000
+title: Python 异步测试约定
+type: fact
+tags: ["python", "testing", "asyncio"]
+source: mcp
+status: active
+confidence: 0.8
+importance: 0.7
+version: 1
+is_permanent: false
+created_at: 2026-10-20T10:00:00
+updated_at: 2026-10-20T10:00:00
+---
+```
+
 ## 记忆生命周期
 
 ### 候选记忆流水线

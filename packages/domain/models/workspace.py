@@ -29,9 +29,9 @@ class Workspace(Base):
         default=func.now(), server_default=func.now(), onupdate=func.now()
     )
 
-    projects: Mapped[list[Project]] = relationship(back_populates="workspace", lazy="noload")
-    agents: Mapped[list[Agent]] = relationship(back_populates="workspace", lazy="noload")
-    sessions: Mapped[list[Session]] = relationship(back_populates="workspace", lazy="noload")
+    projects: Mapped[list[Project]] = relationship(back_populates="workspace", lazy="raise")
+    agents: Mapped[list[Agent]] = relationship(back_populates="workspace", lazy="raise")
+    sessions: Mapped[list[Session]] = relationship(back_populates="workspace", lazy="raise")
 
 
 class Project(Base):
@@ -53,8 +53,8 @@ class Project(Base):
     )
 
     workspace: Mapped[Workspace] = relationship(back_populates="projects")
-    sessions: Mapped[list[Session]] = relationship(back_populates="project", lazy="noload")
-    memories: Mapped[list[Memory]] = relationship(back_populates="project", lazy="noload")
+    sessions: Mapped[list[Session]] = relationship(back_populates="project", lazy="raise")
+    memories: Mapped[list[Memory]] = relationship(back_populates="project", lazy="raise")
 
 
 class Agent(Base):
@@ -79,8 +79,8 @@ class Agent(Base):
     )
 
     workspace: Mapped[Workspace] = relationship(back_populates="agents")
-    sessions: Mapped[list[Session]] = relationship(back_populates="agent", lazy="noload")
-    events: Mapped[list[Event]] = relationship(back_populates="agent", lazy="noload")
+    sessions: Mapped[list[Session]] = relationship(back_populates="agent", lazy="raise")
+    events: Mapped[list[Event]] = relationship(back_populates="agent", lazy="raise")
 
 
 class AgentProfile(Base):

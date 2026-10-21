@@ -447,8 +447,12 @@ class TaskQueue:
             except Exception:
                 Path(tmp).unlink(missing_ok=True)
                 raise
-        except Exception as e:
-            logger.warning("Failed to persist task queue: %s", e)
+        except OSError as e:
+            # 快照写盘失败（磁盘满/权限）不应让队列崩溃，但须明确告警
+            logger.error("Failed to persist task queue: %s", e)
+        except TypeError as e:
+            # 任务参数不可序列化（default=str 已兜底大部分），同样不应崩队列
+            logger.error("Failed to serialize task queue snapshot: %s", e)
 
     def _restore_persisted(self) -> tuple[int, int]:
         """从磁盘恢复 PENDING 与 FAILED 任务，返回 ``(pending, failed)`` 数量。
@@ -462,7 +466,8 @@ class TaskQueue:
         try:
             with open(self._persist_path, encoding="utf-8") as f:
                 data = json.load(f)
-        except Exception as e:
+        except (OSError, json.JSONDecodeError) as e:
+            # 快照缺失或损坏时按空恢复（文档化行为），其余异常类型不吞
             logger.warning("Failed to restore task queue: %s", e)
             return 0, 0
 

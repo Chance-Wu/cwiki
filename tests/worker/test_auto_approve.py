@@ -20,7 +20,6 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
-import apps.worker.tasks as tasks_module
 from apps.worker.tasks import task_score_candidate
 from packages.domain.config import settings
 from packages.domain.database import Base
@@ -109,7 +108,7 @@ async def _make_candidate(
 async def _run_score(ctx: dict, engine, candidate_id: str, workspace_id: str) -> dict:
     maker = async_sessionmaker(engine, expire_on_commit=False)
     with (
-        patch.object(tasks_module, "async_session_maker", maker),
+        patch("apps.worker.tasks.candidate_review.async_session_maker", maker),
         patch("apps.api.file_sync.sync_memory_to_file", new=AsyncMock()),
     ):
         return await task_score_candidate(ctx, candidate_id, workspace_id)

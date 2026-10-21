@@ -98,7 +98,7 @@ def _acquire_windows_lock(lf: BinaryIO) -> None:
     while True:
         lf.seek(0)
         try:
-            msvcrt.locking(lf.fileno(), msvcrt.LK_LOCK, 1)  # type: ignore[attr-defined]
+            msvcrt.locking(lf.fileno(), msvcrt.LK_LOCK, 1)
             return
         except PermissionError:
             if time.monotonic() >= deadline:
@@ -118,7 +118,7 @@ def _with_lock(path: Path, fn: Callable[[Path], _T]) -> _T:
             _acquire_windows_lock(lf)
         else:
             # POSIX 分支；win32 下 mypy 将 fcntl 解析为无属性的桩模块，需忽略类型
-            fcntl.flock(lf.fileno(), fcntl.LOCK_EX)
+            fcntl.flock(lf.fileno(), fcntl.LOCK_EX)  # type: ignore[attr-defined]
         try:
             # Windows 允许锁定 EOF 之后的区域；拿到锁后再初始化锁字节，避免竞态
             if _IS_WINDOWS and os.fstat(lf.fileno()).st_size == 0:
@@ -128,9 +128,9 @@ def _with_lock(path: Path, fn: Callable[[Path], _T]) -> _T:
         finally:
             if _IS_WINDOWS:
                 lf.seek(0)
-                msvcrt.locking(lf.fileno(), msvcrt.LK_UNLCK, 1)  # type: ignore[attr-defined]
+                msvcrt.locking(lf.fileno(), msvcrt.LK_UNLCK, 1)
             else:
-                fcntl.flock(lf.fileno(), fcntl.LOCK_UN)
+                fcntl.flock(lf.fileno(), fcntl.LOCK_UN)  # type: ignore[attr-defined]
 
 
 class WriteAheadOutbox:

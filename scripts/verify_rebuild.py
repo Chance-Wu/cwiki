@@ -364,6 +364,8 @@ async def main(argv: list[str] | None = None) -> int:
                 issues.append(f"is_permanent: DB={db_mem.is_permanent} vs MD={mf.is_permanent}")
             if db_mem.usage_count != mf.usage_count:
                 issues.append(f"usage_count: DB={db_mem.usage_count} vs MD={mf.usage_count}")
+            if sorted(db_mem.tags or []) != sorted(mf.tags or []):
+                issues.append(f"tags: DB={db_mem.tags} vs MD={mf.tags}")
 
             if issues:
                 print_message(f"  [DIFF] {mf.id}: {'; '.join(issues)}")

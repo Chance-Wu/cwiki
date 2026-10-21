@@ -40,7 +40,7 @@ async def restart_service(
         [sys.executable, str(watcher), str(os.getpid()), str(PROJECT_ROOT)],
         cwd=str(PROJECT_ROOT),
         creationflags=(
-            (subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW)  # type: ignore[attr-defined]
+            (subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW)
             if os.name == "nt"
             else 0
         ),

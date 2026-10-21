@@ -11,6 +11,7 @@ import type {
   Relation,
   RelatedMemory,
   MergeSuggestion,
+  MergeHistoryItem,
 } from './types'
 
 // --- File Memories CRUD ---
@@ -180,10 +181,9 @@ export const createMemoryRelation = (
   })
 
 export const deleteMemoryRelation = (memoryId: string, relationId: string) =>
-  request<{ status: string; id: string }>(
-    `/memories/${memoryId}/relations/${relationId}`,
-    { method: 'DELETE' },
-  )
+  request<{ status: string; id: string }>(`/memories/${memoryId}/relations/${relationId}`, {
+    method: 'DELETE',
+  })
 
 export const updateMemoryRelation = (
   memoryId: string,
@@ -196,22 +196,41 @@ export const updateMemoryRelation = (
   })
 
 export const getMergeSuggestions = (workspaceId: string, limit = 10) =>
-  request<{ items: MergeSuggestion[]; total: number; generated_at: string | null }>(
-    `/memories/merge-suggestions?workspace_id=${workspaceId}&limit=${limit}`,
-  )
+  request<{
+    items: MergeSuggestion[]
+    total: number
+    generated_at: string | null
+    strategy?: string
+  }>(`/memories/merge-suggestions?workspace_id=${workspaceId}&limit=${limit}`)
+
+export const getMergeHistory = (workspaceId: string, limit = 20, offset = 0) =>
+  request<{
+    items: MergeHistoryItem[]
+    total: number
+    limit: number
+    offset: number
+  }>(`/memories/merge-history?workspace_id=${workspaceId}&limit=${limit}&offset=${offset}`)
 
 export const triggerConsolidate = () =>
   request<{ status: string; message: string }>(`/memories/consolidate`, {
     method: 'POST',
   })
 
-export const mergeMemories = (sourceId: string, targetId: string, mergedContent: string) =>
+export const mergeMemories = (
+  sourceId: string,
+  targetId: string,
+  mergedContent: string,
+  similarity?: number,
+  strategy?: string,
+) =>
   request<{ merged_memory_id: string; archived_memory_id: string }>(`/memories/merge`, {
     method: 'POST',
     body: JSON.stringify({
       source_memory_id: sourceId,
       target_memory_id: targetId,
       merged_content: mergedContent,
+      similarity,
+      strategy,
     }),
   })
 
@@ -248,11 +267,7 @@ export const renameTag = (tagName: string, newName: string, workspaceId?: string
   )
 }
 
-export const mergeTags = (
-  sourceTags: string[],
-  targetTag: string,
-  workspaceId?: string,
-) => {
+export const mergeTags = (sourceTags: string[], targetTag: string, workspaceId?: string) => {
   const params = new URLSearchParams()
   if (workspaceId) params.set('workspace_id', workspaceId)
   const qs = params.toString()

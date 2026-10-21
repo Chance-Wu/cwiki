@@ -35,7 +35,7 @@ class RetrievalTrace(Base):
     metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONBType(), nullable=True)
     created_at: Mapped[datetime] = mapped_column(default=func.now(), server_default=func.now())
 
-    items: Mapped[list[RetrievalTraceItem]] = relationship(back_populates="trace", lazy="noload")
+    items: Mapped[list[RetrievalTraceItem]] = relationship(back_populates="trace", lazy="raise")
 
 
 class RetrievalTraceItem(Base):

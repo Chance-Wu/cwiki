@@ -10,7 +10,6 @@ from pydantic import BaseModel
 from sqlalchemy import Row, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import noload
 
 from apps.api.auth import AgentIdentity
 from apps.api.deps import (
@@ -73,11 +72,6 @@ async def list_workspaces(
     # UUID 作为次级排序键打破时间戳并列，保证翻页时页内容稳定
     result = await db.execute(
         select(Workspace)
-        .options(
-            noload(Workspace.projects),
-            noload(Workspace.agents),
-            noload(Workspace.sessions),
-        )
         .order_by(Workspace.created_at.desc(), Workspace.id)
         .offset(offset)
         .limit(limit)
@@ -162,7 +156,7 @@ async def workspace_hygiene_preview(
         )
     ).all()
 
-    rows_note: Sequence[Row[tuple[uuid.UUID, int]]] = (
+    rows_note: Sequence[Row[uuid.UUID, int]] = (
         await db.execute(
             select(SessionNote.workspace_id, func.count(SessionNote.id)).group_by(
                 SessionNote.workspace_id
@@ -171,7 +165,7 @@ async def workspace_hygiene_preview(
     ).all()
     note_counts: dict[uuid.UUID, int] = {ws_id: cnt for ws_id, cnt in rows_note}
 
-    dirty = []
+    dirty: list[dict[str, Any]] = []
     for ws, memory_count in rows:
         if not _is_dirty_name(ws.name):
             continue

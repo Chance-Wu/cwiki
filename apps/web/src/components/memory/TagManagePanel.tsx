@@ -77,17 +77,13 @@ export default function TagManagePanel({ tags, onTagsChanged, onClose }: Props) 
   }
 
   const toggleMergeSource = (tag: string) => {
-    setMergeSources((prev) =>
-      prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag],
-    )
+    setMergeSources((prev) => (prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]))
   }
 
   return (
     <div className="p-4 bg-surface-card border border-[var(--border-default)] rounded-xl shadow-lg space-y-4">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-[var(--text-primary)]">
-          {t.memories.tagManage}
-        </h3>
+        <h3 className="text-sm font-semibold text-[var(--text-primary)]">{t.memories.tagManage}</h3>
         <button
           onClick={onClose}
           className="p-1 text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors"

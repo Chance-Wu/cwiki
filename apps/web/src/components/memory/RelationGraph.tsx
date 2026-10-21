@@ -246,8 +246,12 @@ export default function RelationGraph({ memoryId, onNavigateToMemory }: Props) {
 
   // 计算箭头路径（缩短到节点边缘）
   const getArrowPath = (
-    sx: number, sy: number, tx: number, ty: number,
-    sourceR: number, targetR: number,
+    sx: number,
+    sy: number,
+    tx: number,
+    ty: number,
+    sourceR: number,
+    targetR: number,
   ) => {
     const dx = tx - sx
     const dy = ty - sy
@@ -426,7 +430,12 @@ export default function RelationGraph({ memoryId, onNavigateToMemory }: Props) {
               const sourceR = source.isCenter ? 24 : 18
               const targetR = target.isCenter ? 24 : 18
               const { x1, y1, x2, y2 } = getArrowPath(
-                source.x, source.y, target.x, target.y, sourceR, targetR,
+                source.x,
+                source.y,
+                target.x,
+                target.y,
+                sourceR,
+                targetR,
               )
               return (
                 <g key={i}>
@@ -601,7 +610,16 @@ export default function RelationGraph({ memoryId, onNavigateToMemory }: Props) {
                         className="p-1 text-[var(--text-tertiary)] hover:text-danger-fg transition-colors disabled:opacity-50"
                         title={t.memories.deleteRelation}
                       >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <svg
+                          width="14"
+                          height="14"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
                           <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
                         </svg>
                       </button>

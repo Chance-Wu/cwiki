@@ -172,6 +172,7 @@ class CwikiClient:
         workspace_id: str | None,
         filters: dict[str, Any] | None = None,
         limit: int = 10,
+        tags: list[str] | None = None,
     ) -> dict[str, Any]:
         body: dict[str, Any] = {
             "keyword": query,
@@ -181,6 +182,8 @@ class CwikiClient:
             body["workspace_id"] = workspace_id
         if filters:
             body["filters"] = filters
+        if tags:
+            body["tags"] = tags
         return await self._request(
             "POST", f"{API_V1_PREFIX}/search", json_body=body, timeout=self.search_timeout
         )
@@ -210,6 +213,7 @@ class CwikiClient:
         project_id: str | None = None,
         source: str | None = None,
         client_write_id: str | None = None,
+        tags: list[str] | None = None,
     ) -> dict[str, Any]:
         body: dict[str, Any] = {
             "title": title,
@@ -223,6 +227,8 @@ class CwikiClient:
             body["source"] = source
         if client_write_id:
             body["client_write_id"] = client_write_id
+        if tags:
+            body["tags"] = tags
         return await self._request("POST", f"{API_V1_PREFIX}/candidates", json_body=body)
 
     async def get_memory_status(self, workspace_id: str) -> dict[str, Any]:
@@ -237,6 +243,7 @@ class CwikiClient:
         content: str | None = None,
         confidence: float | None = None,
         importance: float | None = None,
+        tags: list[str] | None = None,
         status: str | None = None,
         reason: str | None = None,
         is_permanent: bool | None = None,
@@ -248,6 +255,7 @@ class CwikiClient:
         _set_if_not_none(body, "content", content)
         _set_if_not_none(body, "confidence", confidence)
         _set_if_not_none(body, "importance", importance)
+        _set_if_not_none(body, "tags", tags)
         _set_if_not_none(body, "status", status)
         _set_if_not_none(body, "reason", reason)
         _set_if_not_none(body, "is_permanent", is_permanent)
@@ -437,7 +445,7 @@ class CwikiClient:
         return await self._request(
             "POST",
             f"{API_V1_PREFIX}/memories/{memory_id}/relations",
-            json={
+            json_body={
                 "target_memory_id": target_memory_id,
                 "relation_type": relation_type,
                 "confidence": confidence,
@@ -459,7 +467,7 @@ class CwikiClient:
         return await self._request(
             "PUT",
             f"{API_V1_PREFIX}/tags/{tag_name}",
-            json={"new_name": new_name},
+            json_body={"new_name": new_name},
             params=params,
         )
 
@@ -472,7 +480,7 @@ class CwikiClient:
         return await self._request(
             "POST",
             f"{API_V1_PREFIX}/tags/merge",
-            json={"source_tags": source_tags, "target_tag": target_tag},
+            json_body={"source_tags": source_tags, "target_tag": target_tag},
             params=params,
         )
 

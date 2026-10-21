@@ -45,7 +45,8 @@ def append(host: str, session_id: str, record: dict[str, Any]) -> Path:
         try:
             import fcntl
 
-            fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+            # win32 下 fcntl 桩模块无属性；POSIX 分支运行时才会执行
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX)  # type: ignore[attr-defined]
         except (ImportError, OSError):
             pass
         fh.write(line)
@@ -53,7 +54,7 @@ def append(host: str, session_id: str, record: dict[str, Any]) -> Path:
         try:
             import fcntl
 
-            fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+            fcntl.flock(fh.fileno(), fcntl.LOCK_UN)  # type: ignore[attr-defined]
         except (ImportError, OSError):
             pass
     return path

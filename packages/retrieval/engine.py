@@ -7,11 +7,11 @@ import logging
 import time
 import uuid
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 import numpy as np
-from sqlalchemy import String, func, select
+from sqlalchemy import String, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.domain.config import settings
@@ -23,6 +23,7 @@ from packages.domain.models import (
     RetrievalTraceItem,
 )
 from packages.domain.text_utils import preprocess_query_for_embedding
+from packages.memory.reinforcement import decay_strength, reinforce_relations
 from packages.memory.utility_aggregation import aggregate_utility_scores
 from packages.retrieval.bm25 import BM25Index
 from packages.retrieval.context.assembler import ContextResult, assemble_context_with_embedding
@@ -302,6 +303,12 @@ class RetrievalEngine:
         """
         start_time = time.time()
 
+        # 规范化标签过滤：与写入路径保持一致，确保匹配正确
+        if tags:
+            from packages.memory.service import normalize_tags
+
+            tags = normalize_tags(tags)
+
         # 指纹只计算一次，供 BM25 索引与向量矩阵两路缓存共用
         fingerprint = await self._content_fingerprint(db, workspace_id, project_id)
         index = await self._ensure_index(db, workspace_id, project_id, fingerprint=fingerprint)
@@ -558,8 +565,8 @@ class RetrievalEngine:
             key_terms=analyzed.key_terms,
         )
 
-        # 一跳图扩展：沿记忆关系边给邻居加 0.15×关系置信度的分，
-        # 让与高置信结果强相关的记忆也能进入最终列表
+        # 一跳图扩展：沿记忆关系边给邻居加分，让与高置信结果强相关的
+        # 记忆也能进入最终列表。关系视为无向图，入边与出边同等扩展。
         try:
             from packages.domain.config import parasitic_evolution_config
 
@@ -567,17 +574,9 @@ class RetrievalEngine:
                 top_ids_for_expansion = [mid for mid, _ in reranked[:5]]
                 if top_ids_for_expansion:
                     uuid_top_ids = [uuid.UUID(mid) for mid in top_ids_for_expansion]
-                    neighbor_stmt = select(
-                        MemoryRelation.target_memory_id,
-                        MemoryRelation.confidence,
-                    ).where(
-                        MemoryRelation.source_memory_id.in_(uuid_top_ids),
-                    )
-                    neighbor_result = await db.execute(neighbor_stmt)
+                    boosts = await self._relation_neighbor_boosts(db, uuid_top_ids)
                     reranked_dict = dict(reranked)
-                    for row in neighbor_result.all():
-                        neighbor_id = str(row[0])
-                        boost = 0.15 * row[1]
+                    for neighbor_id, boost in boosts.items():
                         if neighbor_id in reranked_dict:
                             reranked_dict[neighbor_id] += boost
                         elif neighbor_id in mem_map:
@@ -605,7 +604,7 @@ class RetrievalEngine:
                             reranked_dict[neighbor_id] = boost
                     reranked = sorted(reranked_dict.items(), key=lambda x: x[1], reverse=True)
         except Exception:
-            logger.debug("Graph expansion failed, continuing without", exc_info=True)
+            logger.warning("Graph expansion failed, continuing without", exc_info=True)
 
         # 候选三档过滤（W3-T3）：过期/低置信候选按 config 档位压分或剔除，
         # 挂在 rerank 与多样性之间——被 hard 剔除的候选不再占用多样性名额
@@ -737,7 +736,7 @@ class RetrievalEngine:
                         "fallback": False,
                     }
             except Exception:
-                logger.debug(
+                logger.warning(
                     "Episodic retrieval failed, falling through to semantic", exc_info=True
                 )
 
@@ -762,7 +761,7 @@ class RetrievalEngine:
                     episodes = await self._episodic_search(query or "", workspace_id, db, top_k=3)
                     final_memories.extend(episodes)
             except Exception:
-                logger.debug("Hybrid episodic merge failed", exc_info=True)
+                logger.warning("Hybrid episodic merge failed", exc_info=True)
 
         ctx = await assemble_context_with_embedding(
             final_memories, query=query or "", max_tokens=max_tokens
@@ -833,6 +832,53 @@ class RetrievalEngine:
                     continue
             result.append((mem_id, score))
         return result
+
+    async def _relation_neighbor_boosts(
+        self,
+        db: AsyncSession,
+        memory_ids: list[uuid.UUID],
+        *,
+        now: datetime | None = None,
+    ) -> dict[str, float]:
+        """返回一跳邻居加分；关系按无向图处理，强度按半衰期衰减。"""
+        unique_ids = list(dict.fromkeys(memory_ids))
+        if not unique_ids:
+            return {}
+
+        from packages.domain.config import parasitic_evolution_config
+
+        id_set = set(unique_ids)
+        result = await db.execute(
+            select(
+                MemoryRelation.source_memory_id,
+                MemoryRelation.target_memory_id,
+                MemoryRelation.confidence,
+                MemoryRelation.strength,
+                MemoryRelation.last_reinforced_at,
+            ).where(
+                or_(
+                    MemoryRelation.source_memory_id.in_(unique_ids),
+                    MemoryRelation.target_memory_id.in_(unique_ids),
+                )
+            )
+        )
+        resolved_now = now or datetime.now(UTC)
+        boosts: dict[str, float] = {}
+        for source_id, target_id, confidence, strength, last_reinforced_at in result.all():
+            source_hit = source_id in id_set
+            target_hit = target_id in id_set
+            if source_hit and target_hit:
+                continue
+            neighbor_id = str(target_id if source_hit else source_id)
+            boost = 0.15 * float(confidence or 0.0) + 0.10 * decay_strength(
+                float(strength or 0.0),
+                last_reinforced_at,
+                now=resolved_now,
+                half_life_days=parasitic_evolution_config.relation_decay_half_life_days,
+            )
+            if boost > boosts.get(neighbor_id, 0.0):
+                boosts[neighbor_id] = boost
+        return boosts
 
     async def _aggregate_utility_scores(
         self,
@@ -937,6 +983,41 @@ class RetrievalEngine:
             )
             for mem in final_memories
         ]
+
+        final_uuid_ids: list[uuid.UUID] = []
+        for mem in final_memories:
+            if mem.get("fallback"):
+                continue
+            try:
+                final_uuid_ids.append(uuid.UUID(mem["id"]))
+            except (ValueError, TypeError):
+                continue
+
+        # 使用计数与 Hebbian 强化：只对进入最终结果的记忆生效，
+        # record_trace=False 的自动召回不触发写回。
+        if final_uuid_ids:
+            now = datetime.now(UTC)
+            await db.execute(
+                update(Memory)
+                .where(Memory.id.in_(final_uuid_ids))
+                .values(
+                    usage_count=Memory.usage_count + 1,
+                    last_used_at=now.replace(tzinfo=None),
+                )
+            )
+            try:
+                from packages.domain.config import parasitic_evolution_config
+
+                if parasitic_evolution_config.relation_reinforcement_enabled:
+                    await reinforce_relations(
+                        db,
+                        final_uuid_ids,
+                        now=now,
+                        rate=parasitic_evolution_config.relation_reinforcement_rate,
+                        half_life_days=parasitic_evolution_config.relation_decay_half_life_days,
+                    )
+            except Exception:
+                logger.warning("Relation reinforcement failed, keeping trace", exc_info=True)
 
         # 全部记录一次性批量写入
         db.add(trace)

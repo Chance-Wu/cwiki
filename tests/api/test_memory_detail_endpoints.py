@@ -137,7 +137,7 @@ class TestListMemoriesUtility:
         async def _broken(db, memories):
             return {}
 
-        monkeypatch.setattr("apps.api.routes.memories.aggregate_utility_scores", _broken)
+        monkeypatch.setattr("apps.api.routes.memories.crud.aggregate_utility_scores", _broken)
         resp = await client.get(f"/v1/memories?workspace_id={ws.name}")
         assert resp.status_code == 200
         for item in resp.json()["items"]:

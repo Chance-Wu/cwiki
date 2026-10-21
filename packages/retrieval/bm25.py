@@ -241,7 +241,7 @@ class BM25Index:
 
         cjk_spans = _CJK_RE.findall(text)
         if cjk_spans:
-            import jieba  # type: ignore[import-untyped]
+            import jieba
 
             for span in cjk_spans:
                 tokens.extend(t for t in jieba.cut(span) if t.strip())

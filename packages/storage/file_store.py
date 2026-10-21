@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -14,51 +15,41 @@ from packages.domain.paths import sanitize_filename, validate_path_component
 logger = logging.getLogger(__name__)
 
 
+@dataclass
 class MemoryFile:
     """以 Markdown 文件形式存储的一条记忆。"""
 
-    def __init__(
-        self,
-        id: str,
-        title: str,
-        content: str,
-        type: str = "fact",
-        tags: list[str] | None = None,
-        related: list[str] | None = None,
-        version: int = 1,
-        status: str = "active",
-        source: str = "mcp",
-        workspace: str | None = None,
-        created: datetime | None = None,
-        updated: datetime | None = None,
-        confidence: float | None = None,
-        importance: float | None = None,
-        usage_count: int = 0,
-        last_used_at: datetime | None = None,
-        is_permanent: bool = False,
-        metadata: dict[str, Any] | None = None,
-    ):
-        self.id = id
-        self.title = title
-        self.content = content
-        self.type = type
-        self.tags = tags or []
-        self.related = related or []
-        self.version = version
-        self.status = status
-        self.source = source
-        self.workspace = workspace
-        self.created = created or datetime.now(UTC)
-        self.updated = updated or datetime.now(UTC)
-        self.confidence = confidence
-        self.importance = importance
-        self.usage_count = usage_count
-        self.last_used_at = last_used_at
-        self.is_permanent = is_permanent
-        self.metadata = metadata
-        self.file_path: Path | None = None
+    id: str
+    title: str
+    content: str
+    type: str = "fact"
+    tags: list[str] = field(default_factory=list)
+    related: list[str] = field(default_factory=list)
+    version: int = 1
+    status: str = "active"
+    source: str = "mcp"
+    workspace: str | None = None
+    created: datetime | None = None
+    updated: datetime | None = None
+    confidence: float | None = None
+    importance: float | None = None
+    usage_count: int = 0
+    last_used_at: datetime | None = None
+    is_permanent: bool = False
+    metadata: dict[str, Any] | None = None
+    file_path: Path | None = field(default=None, repr=False)
+
+    def __post_init__(self) -> None:
+        """初始化时间字段的默认值。"""
+        if self.created is None:
+            self.created = datetime.now(UTC)
+        if self.updated is None:
+            self.updated = datetime.now(UTC)
 
     def to_dict(self) -> dict[str, Any]:
+        # __post_init__ 确保 created 和 updated 不为 None
+        assert self.created is not None
+        assert self.updated is not None
         return {
             "id": self.id,
             "title": self.title,
@@ -139,6 +130,9 @@ class FileStore:
 
     def _serialize(self, memory: MemoryFile) -> str:
         """将记忆序列化为带 frontmatter 的 Markdown。"""
+        # __post_init__ 确保 created 和 updated 不为 None
+        assert memory.created is not None
+        assert memory.updated is not None
         frontmatter = {
             "id": memory.id,
             "title": memory.title,

@@ -630,7 +630,9 @@ class MCPServer:
             or self.session_workspace
             or current_workspace_for(self)
         )
-        kwargs = {"source": "memory_save"} if tool == "memory_save" else {}
+        kwargs: dict[str, Any] = {"source": "memory_save"} if tool == "memory_save" else {}
+        if tool == "memory_save" and args.get("tags"):
+            kwargs["tags"] = args["tags"]
         response = await self.client.submit_candidate(
             title=args.get("title", ""),
             content=content,
@@ -840,21 +842,33 @@ class MCPServer:
                 result["warnings"] = [f"参数已忽略：{'；'.join(ignored)}"]
             return result
         mode = arguments.get("mode", "hybrid")
+        filters = arguments.get("filters")
+        tags = None
+        if isinstance(filters, dict):
+            tags = filters.get("tags")
+            if tags is not None:
+                filters = {k: v for k, v in filters.items() if k != "tags"}
+                arguments["filters"] = filters or None
         if mode == "semantic":
             if arguments.get("filters"):
                 ignored.append("filters（semantic 模式不支持过滤，需要过滤请用 hybrid）")
+            if tags:
+                ignored.append("filters.tags（semantic 模式不支持标签过滤）")
             result = await self.client.recall(
                 query=arguments["keyword"],
                 workspace_id=workspace,
                 limit=arguments.get("limit", 10),
             )
         else:
-            result = await self.client.search(
-                query=arguments["keyword"],
-                workspace_id=workspace,
-                filters=arguments.get("filters"),
-                limit=arguments.get("limit", 10),
-            )
+            search_kwargs: dict[str, Any] = {
+                "query": arguments["keyword"],
+                "workspace_id": workspace,
+                "filters": arguments.get("filters"),
+                "limit": arguments.get("limit", 10),
+            }
+            if tags is not None:
+                search_kwargs["tags"] = tags
+            result = await self.client.search(**search_kwargs)
         if ignored:
             result["warnings"] = [f"参数已忽略：{'；'.join(ignored)}"]
         return result
@@ -908,6 +922,9 @@ class MCPServer:
             "type": memory_type,
             "workspace_id": workspace,
         }
+        tags = arguments.get("tags")
+        if tags:
+            frozen["tags"] = tags
         write_id = _make_write_id(content)
         response, entry, exc = await self._outbox_submit("memory_save", frozen, workspace, write_id)
         if exc is not None:
@@ -1063,6 +1080,7 @@ class MCPServer:
                 content=arguments.get("content"),
                 confidence=arguments.get("confidence"),
                 importance=arguments.get("importance"),
+                tags=arguments.get("tags"),
                 reason=arguments.get("reason"),
                 is_permanent=arguments.get("is_permanent"),
                 permanent_reason=arguments.get("permanent_reason"),

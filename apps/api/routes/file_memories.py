@@ -366,7 +366,9 @@ async def update_memory(
     if request.type is not None:
         memory.type = request.type
     if request.tags is not None:
-        memory.tags = request.tags
+        from packages.memory.service import normalize_tags
+
+        memory.tags = normalize_tags(request.tags)
     if request.related is not None:
         memory.related = request.related
 

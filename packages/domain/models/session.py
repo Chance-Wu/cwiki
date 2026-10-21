@@ -58,8 +58,8 @@ class Session(Base):
     workspace: Mapped[Workspace] = relationship(back_populates="sessions")
     agent: Mapped[Agent] = relationship(back_populates="sessions")
     project: Mapped[Project | None] = relationship(back_populates="sessions")
-    events: Mapped[list[Event]] = relationship(back_populates="session", lazy="noload")
-    episodes: Mapped[list[Episode]] = relationship(back_populates="session", lazy="noload")
+    events: Mapped[list[Event]] = relationship(back_populates="session", lazy="raise")
+    episodes: Mapped[list[Episode]] = relationship(back_populates="session", lazy="raise")
 
 
 class Event(Base):
@@ -93,7 +93,7 @@ class Event(Base):
 
     agent: Mapped[Agent] = relationship(back_populates="events")
     session: Mapped[Session] = relationship(back_populates="events")
-    evidences: Mapped[list[Evidence]] = relationship(back_populates="event", lazy="noload")
+    evidences: Mapped[list[Evidence]] = relationship(back_populates="event", lazy="raise")
 
 
 class Episode(Base):
@@ -129,9 +129,9 @@ class Episode(Base):
 
     session: Mapped[Session] = relationship(back_populates="episodes")
     candidate_memories: Mapped[list[CandidateMemory]] = relationship(
-        back_populates="episode", lazy="noload"
+        back_populates="episode", lazy="raise"
     )
-    evidences: Mapped[list[Evidence]] = relationship(back_populates="episode", lazy="noload")
+    evidences: Mapped[list[Evidence]] = relationship(back_populates="episode", lazy="raise")
 
 
 class AgentSession(Base):

@@ -70,18 +70,20 @@ Environment variables:
 
 ## MCP tools
 
-17 tools:
+19 tools:
 
 | Tool | Description |
 |---|---|
 | `memory_search` | Search memories or retrieve curated context |
-| `memory_save` | Submit a memory candidate for human review |
+| `memory_save` | Submit a memory candidate for human review (optional tags) |
 | `memory_status` | Show workspace statistics and outbox backlog |
 | `memory_tags` | List tags with usage counts, or filter memories by tags (AND logic) |
 | `memory_types` | View available memory types |
 | `memory_history` | View lifecycle events or content version history |
 | `memory_relations` | Query memory relationships |
-| `memory_update` | Update an existing memory |
+| `memory_relation_create` | Create a relationship between two memories |
+| `memory_relation_delete` | Delete a memory relationship |
+| `memory_update` | Update an existing memory (supports tags) |
 | `memory_feedback` | Mark a memory useful/not_useful/outdated/wrong |
 | `memory_forget` | Archive a wrong or unwanted memory (restorable) |
 | `memory_retry_failed` | Retry failed memory writes |
@@ -95,7 +97,7 @@ Environment variables:
 - `memory_search` defaults to `curated=false`; only this mode uses `mode` (`hybrid` by default, or `semantic`) and `filters` (`type` for memory type, `min_confidence` for minimum confidence 0.0–1.0). `limit` defaults to 10 (1–100); regular search retains the backend limit range. Omitting `workspace_name` searches across all workspaces; pass it to scope recall to one workspace.
 - With `curated=true`, search returns the original `get_context` result, including `context`, `items` and optional `_hints`. `limit` replaces `max_items` and accepts 1–50; `max_tokens` is 100–20000 (default 5000), and the optional `project` context filter is preserved. `max_tokens` and `project` apply only to curated context. Curated context is always assembled per workspace: an omitted `workspace_name` falls back to the default workspace.
 - `memory_history` defaults to `view="lifecycle"`; `view="content"` returns stored content version history, not the current memory body. Its `limit` is 1–50 (default 10) and applies only to the content view.
-- Tool schemas are strict (`additionalProperties: false`): unknown parameter names are rejected. The workspace parameter is `workspace_name` (name or UUID), supported by `memory_search`, `memory_save`, `memory_checkpoint`, `memory_status`, `memory_tags`, `memory_export`, `memory_import`, `memory_review_due`, `memory_review_submit` and `memory_review_stats`; `memory_update`, `memory_types`, `memory_relations`, `memory_history` and `memory_retry_failed` take no workspace parameter; `memory_feedback` and `memory_forget` accept `workspace_name` for scoping.
+- Tool schemas are strict (`additionalProperties: false`): unknown parameter names are rejected. The workspace parameter is `workspace_name` (name or UUID), supported by `memory_search`, `memory_save`, `memory_checkpoint`, `memory_status`, `memory_tags`, `memory_export`, `memory_import`, `memory_review_due`, `memory_review_submit` and `memory_review_stats`; `memory_update`, `memory_types`, `memory_relations`, `memory_relation_create`, `memory_relation_delete`, `memory_history` and `memory_retry_failed` take no workspace parameter; `memory_feedback` and `memory_forget` accept `workspace_name` for scoping.
 
 Backend APIs remain available. Extraction strategy stays in `cwiki-save`; reminder hooks do not supply checkpoint events/notes.
 

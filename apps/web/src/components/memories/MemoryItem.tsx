@@ -229,12 +229,16 @@ const MemoryItem = memo(function MemoryItem({
             )}
             {m.updated_at && (
               <span title={new Date(ensureUtc(m.updated_at)).toLocaleString('zh-CN')}>
-                {formatRelativeTime(m.updated_at, {
-                  justNow: t.common.justNow,
-                  minutesAgo: t.common.minutesAgo,
-                  hoursAgo: t.common.hoursAgo,
-                  daysAgo: t.common.daysAgo,
-                }, 'zh')}
+                {formatRelativeTime(
+                  m.updated_at,
+                  {
+                    justNow: t.common.justNow,
+                    minutesAgo: t.common.minutesAgo,
+                    hoursAgo: t.common.hoursAgo,
+                    daysAgo: t.common.daysAgo,
+                  },
+                  'zh',
+                )}
               </span>
             )}
             {m.usage_count != null && m.usage_count > 0 && <span>已用 {m.usage_count} 次</span>}

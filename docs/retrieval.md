@@ -121,6 +121,22 @@ BM25 索引支持增量 `add()` / `remove()` / `update()`，无需调用 `build(
 
 ---
 
+## 关系图扩展与 Hebbian 强化
+
+重排后取前 5 条记忆，沿显式关系边做一跳扩展。关系按无向图处理：入边与出边都会把另一端作为邻居，邻居加分：
+
+```
+boost = 0.15 × confidence + 0.10 × effective_strength
+effective_strength = strength × 0.5 ^ (距上次强化的天数 / 半衰期天数)
+```
+
+- 邻居仍受 `memory_type`、`min_confidence`、`min_similarity` 与 `tags` 过滤约束，不会绕过检索条件。
+- 每次 `record_trace=True` 的检索结束后，对最终结果中两端都命中的**既有关系边**做 Hebbian 强化：先按半衰期衰减，再按 `strength += rate × (1 - strength)` 逼近 1。不会自动新建关系边，避免关系图噪声膨胀。
+- 同一批记忆的 `usage_count` 加 1，并更新 `last_used_at`，使使用信号进入重排与效用分。
+- 开关与参数在 `config.yaml` 的 `parasitic_evolution`：`relation_reinforcement_enabled`、`relation_reinforcement_rate`（默认 0.2）、`relation_decay_half_life_days`（默认 30）。代码默认关闭，仓库配置默认开启。
+
+---
+
 ## 批量 Embedding 生成
 
 `EmbeddingService` 使用 fastembed 本地 ONNX 模型生成向量，零外部 API 依赖：

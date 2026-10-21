@@ -111,8 +111,8 @@ async def get_or_404(
 ) -> Any:
     """按 ID 获取模型实例，不存在则抛 HTTP 404。
 
-    *options* 接受 SQLAlchemy 加载选项（如 ``defer(Memory.embedding)``、
-    ``noload(Memory.versions)``），避免加载大字段/关联关系。
+    *options* 接受 SQLAlchemy 加载选项（如 ``defer(Memory.embedding)``），
+    避免加载大字段；关联关系默认 lazy="raise"，不会隐式加载。
     """
     stmt = select(model).where(model.id == id_value)
     if options:

@@ -1,4 +1,4 @@
-"""cwiki 全部 17 个记忆工具的 MCP JSON Schema 定义。
+"""cwiki 全部 19 个记忆工具的 MCP JSON Schema 定义。
 
 纯数据集合——不依赖 MCPServer、CwikiClient 或传输层。
 工具名与 description 是对宿主（Agent）可见的协议契约，保持原样不动。
@@ -73,6 +73,7 @@ def build_tool_definitions() -> list[dict[str, Any]]:
                         "description": (
                             "搜索过滤器。type: 按记忆类型过滤（如 lesson/decision/fact）；"
                             "min_confidence: 按最低置信度过滤（0.0–1.0）"
+                            "；tags: 按标签过滤（AND 逻辑）"
                         ),
                         "properties": {
                             "type": {
@@ -84,6 +85,11 @@ def build_tool_definitions() -> list[dict[str, Any]]:
                                 "minimum": 0.0,
                                 "maximum": 1.0,
                                 "description": "最低置信度过滤器",
+                            },
+                            "tags": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": "标签过滤器（AND 逻辑）",
                             },
                         },
                     },
@@ -130,6 +136,11 @@ def build_tool_definitions() -> list[dict[str, Any]]:
                     "type": {
                         "type": "string",
                         "description": "记忆类型，不传自动推断：" + "、".join(type_rows),
+                    },
+                    "tags": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "标签列表，审批通过后保留到正式记忆",
                     },
                     "workspace_name": {
                         "type": "string",
@@ -320,6 +331,11 @@ def build_tool_definitions() -> list[dict[str, Any]]:
                         "type": "string",
                         "minLength": MIN_CONTENT_LENGTH,
                         "description": f"完整新正文（Markdown 格式），至少 {MIN_CONTENT_LENGTH} 字符，整体替换",
+                    },
+                    "tags": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "新标签列表，整体替换现有标签",
                     },
                     "confidence": {
                         "type": "number",

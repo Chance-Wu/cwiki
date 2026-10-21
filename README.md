@@ -47,7 +47,7 @@ cwiki 为 AI Agent 提供知识的持久化存储、智能检索和持续进化�
 | 运维诊断 | 队列状态快照 + FAILED 死信重放、DB/MD/索引四方一致性对账端点 |
 | 内容安全 | MCP 提交时自动检测 Prompt 注入等恶意内容 |
 | Web 控制台 | 记忆浏览、搜索、审核、状态监控，响应式布局 + 亮暗主题 |
-| 通用适配 | 通过 MCP 协议接入任意 Agent（Qoder 已内置 17 个工具） |
+| 通用适配 | 通过 MCP 协议接入任意 Agent（Qoder 已内置 19 个工具） |
 
 ---
 
@@ -238,7 +238,7 @@ setup 仅更新 `<!-- cwiki:begin -->` / `<!-- cwiki:end -->` 管理的区块，
 
 接入后获得：
 
-- **17 个 MCP 工具** — `memory_search`、`memory_save`、`memory_tags`、`memory_history`、`memory_review_due`、`memory_review_submit`、`memory_review_stats` 等
+- **19 个 MCP 工具** — `memory_search`、`memory_save`、`memory_tags`、`memory_relations`、`memory_relation_create`、`memory_relation_delete`、`memory_history`、`memory_review_due`、`memory_review_submit`、`memory_review_stats` 等
 - **cwiki-save skill** — 按需提取与保存记忆
 - **3 个斜杠命令** — `/memory-status`、`/memory-search`、`/memory-review`
 

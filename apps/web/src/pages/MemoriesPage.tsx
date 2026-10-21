@@ -10,22 +10,8 @@ import {
 } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { spring, ease, duration } from '../lib/motion'
-import {
-  Plus,
-  Merge,
-  X,
-  Loader2,
-  RefreshCw,
-  AlertCircle,
-  Database,
-  Tag,
-  Folder,
-  ListFilter,
-  Clock,
-  Tags,
-  Pencil,
-} from 'lucide-react'
+import { spring } from '../lib/motion'
+import { Plus, Loader2, RefreshCw, Database } from 'lucide-react'
 import { useTranslation, translate } from '../i18n/I18nProvider'
 import { api, type FileMemory, type MergeSuggestion } from '../lib/api'
 import { type MemoryListItem, type MemoryListRecord } from '../lib/api/memories'
@@ -41,15 +27,15 @@ import PageShell from '../components/PageShell'
 import PageTitle from '../components/PageTitle'
 import { Button } from '../components/ui/Button'
 import { Card } from '../components/ui/Card'
-import { Checkbox } from '../components/ui/Checkbox'
-import { SegmentedControl } from '../components/ui/SegmentedControl'
-import { Select } from '../components/ui/Select'
-import SearchBox, { type SearchBoxHandle } from '../components/SearchBox'
+import type { SearchBoxHandle } from '../components/SearchBox'
 import type { OptimizePreview } from '../components/memory/MemoryDetailModal'
 import MemoryItem, { MEMORY_TYPES } from '../components/memories/MemoryItem'
 import BatchActionBar from '../components/memories/BatchActionBar'
 import MergeDialog from '../components/memories/MergeDialog'
-import TagManagePanel from '../components/memory/TagManagePanel'
+import MemoriesFilterPanel from '../components/memories/MemoriesFilterPanel'
+import MergeSuggestionsBanner from '../components/memories/MergeSuggestionsBanner'
+import MergeHistoryPanel from '../components/memories/MergeHistoryPanel'
+import MemoryListHeader from '../components/memories/MemoryListHeader'
 
 const MemoryDetailModal = lazy(() => import('../components/memory/MemoryDetailModal'))
 const MemoryCreateModal = lazy(() => import('../components/memory/MemoryCreateModal'))
@@ -98,13 +84,10 @@ export default function MemoriesPage() {
   const [selectedTags, setSelectedTags] = useState<string[]>(
     searchParams.get('tags')?.split(',').filter(Boolean) ?? [],
   )
-  const [showAllTags, setShowAllTags] = useState(false)
-  const [showTagManage, setShowTagManage] = useState(false)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
   const [error, setError] = useState<string | null>(null)
 
-  const [showMergeSuggestions, setShowMergeSuggestions] = useState(true)
   const [mergeTarget, setMergeTarget] = useState<MergeSuggestion | null>(null)
   const [mergedContent, setMergedContent] = useState('')
   const [mergeSourceContent, setMergeSourceContent] = useState('')
@@ -143,9 +126,15 @@ export default function MemoriesPage() {
 
   // 标签列表
   const [tagsList, setTagsList] = useState<{ name: string; count: number }[]>([])
-  useEffect(() => {
-    api.listTags().then((res) => setTagsList(res.tags || [])).catch(() => {})
+  const refreshTagsList = useCallback(() => {
+    api
+      .listTags()
+      .then((res) => setTagsList(res.tags || []))
+      .catch(() => {})
   }, [])
+  useEffect(() => {
+    refreshTagsList()
+  }, [refreshTagsList])
 
   // /v1/memories 返回 workspace_id（UUID），徽标展示需要名称——用工作区列表解析；
   // 解析不到时回退到 item 自带的 workspace 字段（搜索结果走此路径）
@@ -193,15 +182,6 @@ export default function MemoriesPage() {
   const mergeGeneratedAt = mergeSuggestionsQuery.data?.generated_at ?? null
   const mergeMutation = useMergeMemories()
   const consolidateMutation = useTriggerConsolidate()
-
-  // setFocusedIndex 来自 useListKeyboardNav（声明于本行之后），deps 数组在渲染期求值，
-  // 直接列入会触发 TDZ 错误；其底层为 useState setter、身份稳定，故豁免该依赖检查。
-  // 查询词或任一筛选变化都回到第一页，避免停留在越界页码上
-  useEffect(() => {
-    setPage(1)
-    setFocusedIndex(-1)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [deferredQuery, workspaceFilter, statusFilter, timeRange])
 
   // 类型筛选同步到 URL query，刷新/分享链接可保留筛选状态
   useEffect(() => {
@@ -288,6 +268,8 @@ export default function MemoriesPage() {
         sourceId: mergeTarget.source_id,
         targetId: mergeTarget.target_id,
         mergedContent,
+        similarity: mergeTarget.similarity,
+        strategy: mergeSuggestionsQuery.data?.strategy,
       })
       toast(t.memories.mergeSuccess, 'success')
       setMergeTarget(null)
@@ -405,6 +387,32 @@ export default function MemoriesPage() {
     disabled: modalOpen,
   })
 
+  // setFocusedIndex 来自 useListKeyboardNav（声明于本行之后），deps 数组在渲染期求值，
+  // 直接列入会触发 TDZ 错误；其底层为 useState setter、身份稳定，故豁免该依赖检查。
+  useEffect(() => {
+    setPage(1)
+    setFocusedIndex(-1)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deferredQuery, workspaceFilter, statusFilter, timeRange])
+
+  const hasActiveFilters =
+    isSearching ||
+    typeFilter !== 'all' ||
+    workspaceFilter !== 'all' ||
+    statusFilter !== 'all' ||
+    timeRange !== 'all' ||
+    selectedTags.length > 0
+
+  const clearAllFilters = () => {
+    setSearchInput('')
+    setTypeFilter('all')
+    setWorkspaceFilter('all')
+    setStatusFilter('all')
+    setTimeRange('all')
+    setSelectedTags([])
+    setPage(1)
+  }
+
   const titleSuggestions = useMemo<FileMemory[]>(() => {
     const q = deferredQuery.trim().toLowerCase()
     if (!q) return []
@@ -422,6 +430,18 @@ export default function MemoriesPage() {
       ? (searchQuery.data?.total ?? 0)
       : (searchResults?.length ?? 0)
     : total
+
+  const countText = isSearching
+    ? translate(t.memories.searchResultCount, { n: displayTotal })
+    : typeFilter !== 'all'
+      ? `${total} ${typeLabel(t.common, typeFilter)}`
+      : translate(t.memories.latestMemories, { n: total })
+
+  const emptyMessage = isSearching
+    ? t.memories.noMatch
+    : hasActiveFilters
+      ? t.memories.noFilterResults
+      : t.memories.empty
 
   return (
     <PageShell
@@ -468,280 +488,100 @@ export default function MemoriesPage() {
       }
     >
       {/* 搜索与筛选面板 */}
-      <motion.div
-        initial={{ opacity: 0, y: -10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: duration.modal, ease: ease.out }}
-        className="mb-5"
-      >
-        {/* 搜索框 */}
-        <div className="mb-3">
-          <SearchBox
-            ref={searchInputRef}
-            value={searchInput}
-            onChange={setSearchInput}
-            onSubmit={handleSearch}
-            loading={searchQuery.isFetching}
-            history={searchHistory}
-            suggestions={titleSuggestions}
-            onRemoveHistory={removeHistory}
-            onClearHistory={clearHistory}
-          />
-          {isSearching && searchQuery.isError && !searchQuery.isFetching && (
-            <div className="mt-2 flex items-center gap-1.5 text-sm text-danger-fg" role="alert">
-              <AlertCircle size={14} strokeWidth={1.5} aria-hidden="true" />
-              <span>{t.search.searchFailed}</span>
-            </div>
-          )}
-        </div>
-
-        {/* 检索模式与类型筛选行 */}
-        <div className="flex flex-col sm:flex-row gap-2.5">
-          {/* 检索模式切换 */}
-          <SegmentedControl
-            value={searchMode}
-            onChange={setSearchMode}
-            options={[
-              { value: 'text', label: t.search.modeText },
-              { value: 'semantic', label: t.search.modeSemantic },
-              { value: 'hybrid', label: t.search.modeHybrid },
-            ]}
-          />
-
-          {/* 类型筛选下拉 */}
-          <Select
-            options={[
-              { value: 'all', label: `${t.memories.allTypes} (${typeCounts?.all ?? 0})` },
-              ...MEMORY_TYPES.filter(
-                (type) => typeCounts === null || (typeCounts[type] ?? 0) > 0,
-              ).map((type) => ({
-                value: type,
-                label: `${typeLabel(t.common, type)} (${typeCounts?.[type] ?? 0})`,
-              })),
-            ]}
-            value={typeFilter}
-            onChange={(v) => {
-              setTypeFilter(v)
-              setPage(1)
-              setFocusedIndex(-1)
-            }}
-            icon={<Tag size={14} />}
-          />
-        </div>
-
-        {/* 工作区 / 状态 / 时间范围筛选行。工作区与状态由后端过滤；
-            后端列表接口无时间参数，时间范围仅前端过滤当前页数据 */}
-        <div className="flex flex-col sm:flex-row gap-2.5 sm:items-center mt-2.5">
-          <Select
-            options={[
-              { value: 'all', label: t.memories.allWorkspaces },
-              ...(workspacesQuery.data ?? []).map((w) => ({ value: w.id, label: w.name })),
-            ]}
-            value={workspaceFilter}
-            onChange={setWorkspaceFilter}
-            icon={<Folder size={14} />}
-          />
-          <Select
-            options={[
-              { value: 'all', label: t.memories.allStatus },
-              { value: 'active', label: t.memories.statusActive },
-              { value: 'archived', label: t.memories.statusArchived },
-            ]}
-            value={statusFilter}
-            onChange={setStatusFilter}
-            icon={<ListFilter size={14} />}
-          />
-          <Select
-            options={[
-              { value: 'all', label: t.memories.allTime },
-              { value: '7d', label: t.memories.last7Days },
-              { value: '30d', label: t.memories.last30Days },
-              { value: '90d', label: t.memories.last90Days },
-            ]}
-            value={timeRange}
-            onChange={setTimeRange}
-            icon={<Clock size={14} />}
-          />
-          {timeRange !== 'all' && (
-            <span className="text-xs text-[var(--text-tertiary)]">{t.memories.pageOnlyFilter}</span>
-          )}
-        </div>
-
-        {/* 标签筛选行：只显示计数≥2 的热门标签，最多 8 个，其余折叠 */}
-        {tagsList.length > 0 && (() => {
-          const hotTags = tagsList.filter(t => t.count >= 2).slice(0, 8)
-          const coldTags = tagsList.filter(t => t.count < 2 || !hotTags.includes(t))
-          const showMore = hotTags.length < tagsList.length && !showAllTags
-          const displayTags = showAllTags ? tagsList.filter(t => t.count >= 2) : hotTags
-          return (
-            <>
-            <div className="flex flex-wrap items-center gap-1.5 mt-2.5">
-              <Tags size={14} className="text-[var(--text-tertiary)] shrink-0" />
-              <button
-                onClick={() => {
-                  setSelectedTags([])
-                  setPage(1)
-                }}
-                className={`px-2 py-0.5 text-xs rounded-full border transition-colors flex items-center gap-1 ${
-                  selectedTags.length === 0
-                    ? 'bg-brand-500 text-white border-brand-500'
-                    : 'bg-surface-inset text-[var(--text-secondary)] border-[var(--border-default)] hover:bg-brand-badge-bg'
-                }`}
-              >
-                {selectedTags.length > 0 ? (
-                  <>
-                    <X size={10} className="opacity-70" />
-                    <span>{t.memories.tagClear} {selectedTags.length}</span>
-                  </>
-                ) : (
-                  <>
-                    {t.memories.tagAll}
-                    {displayTags.length > 0 && (
-                      <span className="opacity-60">{displayTags.length}</span>
-                    )}
-                  </>
-                )}
-              </button>
-              {displayTags.map((tag) => (
-                <button
-                  key={tag.name}
-                  onClick={() => {
-                    setSelectedTags((prev) =>
-                      prev.includes(tag.name)
-                        ? prev.filter((t) => t !== tag.name)
-                        : [...prev, tag.name],
-                    )
-                    setPage(1)
-                  }}
-                  className={`px-2 py-0.5 text-xs rounded-full border transition-colors flex items-center gap-1 ${
-                    selectedTags.includes(tag.name)
-                      ? 'bg-brand-500 text-white border-brand-500'
-                      : 'bg-surface-inset text-[var(--text-secondary)] border-[var(--border-default)] hover:bg-brand-badge-bg'
-                  }`}
-                >
-                  {selectedTags.includes(tag.name) && (
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
-                      <polyline points="20 6 9 17 4 12" />
-                    </svg>
-                  )}
-                  {tag.name}
-                  <span className="opacity-60 tabular-nums">{tag.count > 99 ? '99+' : tag.count}</span>
-                </button>
-              ))}
-              {showMore && (
-                <button
-                  onClick={() => setShowAllTags(true)}
-                  className="px-2 py-0.5 text-xs rounded-full border border-dashed border-[var(--border-default)] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:border-[var(--text-tertiary)] transition-colors"
-                >
-                  +{coldTags.length} {t.memories.tagMore}
-                </button>
-              )}
-              {showAllTags && hotTags.length > 8 && (
-                <button
-                  onClick={() => setShowAllTags(false)}
-                  className="px-2 py-0.5 text-xs rounded-full border border-dashed border-[var(--border-default)] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:border-[var(--text-tertiary)] transition-colors"
-                >
-                  {t.memories.tagCollapse}
-                </button>
-              )}
-              <div className="flex-1" />
-              <button
-                onClick={() => setShowTagManage(!showTagManage)}
-                className={`px-2 py-0.5 text-xs rounded-full border transition-colors flex items-center gap-1 ${
-                  showTagManage
-                    ? 'bg-brand-500 text-white border-brand-500'
-                    : 'bg-surface-inset text-[var(--text-secondary)] border-[var(--border-default)] hover:bg-brand-badge-bg'
-                }`}
-              >
-                <Pencil size={10} />
-                {t.memories.tagManage}
-              </button>
-            </div>
-            {showTagManage && (
-              <div className="mt-2">
-                <TagManagePanel
-                  tags={tagsList}
-                  onTagsChanged={() => {
-                    api.listTags().then((res) => setTagsList(res.tags || [])).catch(() => {})
-                  }}
-                  onClose={() => setShowTagManage(false)}
-                />
-              </div>
-            )}
-            </>
-          )
-        })()}
-      </motion.div>
+      <MemoriesFilterPanel
+        searchInput={searchInput}
+        onSearchInputChange={setSearchInput}
+        searchInputRef={searchInputRef}
+        onSearchSubmit={handleSearch}
+        searchHistory={searchHistory}
+        titleSuggestions={titleSuggestions}
+        onRemoveHistory={removeHistory}
+        onClearHistory={clearHistory}
+        searchFetching={searchQuery.isFetching}
+        searchError={!!searchQuery.isError}
+        searchMode={searchMode}
+        onSearchModeChange={setSearchMode}
+        typeCounts={typeCounts}
+        typeFilter={typeFilter}
+        onTypeFilterChange={(v) => {
+          setTypeFilter(v)
+          setPage(1)
+          setFocusedIndex(-1)
+        }}
+        workspaces={workspacesQuery.data ?? []}
+        workspaceFilter={workspaceFilter}
+        onWorkspaceFilterChange={setWorkspaceFilter}
+        statusFilter={statusFilter}
+        onStatusFilterChange={setStatusFilter}
+        timeRange={timeRange}
+        onTimeRangeChange={setTimeRange}
+        tagsList={tagsList}
+        onTagsChanged={refreshTagsList}
+        selectedTags={selectedTags}
+        onSelectedTagsChange={(tags) => {
+          setSelectedTags(tags)
+          setPage(1)
+        }}
+      />
 
       {/* 合并建议横幅 */}
-      {showMergeSuggestions && mergeSuggestions.length > 0 && (
-        <div className="mb-5 p-4 bg-warning-bg border border-warning-border rounded-lg">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <Merge size={14} className="text-warning-fg" aria-hidden="true" />
-              <span className="text-xs font-semibold text-warning-fg">
-                {t.memories.mergeSuggestions}
-              </span>
-              <span className="text-xs font-medium text-warning-fg">
-                {t.memories.mergeSuggestionsDesc}
-              </span>
-              {mergeGeneratedAt && (
-                <span className="text-xs text-warning-fg">
-                  {new Date(mergeGeneratedAt).toLocaleString()}
-                </span>
-              )}
-            </div>
-            <div className="flex items-center gap-2">
-              <Button
-                onClick={() => consolidateMutation.mutate()}
-                disabled={consolidateMutation.isPending}
-                variant="warning"
-                size="xs"
-              >
-                <Loader2
-                  size={14}
-                  className={consolidateMutation.isPending ? 'animate-spin' : ''}
-                />
-                {t.common.refresh}
-              </Button>
-              <Button
-                onClick={() => setShowMergeSuggestions(false)}
-                variant="icon"
-                size="xs"
-                title={t.common.close}
-              >
-                <X size={14} aria-hidden="true" />
-              </Button>
-            </div>
-          </div>
-          <div className="space-y-1">
-            {mergeSuggestions.map((s, i) => (
-              <motion.div
-                key={`${s.source_id}-${s.target_id}`}
-                className={`flex items-center justify-between bg-warning/8 border border-warning/15 rounded-lg px-3 py-2 hover:bg-warning/15 hover:border-warning/25 transition-all duration-150 cursor-pointer group`}
-                initial={{ opacity: 0, y: 6 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ type: 'spring', ...spring.gentle, delay: Math.min(i * 0.06, 0.3) }}
-              >
-                <div className="min-w-0 flex-1 text-xs">
-                  <span className="text-[var(--text-primary)] truncate">{s.source_title}</span>
-                  <span className="text-[var(--text-tertiary)] mx-1.5">→</span>
-                  <span className="text-[var(--text-primary)] truncate">{s.target_title}</span>
-                  <span className="ml-2 text-warning-fg tabular-nums font-medium">
-                    {Math.round(s.similarity * 100)}%
-                  </span>
-                </div>
-                <Button
-                  onClick={() => handleOpenMerge(s)}
-                  variant="subtle"
-                  size="xs"
-                  className="ml-2 shrink-0 opacity-80 group-hover:opacity-100"
-                >
-                  {t.memories.mergeAction}
-                </Button>
-              </motion.div>
-            ))}
-          </div>
+      <MergeSuggestionsBanner
+        suggestions={mergeSuggestions}
+        generatedAt={mergeGeneratedAt}
+        consolidatePending={consolidateMutation.isPending}
+        strategy={mergeSuggestionsQuery.data?.strategy}
+        onConsolidate={() => consolidateMutation.mutate()}
+        onOpenMerge={handleOpenMerge}
+        onBatchMerge={async (selected) => {
+          // 批量合并：拉取全文后依次执行每个合并，跟踪进度与成功/失败数
+          let successCount = 0
+          let failCount = 0
+          for (let i = 0; i < selected.length; i++) {
+            const s = selected[i]
+            try {
+              // 拉取全文（与单条合并一致），失败时降级用 preview
+              let mergedContent: string
+              try {
+                const [sourceDetail, targetDetail] = await Promise.all([
+                  api.getMemoryDetail(s.source_id),
+                  api.getMemoryDetail(s.target_id),
+                ])
+                mergedContent = targetDetail.content + '\n\n' + sourceDetail.content
+              } catch {
+                mergedContent = s.target_content_preview + '\n\n' + s.source_content_preview
+              }
+              await mergeMutation.mutateAsync({
+                sourceId: s.source_id,
+                targetId: s.target_id,
+                mergedContent,
+                similarity: s.similarity,
+                strategy: mergeSuggestionsQuery.data?.strategy,
+              })
+              successCount++
+            } catch (err) {
+              failCount++
+              console.error('Batch merge failed for pair:', s, err)
+            }
+          }
+          mergeSuggestionsQuery.refetch()
+          if (failCount === 0) {
+            toast(t.memories.batchMergeComplete.replace('{n}', String(successCount)), 'success')
+          } else {
+            toast(
+              t.memories.batchMergePartial
+                .replace('{success}', String(successCount))
+                .replace('{total}', String(selected.length))
+                .replace('{failed}', String(failCount)),
+              'error',
+            )
+          }
+        }}
+      />
+
+      {/* 合并历史 */}
+      {workspaceId && (
+        <div className="mb-5">
+          <MergeHistoryPanel workspaceId={workspaceId} />
         </div>
       )}
 
@@ -755,87 +595,17 @@ export default function MemoriesPage() {
       )}
 
       {/* 区块标题 */}
-      <div className="group flex items-center justify-between mb-3">
-        <p className="text-xs text-[var(--text-secondary)] font-medium">
-          {isSearching
-            ? translate(t.memories.searchResultCount, { n: displayTotal })
-            : typeFilter !== 'all'
-              ? `${total} ${typeLabel(t.common, typeFilter)}`
-              : translate(t.memories.latestMemories, { n: total })}
-        </p>
-        <div className="flex items-center gap-3">
-          {visibleItems.length > 0 && (
-            <>
-              <div className="hidden sm:flex items-center gap-1.5 text-xs text-[var(--text-tertiary)] opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-                <kbd className="border border-[var(--border-default)] shadow-warm-xs px-1.5 py-0.5 bg-surface-inset rounded font-mono text-[10px]">
-                  /
-                </kbd>
-                <span className="opacity-70">{t.memories.kbdSearch}</span>
-                <span className="opacity-40 mx-0.5">·</span>
-                <kbd className="border border-[var(--border-default)] shadow-warm-xs px-1.5 py-0.5 bg-surface-inset rounded font-mono text-[10px]">
-                  j
-                </kbd>
-                <kbd className="border border-[var(--border-default)] shadow-warm-xs px-1.5 py-0.5 bg-surface-inset rounded font-mono text-[10px]">
-                  k
-                </kbd>
-                <span className="opacity-70">{t.memories.kbdNavigate}</span>
-                <span className="opacity-40 mx-0.5">·</span>
-                <kbd className="border border-[var(--border-default)] shadow-warm-xs px-1.5 py-0.5 bg-surface-inset rounded font-mono text-[10px]">
-                  ␣
-                </kbd>
-                <span className="opacity-70">{t.memories.kbdSelect}</span>
-                <span className="opacity-40 mx-0.5">·</span>
-                <kbd className="border border-[var(--border-default)] shadow-warm-xs px-1.5 py-0.5 bg-surface-inset rounded font-mono text-[10px]">
-                  ⏎
-                </kbd>
-                <span className="opacity-70">{t.memories.kbdOpen}</span>
-              </div>
-              <div className="flex items-center gap-1.5 text-sm text-[var(--text-secondary)] cursor-pointer select-none hover:text-[var(--text-primary)] transition-all duration-150">
-                <Checkbox
-                  checked={selectedIds.size === visibleItems.length && visibleItems.length > 0}
-                  onCheckedChange={() => toggleSelectAll()}
-                />
-                <span
-                  role="button"
-                  tabIndex={0}
-                  onClick={toggleSelectAll}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault()
-                      toggleSelectAll()
-                    }
-                  }}
-                >
-                  {t.memories.selectAll}
-                </span>
-              </div>
-            </>
-          )}
-          {(isSearching ||
-            typeFilter !== 'all' ||
-            workspaceFilter !== 'all' ||
-            statusFilter !== 'all' ||
-            timeRange !== 'all' ||
-            selectedTags.length > 0) && (
-            <Button
-              onClick={() => {
-                setSearchInput('')
-                setTypeFilter('all')
-                setWorkspaceFilter('all')
-                setStatusFilter('all')
-                setTimeRange('all')
-                setSelectedTags([])
-                setPage(1)
-                clearSelection()
-              }}
-              variant="ghost"
-              size="sm"
-            >
-              {t.memories.clearSearch}
-            </Button>
-          )}
-        </div>
-      </div>
+      <MemoryListHeader
+        countText={countText}
+        visibleCount={visibleItems.length}
+        selectedCount={selectedIds.size}
+        onToggleAll={toggleSelectAll}
+        showClear={hasActiveFilters}
+        onClear={() => {
+          clearAllFilters()
+          clearSelection()
+        }}
+      />
 
       {/* 批量操作栏 */}
       {selectedIds.size > 0 && (
@@ -857,33 +627,11 @@ export default function MemoriesPage() {
       ) : displayItems.length === 0 ? (
         <EmptyState
           illustration={<EmptyMemory />}
-          message={
-            isSearching
-              ? t.memories.noMatch
-              : (typeFilter !== 'all' || workspaceFilter !== 'all' || statusFilter !== 'all' || timeRange !== 'all' || selectedTags.length > 0)
-                ? t.memories.noFilterResults
-                : t.memories.empty
-          }
-          description={
-            (typeFilter !== 'all' || workspaceFilter !== 'all' || statusFilter !== 'all' || timeRange !== 'all' || selectedTags.length > 0)
-              ? t.memories.noFilterResultsDesc
-              : undefined
-          }
+          message={emptyMessage}
+          description={hasActiveFilters ? t.memories.noFilterResultsDesc : undefined}
           action={
-            (typeFilter !== 'all' || workspaceFilter !== 'all' || statusFilter !== 'all' || timeRange !== 'all' || selectedTags.length > 0) ? (
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => {
-                  setSearchInput('')
-                  setTypeFilter('all')
-                  setWorkspaceFilter('all')
-                  setStatusFilter('all')
-                  setTimeRange('all')
-                  setSelectedTags([])
-                  setPage(1)
-                }}
-              >
+            hasActiveFilters ? (
+              <Button variant="secondary" size="sm" onClick={clearAllFilters}>
                 {t.memories.clearFilters}
               </Button>
             ) : undefined

@@ -105,6 +105,7 @@ class CandidateMemoryCreate(BaseModel):
     title: MemoryTitle
     content: MemoryContent
     type: str = Field(..., max_length=64)
+    tags: list[str] = Field(default_factory=list)
     source: str = Field("mcp", max_length=32)
     client_write_id: str | None = Field(default=None, max_length=64)
     confidence: float | None = None
@@ -134,6 +135,7 @@ class CandidateMemoryRead(BaseModel):
     title: str
     content: str
     type: str
+    tags: list[str] = Field(default_factory=list)
     source: str
     client_write_id: str | None = None
     confidence: float | None
@@ -164,6 +166,11 @@ class CandidateMemoryRead(BaseModel):
     extraction_version: str | None = None
     created_at: datetime
     updated_at: datetime
+
+    @field_validator("tags", mode="before")
+    @classmethod
+    def _coerce_tags(cls, v: Any) -> list[str]:
+        return v if isinstance(v, list) else []
 
 
 class SimilarItemRead(BaseModel):

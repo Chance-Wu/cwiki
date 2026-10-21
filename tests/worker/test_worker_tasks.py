@@ -8,7 +8,6 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-import apps.worker.tasks as tasks_module
 from apps.worker.tasks import (
     register_tasks,
     task_auto_consolidate_similar,
@@ -103,7 +102,7 @@ class TestGenerateCandidateEmbedding:
         mock_queue = AsyncMock()
         ctx = {"embedding_service": mock_embedding_service, "queue": mock_queue}
 
-        with patch("apps.worker.tasks.async_session_maker") as mock_session:
+        with patch("apps.worker.tasks.embedding.async_session_maker") as mock_session:
             mock_session.return_value.__aenter__ = AsyncMock(return_value=mock_db)
             mock_session.return_value.__aexit__ = AsyncMock(return_value=False)
 
@@ -146,7 +145,7 @@ class TestEmbeddingFailureRaises:
         mock_queue = AsyncMock()
         ctx = {"embedding_service": mock_embedding_service, "queue": mock_queue}
 
-        with patch("apps.worker.tasks.async_session_maker") as mock_session:
+        with patch("apps.worker.tasks.embedding.async_session_maker") as mock_session:
             mock_session.return_value.__aenter__ = AsyncMock(return_value=mock_db)
             mock_session.return_value.__aexit__ = AsyncMock(return_value=False)
 
@@ -215,14 +214,14 @@ class TestAutoConsolidateMerge:
         fake_engine = SimpleNamespace(get_bm25_index=AsyncMock(return_value=_FakeBM25()))
 
         monkeypatch.setattr("packages.retrieval.engine.get_retrieval_engine", lambda: fake_engine)
-        monkeypatch.setattr("apps.worker.tasks.async_session_maker", sessions)
+        monkeypatch.setattr("apps.worker.tasks.consolidate.async_session_maker", sessions)
         monkeypatch.setattr("apps.api.file_sync.get_file_store", lambda: file_store)
         monkeypatch.setattr("apps.api.file_sync.get_memory_indexer", lambda: indexer)
-        monkeypatch.setattr(tasks_module, "_consolidate_last_snapshot", None)
+        monkeypatch.setattr("apps.worker.tasks.consolidate._consolidate_last_snapshot", None)
         monkeypatch.setattr(parasitic_evolution_config, "auto_consolidate_enabled", True)
         monkeypatch.setattr(parasitic_evolution_config, "auto_merge_enabled", True)
         monkeypatch.setattr(parasitic_evolution_config, "auto_merge_threshold", 0.9)
-        monkeypatch.setattr(tasks_module.Path, "home", lambda: tmp_path / "home")
+        monkeypatch.setattr("apps.worker.tasks.consolidate.Path.home", lambda: tmp_path / "home")
 
         queue = AsyncMock()
         try:

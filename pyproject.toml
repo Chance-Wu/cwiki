@@ -63,9 +63,10 @@ ignore = [
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
-# 加密软件会让 entry_points.txt 不可读，pytest 扫不到插件；显式加载，
-# 不依赖元数据文件内容（正常环境下重复加载同名插件无副作用）。
-addopts = "-p pytest_asyncio.plugin -p pytest_cov.plugin"
+# 插件走 entry_points 正常 autoload。本机透明加密软件曾按扩展名加密
+# site-packages 的 entry_points.txt 导致 pytest 启动即崩；曾用 -p 显式
+# 加载兜底，但与修复后的 autoload 重复注册冲突（pytest 9 严格校验）。
+# 复发时运行 scripts/fix_dlp_entry_points.py 恢复元数据即可。
 
 [tool.mypy]
 python_version = "3.12"

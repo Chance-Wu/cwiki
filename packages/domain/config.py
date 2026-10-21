@@ -214,6 +214,17 @@ class Settings:
             "auto_approve_duplicate_threshold", 0.4
         )
 
+        # 相似度计算策略：jaccard | embedding | hybrid
+        self.similarity_strategy: str = memory_cfg.get("similarity_strategy", "hybrid")
+        # 混合策略权重（仅 hybrid 策略生效）
+        hybrid_weights = memory_cfg.get("similarity_hybrid_weights", {})
+        self.similarity_hybrid_weights = {
+            "title": hybrid_weights.get("title", 0.20),
+            "content": hybrid_weights.get("content", 0.35),
+            "keyword": hybrid_weights.get("keyword", 0.15),
+            "embedding": hybrid_weights.get("embedding", 0.30),
+        }
+
         perf_cfg = _yaml_config.get("performance", {})
         self.context_cache_ttl: float = perf_cfg.get("context_cache_ttl", 30.0)
         self.context_cache_max_size: int = perf_cfg.get("context_cache_max_size", 256)
@@ -258,6 +269,11 @@ class ParasiticEvolutionConfig:
         self.memory_gap_detection_enabled: bool = cfg.get("memory_gap_detection_enabled", False)
         self.proactive_push_enabled: bool = cfg.get("proactive_push_enabled", False)
         self.memory_relations_enabled: bool = cfg.get("memory_relations_enabled", False)
+        self.relation_reinforcement_enabled: bool = cfg.get("relation_reinforcement_enabled", False)
+        self.relation_reinforcement_rate: float = float(cfg.get("relation_reinforcement_rate", 0.2))
+        self.relation_decay_half_life_days: float = float(
+            cfg.get("relation_decay_half_life_days", 30.0)
+        )
         self.agent_profile_enabled: bool = cfg.get("agent_profile_enabled", False)
         self.memory_version_tracking_enabled: bool = cfg.get(
             "memory_version_tracking_enabled", False

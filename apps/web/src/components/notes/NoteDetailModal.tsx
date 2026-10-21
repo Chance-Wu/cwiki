@@ -218,7 +218,9 @@ export default function NoteDetailModal({ note, open, onOpenChange, onOrganized 
                     {t.notes.cancel}
                   </Button>
                   <Button variant="danger" onClick={handleDiscard} disabled={discarding}>
-                    {discarding && <Loader2 size={14} className="mr-1.5 animate-spin" aria-hidden="true" />}
+                    {discarding && (
+                      <Loader2 size={14} className="mr-1.5 animate-spin" aria-hidden="true" />
+                    )}
                     {t.notes.discard}
                   </Button>
                 </>

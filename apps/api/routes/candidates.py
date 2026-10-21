@@ -8,7 +8,6 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import noload
 
 from apps.api.auth import AgentIdentity
 from apps.api.deps import (
@@ -55,6 +54,7 @@ async def create_candidate_endpoint(
             title=body.title,
             content=body.content,
             type=body.type,
+            tags=body.tags,
             source=body.source,
             confidence=body.confidence or 0.5,
             importance=body.importance or 0.5,
@@ -116,10 +116,7 @@ async def list_candidates(
     """列出候选记忆，支持可选过滤。"""
     resolved_ws_id = await resolve_workspace(workspace_id, db) if workspace_id else None
 
-    stmt = select(CandidateMemory).options(
-        noload(CandidateMemory.evidences),
-        noload(CandidateMemory.reviews),
-    )
+    stmt = select(CandidateMemory)
     count_stmt = select(func.count(CandidateMemory.id))
 
     conditions = []
@@ -266,8 +263,9 @@ async def revert_auto_approve(
         await db.refresh(memory)
 
         from apps.api.file_sync import sync_memory_to_file
-        from apps.api.routes.memories import invalidate_context_cache, invalidate_search_cache
+        from apps.api.routes.context import invalidate_context_cache
         from apps.api.routes.memory_status import invalidate_memory_status_caches
+        from apps.api.routes.search import invalidate_search_cache
 
         # 离开 active：向量从内存与磁盘索引一并移除
         await sync_memory_to_file(memory, db, skip_vector_index=True, save_index=True)

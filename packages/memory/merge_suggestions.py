@@ -1,6 +1,7 @@
 """记忆合并建议——自动发现相似记忆对。
 
-扫描 active 记忆，找出 embedding 相似度较高、可能适合合并的记忆对。
+扫描 active 记忆，找出相似度较高、可能适合合并的记忆对。
+支持多种相似度策略：jaccard（词面）、embedding（语义）、hybrid（加权融合）。
 """
 
 from __future__ import annotations
@@ -13,8 +14,9 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from packages.domain.config import settings
 from packages.domain.models import Memory
-from packages.retrieval.vector_utils import batch_cosine_similarities
+from packages.memory.similarity import HybridWeights, compute_similarity
 
 logger = logging.getLogger(__name__)
 
@@ -48,12 +50,15 @@ async def find_merge_candidates(
     similarity_threshold: float = DEFAULT_SIMILARITY_THRESHOLD,
     limit: int = 20,
 ) -> list[MergeSuggestion]:
-    """找出 embedding 相似度较高的 active 记忆对。
+    """找出相似度较高的 active 记忆对。
+
+    使用统一相似度计算策略（配置在 config.yaml 的 memory.similarity_strategy）。
+    为控制开销，只扫描最近更新的 500 条记忆。
 
     Args:
         db: 数据库会话
         workspace_id: 要扫描的 workspace
-        similarity_threshold: 最小余弦相似度（0.0-1.0）
+        similarity_threshold: 最小相似度（0.0-1.0）
         limit: 返回建议的最大数量
 
     Returns:
@@ -61,11 +66,15 @@ async def find_merge_candidates(
     """
     # 只扫最近更新的 500 条，控制两两比较的开销
     stmt = (
-        select(Memory.id, Memory.title, Memory.content, Memory.embedding)
+        select(
+            Memory.id,
+            Memory.title,
+            Memory.content,
+            Memory.embedding,
+        )
         .where(
             Memory.workspace_id == workspace_id,
             Memory.status == "active",
-            Memory.embedding.isnot(None),
         )
         .order_by(Memory.updated_at.desc())
         .limit(500)
@@ -76,45 +85,43 @@ async def find_merge_candidates(
     if len(memories) < 2:
         return []
 
-    memory_ids: list[str] = []
-    memory_titles: list[str] = []
-    memory_embeddings: list[list[float]] = []
-
-    for mem_id, title, _content, emb in memories:
-        if emb is not None and len(emb) > 0:
-            memory_ids.append(str(mem_id))
-            memory_titles.append(title)
-            memory_embeddings.append(emb)
-
-    if len(memory_embeddings) < 2:
-        return []
+    # 构建文本字典列表
+    memory_items: list[dict[str, Any]] = []
+    for mem_id, title, content, emb in memories:
+        memory_items.append(
+            {
+                "id": str(mem_id),
+                "title": title,
+                "content": content,
+                "embedding": emb,
+            }
+        )
 
     # 计算两两相似度
     suggestions: list[MergeSuggestion] = []
-    n = len(memory_embeddings)
+    n = len(memory_items)
+    strategy = settings.similarity_strategy
+    weights = HybridWeights(**settings.similarity_hybrid_weights)
 
     # 只比较 i < j 的对，避免重复计算
     for i in range(n):
-        # 一次性算出记忆 i 与其后所有 j > i 的相似度（批量内积）
-        query_emb = memory_embeddings[i]
-        compare_embs = memory_embeddings[i + 1 :]
+        for j in range(i + 1, n):
+            sim = await compute_similarity(
+                memory_items[i],
+                memory_items[j],
+                strategy=strategy,
+                weights=weights,
+            )
 
-        if not compare_embs:
-            continue
-
-        similarities = batch_cosine_similarities(query_emb, compare_embs)
-
-        for j, sim in enumerate(similarities):
             if sim >= similarity_threshold:
-                idx_j = i + 1 + j
                 suggestions.append(
                     MergeSuggestion(
-                        memory_id_a=memory_ids[i],
-                        memory_id_b=memory_ids[idx_j],
-                        title_a=memory_titles[i],
-                        title_b=memory_titles[idx_j],
+                        memory_id_a=memory_items[i]["id"],
+                        memory_id_b=memory_items[j]["id"],
+                        title_a=memory_items[i]["title"],
+                        title_b=memory_items[j]["title"],
                         similarity=float(sim),
-                        reason=f"High semantic similarity ({sim:.2%})",
+                        reason=f"Similarity ({sim:.2%}, strategy={strategy})",
                     )
                 )
 

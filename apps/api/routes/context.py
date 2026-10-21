@@ -123,13 +123,12 @@ async def batch_compute_freshness(
         .where(MemoryUsage.memory_id.in_(memory_ids))
         .group_by(MemoryUsage.memory_id)
     )
-    result = await db.execute(last_used_stmt)
+    usage_result = await db.execute(last_used_stmt)
     last_used_map: dict[uuid.UUID, datetime | None] = {}
-    for row in result.all():
-        mem_id: uuid.UUID = row[0]
-        last_used_dt: datetime | None = row[1]
+    for usage_row in usage_result.all():
+        mem_id: uuid.UUID = usage_row[0]
+        last_used_dt: datetime | None = usage_row[1]
         last_used_map[mem_id] = last_used_dt
-
     freshness_map: dict[uuid.UUID, dict[str, Any]] = {}
     for mid in memory_ids:
         perm_info = permanent_map.get(mid)

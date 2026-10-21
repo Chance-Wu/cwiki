@@ -23,6 +23,14 @@ memory:
   relation_merge_threshold: 0.95
   relation_update_threshold: 0.8
   similarity_threshold: 0.7
+  # 相似度计算策略：jaccard（词面）| embedding（语义）| hybrid（加权融合）
+  similarity_strategy: hybrid
+  # 混合策略权重（仅 hybrid 生效，归一化为 1.0）
+  similarity_hybrid_weights:
+    title: 0.20
+    content: 0.35
+    keyword: 0.15
+    embedding: 0.30
   # 三档审核：高分候选自动生效（须同时满足全部阈值），默认关，灰度放量
   auto_approve_enabled: false
   auto_approve_value_threshold: 0.85
@@ -42,6 +50,10 @@ parasitic_evolution:
   mastery_coupled_decay_enabled: true
   memory_gap_detection_enabled: true
   memory_relations_enabled: true
+  # Hebbian 强化：同一检索结果中的既有关系边按共检索次数增强，按半衰期衰减
+  relation_reinforcement_enabled: true
+  relation_reinforcement_rate: 0.2
+  relation_decay_half_life_days: 30
   memory_version_tracking_enabled: true
   proactive_push_enabled: true
   review_reminders_enabled: true

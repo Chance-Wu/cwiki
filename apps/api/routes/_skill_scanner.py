@@ -11,6 +11,7 @@ import json
 import os
 import re
 import time
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -159,6 +160,37 @@ def publication_kind(path: Path, source: Path) -> str | None:
 # --------------- SkillIndex ---------------
 
 
+@dataclass
+class _BuildContext:
+    """SkillIndex.build() 的上下文，管理构建过程中的所有状态。"""
+
+    main_skills: dict[str, dict[str, Any]] = field(default_factory=dict)
+    unrelated_skills: list[dict[str, Any]] = field(default_factory=list)
+    plugin_pairs: set[tuple[str, str]] = field(default_factory=set)
+    avail: dict[str, set[str]] = field(default_factory=dict)
+    unrelated_agents: dict[str, set[str]] = field(default_factory=dict)
+    unrelated_pairs: set[tuple[str, str]] = field(default_factory=set)
+    parsed_cache: dict[Path, dict[str, Any] | None] = field(default_factory=dict)
+    pub_cache: dict[tuple[Path, Path], str | None] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        """初始化 avail 字典，为每个 agent 创建空集合。"""
+        self.avail = {a: set() for a in skills_config.agents}
+
+    def cached_parse(self, path: Path) -> dict[str, Any] | None:
+        """带缓存的 parse_skill_md。"""
+        if path not in self.parsed_cache:
+            self.parsed_cache[path] = parse_skill_md(path)
+        return self.parsed_cache[path]
+
+    def cached_pub_kind(self, path: Path, source: Path) -> str | None:
+        """带缓存的 publication_kind。"""
+        key = (path, source)
+        if key not in self.pub_cache:
+            self.pub_cache[key] = publication_kind(path, source)
+        return self.pub_cache[key]
+
+
 class SkillIndex:
     """由单次文件系统遍历构建的只读 skill 索引。
 
@@ -196,94 +228,117 @@ class SkillIndex:
 
     @classmethod
     def build(cls) -> SkillIndex:
-        """单趟扫描：项目 → Agent skills_dir → Agent plugins_dir。"""
-        main_skills: dict[str, dict[str, Any]] = {}
-        unrelated_skills: list[dict[str, Any]] = []
-        plugin_pairs: set[tuple[str, str]] = set()
-        avail: dict[str, set[str]] = {a: set() for a in skills_config.agents}
-        unrelated_agents: dict[str, set[str]] = {}
-        unrelated_pairs: set[tuple[str, str]] = set()
+        """单趟扫描：项目 → Agent skills_dir → Agent plugins_dir。
 
-        # 解析缓存：Path → 解析结果（避免重复读盘与重复解析）
-        _parsed_cache: dict[Path, dict[str, Any] | None] = {}
+        分为 5 个阶段：
+        1. 扫描项目 skills
+        2. 预扫描各 Agent 目录
+        3. 处理 Agent 内置 skills
+        4. 处理插件 skills
+        5. 标注发布/可用关系
+        """
+        ctx = _BuildContext()
 
-        def _cached_parse(p: Path) -> dict[str, Any] | None:
-            if p not in _parsed_cache:
-                _parsed_cache[p] = parse_skill_md(p)
-            return _parsed_cache[p]
+        # 阶段 1：扫描项目 skills
+        cls._scan_project_skills(ctx)
 
-        # publication_kind 缓存：(path, source) → 判定结果
-        _pub_cache: dict[tuple[Path, Path], str | None] = {}
+        # 阶段 2：预扫描各 Agent 目录
+        agent_skills_map, agent_plugins_map = cls._prescan_agent_directories(ctx)
 
-        def _cached_pub_kind(path: Path, source: Path) -> str | None:
-            key = (path, source)
-            if key not in _pub_cache:
-                _pub_cache[key] = publication_kind(path, source)
-            return _pub_cache[key]
+        # 阶段 3：处理 Agent 内置 skills
+        cls._process_agent_builtin_skills(ctx, agent_skills_map)
 
-        # 阶段 1：项目 skills
-        if PROJECT_SKILLS_DIR.is_dir():
-            for entry in PROJECT_SKILLS_DIR.iterdir():
-                if entry.name.startswith("."):
-                    continue
-                if not SKILL_NAME_RE.fullmatch(entry.name):
-                    continue
-                skill_md = entry / "SKILL.md"
-                if not skill_md.is_file():
-                    continue
-                parsed = _cached_parse(skill_md)
-                if not parsed:
-                    continue
-                s: dict[str, Any] = {
-                    **parsed,
-                    "source": "project",
-                    "agents": [],
-                    "builtin": False,
-                    "editable": True,
-                    "path": str(skill_md),
-                    "provided_by": [],
-                    "publishable_to": [],
-                    "available_to": [],
-                }
-                main_skills[s["name"]] = s
+        # 阶段 4：处理插件 skills
+        cls._process_plugin_skills(ctx, agent_plugins_map)
 
-        # 阶段 2：预扫描各 Agent 目录（每个目录只读一次，解析走缓存）
+        # 阶段 5：标注发布/可用关系
+        cls._annotate_relationships(ctx)
+
+        return cls(
+            skills=list(ctx.main_skills.values()) + ctx.unrelated_skills,
+            plugin_pairs=ctx.plugin_pairs,
+            unrelated_agents=ctx.unrelated_agents,
+            unrelated_pairs=ctx.unrelated_pairs,
+        )
+
+    @classmethod
+    def _scan_project_skills(cls, ctx: _BuildContext) -> None:
+        """阶段 1：扫描项目 skills 目录。"""
+        if not PROJECT_SKILLS_DIR.is_dir():
+            return
+
+        for entry in PROJECT_SKILLS_DIR.iterdir():
+            if entry.name.startswith(".") or not SKILL_NAME_RE.fullmatch(entry.name):
+                continue
+            skill_md = entry / "SKILL.md"
+            if not skill_md.is_file():
+                continue
+            parsed = ctx.cached_parse(skill_md)
+            if not parsed:
+                continue
+            skill_entry: dict[str, Any] = {
+                **parsed,
+                "source": "project",
+                "agents": [],
+                "builtin": False,
+                "editable": True,
+                "path": str(skill_md),
+                "provided_by": [],
+                "publishable_to": [],
+                "available_to": [],
+            }
+            ctx.main_skills[skill_entry["name"]] = skill_entry
+
+    @classmethod
+    def _prescan_agent_directories(
+        cls, ctx: _BuildContext
+    ) -> tuple[dict[str, dict[str, Path]], dict[str, dict[str, Path]]]:
+        """阶段 2：预扫描各 Agent 目录（每个目录只读一次，解析走缓存）。"""
         agent_skills_map: dict[str, dict[str, Path]] = {}
         agent_plugins_map: dict[str, dict[str, Path]] = {}
 
         for agent_name, config in skills_config.agents.items():
+            # 扫描 skills_dir
             skills_dir = config["skills_dir"]
             if skills_dir.is_dir():
                 smap: dict[str, Path] = {}
-                for e in skills_dir.iterdir():
-                    if not e.name.startswith(".") and (e / "SKILL.md").is_file():
-                        smap[e.name] = e
+                for entry in skills_dir.iterdir():
+                    if not entry.name.startswith(".") and (entry / "SKILL.md").is_file():
+                        smap[entry.name] = entry
                 agent_skills_map[agent_name] = smap
 
+            # 扫描 plugins_dir
             plugins_dir = config.get("plugins_dir")
             if plugins_dir and plugins_dir.is_dir():
                 pmap: dict[str, Path] = {}
                 for skill_md in _walk_skill_mds(plugins_dir):
-                    parsed = _cached_parse(skill_md)
+                    parsed = ctx.cached_parse(skill_md)
                     if parsed and parsed["name"] not in pmap:
                         pmap[parsed["name"]] = skill_md
                 agent_plugins_map[agent_name] = pmap
 
-        # 阶段 3：Agent 内置 skills（复用解析缓存）
+        return agent_skills_map, agent_plugins_map
+
+    @classmethod
+    def _process_agent_builtin_skills(
+        cls, ctx: _BuildContext, agent_skills_map: dict[str, dict[str, Path]]
+    ) -> None:
+        """阶段 3：处理 Agent 内置 skills（复用解析缓存）。"""
         for agent_name in skills_config.agents:
             for name, entry_dir in agent_skills_map.get(agent_name, {}).items():
                 skill_md = entry_dir / "SKILL.md"
-                parsed = _cached_parse(skill_md)
+                parsed = ctx.cached_parse(skill_md)
                 if not parsed:
                     continue
 
-                avail.setdefault(name, set()).add(agent_name)
-                existing = main_skills.get(name)
+                ctx.avail.setdefault(name, set()).add(agent_name)
+                existing = ctx.main_skills.get(name)
 
                 if existing is not None:
                     if existing["source"] == "project":
-                        if not _cached_pub_kind(entry_dir, PROJECT_SKILLS_DIR / name):
-                            s = _make_entry(
+                        if not ctx.cached_pub_kind(entry_dir, PROJECT_SKILLS_DIR / name):
+                            # 非项目发布的副本，作为独立条目
+                            skill_entry = _make_entry(
                                 parsed,
                                 source=agent_name,
                                 agents=[agent_name],
@@ -292,18 +347,21 @@ class SkillIndex:
                                 provided_by=[agent_name],
                                 path=skill_md,
                             )
-                            unrelated_skills.append(s)
-                            unrelated_agents.setdefault(name, set()).add(agent_name)
-                            unrelated_pairs.add((agent_name, name))
+                            ctx.unrelated_skills.append(skill_entry)
+                            ctx.unrelated_agents.setdefault(name, set()).add(agent_name)
+                            ctx.unrelated_pairs.add((agent_name, name))
                             continue
+                        # 项目发布的副本，更新 provided_by
                         if agent_name not in existing["provided_by"]:
                             existing["provided_by"].append(agent_name)
                     elif agent_name not in existing["agents"]:
+                        # 非项目来源，更新 agents 列表
                         existing["agents"].append(agent_name)
                         if agent_name not in existing.get("provided_by", []):
                             existing.setdefault("provided_by", []).append(agent_name)
                 else:
-                    s = _make_entry(
+                    # 新条目
+                    skill_entry = _make_entry(
                         parsed,
                         source=agent_name,
                         agents=[agent_name],
@@ -312,28 +370,33 @@ class SkillIndex:
                         provided_by=[agent_name],
                         path=skill_md,
                     )
-                    main_skills[name] = s
+                    ctx.main_skills[name] = skill_entry
 
-        # 阶段 4：插件 skills（复用解析缓存）
+    @classmethod
+    def _process_plugin_skills(
+        cls, ctx: _BuildContext, agent_plugins_map: dict[str, dict[str, Path]]
+    ) -> None:
+        """阶段 4：处理插件 skills（复用解析缓存）。"""
         seen_plugin_unrelated: set[str] = set()
         for agent_name in skills_config.agents:
             for name, skill_md_path in agent_plugins_map.get(agent_name, {}).items():
-                parsed = _cached_parse(skill_md_path)
+                parsed = ctx.cached_parse(skill_md_path)
                 if not parsed:
                     continue
 
-                plugin_pairs.add((agent_name, name))
-                avail.setdefault(name, set()).add(agent_name)
-                existing = main_skills.get(name)
+                ctx.plugin_pairs.add((agent_name, name))
+                ctx.avail.setdefault(name, set()).add(agent_name)
+                existing = ctx.main_skills.get(name)
 
                 if existing is not None:
                     if existing["source"] == "project":
-                        if not _cached_pub_kind(
+                        if not ctx.cached_pub_kind(
                             Path(skill_md_path).parent, PROJECT_SKILLS_DIR / name
                         ):
+                            # 非项目发布的插件副本
                             if name not in seen_plugin_unrelated:
                                 seen_plugin_unrelated.add(name)
-                                s = _make_entry(
+                                skill_entry = _make_entry(
                                     parsed,
                                     source="plugin",
                                     agents=[agent_name],
@@ -342,21 +405,24 @@ class SkillIndex:
                                     provided_by=[agent_name],
                                     path=skill_md_path,
                                 )
-                                unrelated_skills.append(s)
-                                unrelated_agents.setdefault(name, set()).add(agent_name)
-                                unrelated_pairs.add((agent_name, name))
+                                ctx.unrelated_skills.append(skill_entry)
+                                ctx.unrelated_agents.setdefault(name, set()).add(agent_name)
+                                ctx.unrelated_pairs.add((agent_name, name))
                             else:
-                                unrelated_agents.setdefault(name, set()).add(agent_name)
-                                unrelated_pairs.add((agent_name, name))
+                                ctx.unrelated_agents.setdefault(name, set()).add(agent_name)
+                                ctx.unrelated_pairs.add((agent_name, name))
                             continue
+                        # 项目发布的插件，更新 provided_by
                         if agent_name not in existing["provided_by"]:
                             existing["provided_by"].append(agent_name)
                     elif agent_name not in existing["agents"]:
+                        # 非项目来源，更新 agents 列表
                         existing["agents"].append(agent_name)
                         if agent_name not in existing.get("provided_by", []):
                             existing.setdefault("provided_by", []).append(agent_name)
                 else:
-                    s = _make_entry(
+                    # 新条目
+                    skill_entry = _make_entry(
                         parsed,
                         source="plugin",
                         agents=[agent_name],
@@ -365,47 +431,48 @@ class SkillIndex:
                         provided_by=[agent_name],
                         path=skill_md_path,
                     )
-                    main_skills[name] = s
+                    ctx.main_skills[name] = skill_entry
 
-        # 阶段 5：标注发布/可用关系（复用 publication_kind 缓存）
-        for s in list(main_skills.values()) + unrelated_skills:
-            for a in s.get("agents", []):
-                avail.setdefault(s["name"], set()).add(a)
+    @classmethod
+    def _annotate_relationships(cls, ctx: _BuildContext) -> None:
+        """阶段 5：标注发布/可用关系（复用 publication_kind 缓存）。"""
+        # 收集所有 agents 关系
+        all_skills = list(ctx.main_skills.values()) + ctx.unrelated_skills
+        for skill_entry in all_skills:
+            for agent in skill_entry.get("agents", []):
+                ctx.avail.setdefault(skill_entry["name"], set()).add(agent)
 
-        for s in list(main_skills.values()) + unrelated_skills:
-            name = s["name"]
-            if s.get("source") == "project":
+        # 标注 publishable_to 和 available_to
+        for skill_entry in all_skills:
+            name = skill_entry["name"]
+            # 项目 skills：计算可发布的 agents
+            if skill_entry.get("source") == "project":
                 pub_agents: list[str] = []
                 source = PROJECT_SKILLS_DIR / name
                 for agent_name, config in skills_config.agents.items():
-                    if _cached_pub_kind(config["skills_dir"] / name, source):
+                    if ctx.cached_pub_kind(config["skills_dir"] / name, source):
                         pub_agents.append(agent_name)
-                s["agents"] = pub_agents
-                for a in pub_agents:
-                    avail.setdefault(name, set()).add(a)
+                skill_entry["agents"] = pub_agents
+                for agent in pub_agents:
+                    ctx.avail.setdefault(name, set()).add(agent)
 
-            s["publishable_to"] = sorted(
-                a for a in skills_config.agents if (a, name) not in plugin_pairs
+            # 计算 publishable_to（排除已有插件的 agents）
+            skill_entry["publishable_to"] = sorted(
+                a for a in skills_config.agents if (a, name) not in ctx.plugin_pairs
             )
 
-            uref_agents = unrelated_agents.get(name, set())
-            uref_pair = unrelated_pairs
+            # 计算 available_to
+            uref_agents = ctx.unrelated_agents.get(name, set())
+            uref_pairs = ctx.unrelated_pairs
 
-            if s.get("source") not in ("project",) and name in unrelated_agents:
-                s["available_to"] = sorted(s.get("agents", []))
+            if skill_entry.get("source") not in ("project",) and name in ctx.unrelated_agents:
+                skill_entry["available_to"] = sorted(skill_entry.get("agents", []))
             else:
-                s["available_to"] = sorted(
+                skill_entry["available_to"] = sorted(
                     a
-                    for a in avail.get(name, set())
-                    if a not in uref_agents and (a, name) not in uref_pair
+                    for a in ctx.avail.get(name, set())
+                    if a not in uref_agents and (a, name) not in uref_pairs
                 )
-
-        return cls(
-            skills=list(main_skills.values()) + unrelated_skills,
-            plugin_pairs=plugin_pairs,
-            unrelated_agents=unrelated_agents,
-            unrelated_pairs=unrelated_pairs,
-        )
 
 
 def _make_entry(

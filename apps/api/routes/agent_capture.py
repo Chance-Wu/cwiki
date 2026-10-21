@@ -192,7 +192,7 @@ async def capture_stats(
     if resolved_ws_id:
         note_conditions.append(SessionNote.workspace_id == resolved_ws_id)
 
-    def note_count(*extra: ColumnElement[bool]) -> Select[tuple[int]]:
+    def note_count(*extra: ColumnElement[bool]) -> Select[int]:
         return (
             select(func.count(SessionNote.id))
             .select_from(SessionNote)

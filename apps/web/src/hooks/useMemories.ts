@@ -2,7 +2,14 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/api'
 
 export function useMemories(
-  opts?: { workspace_id?: string; type?: string; status?: string; tags?: string[]; limit?: number; offset?: number },
+  opts?: {
+    workspace_id?: string
+    type?: string
+    status?: string
+    tags?: string[]
+    limit?: number
+    offset?: number
+  },
   queryOpts?: { enabled?: boolean },
 ) {
   return useQuery({
@@ -91,14 +98,19 @@ export function useMergeMemories() {
       sourceId,
       targetId,
       mergedContent,
+      similarity,
+      strategy,
     }: {
       sourceId: string
       targetId: string
       mergedContent: string
-    }) => api.mergeMemories(sourceId, targetId, mergedContent),
+      similarity?: number
+      strategy?: string
+    }) => api.mergeMemories(sourceId, targetId, mergedContent, similarity, strategy),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['memories'] })
       queryClient.invalidateQueries({ queryKey: ['merge-suggestions'] })
+      queryClient.invalidateQueries({ queryKey: ['merge-history'] })
     },
   })
 }

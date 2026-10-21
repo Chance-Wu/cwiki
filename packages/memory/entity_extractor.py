@@ -75,7 +75,7 @@ def extract_entities(text: str) -> list[str]:
 
     # jieba 未安装或分词失败时静默降级，正则两层仍可工作
     try:
-        import jieba.posseg as pseg  # type: ignore[import-untyped]
+        import jieba.posseg as pseg
 
         # 只保留名词类（n/nr/ns/nt/nz）、英文（eng）、动名词（vn），过滤动词/虚词噪声
         allowed_flags = {"n", "nr", "ns", "nt", "nz", "eng", "vn"}

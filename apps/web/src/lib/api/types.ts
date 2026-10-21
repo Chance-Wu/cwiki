@@ -199,6 +199,25 @@ export interface MergeSuggestion {
   target_content_preview: string
   similarity: number
   relation_type: string
+  strategy?: string
+}
+
+export interface MergeHistoryItem {
+  event_id: string
+  merged_at: string
+  event_type: 'merged' | 'auto_merged'
+  keeper_memory: {
+    id: string
+    title: string
+    status: string
+  }
+  archived_memories: Array<{
+    id: string
+    title: string
+    status: string
+  }>
+  similarity?: number
+  strategy?: string
 }
 
 export interface EvolutionMetrics {

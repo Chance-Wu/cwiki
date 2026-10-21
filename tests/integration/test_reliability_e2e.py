@@ -980,7 +980,8 @@ class TestMemoryWriteValidationAPI:
     @pytest.fixture(autouse=True)
     def isolate_writes(self, monkeypatch):
         monkeypatch.setattr(settings, "memory_title_max_length", 20)
-        monkeypatch.setattr("apps.api.routes.memories.sync_memory_to_file", AsyncMock())
+        monkeypatch.setattr("apps.api.routes.memories.crud.sync_memory_to_file", AsyncMock())
+        monkeypatch.setattr("apps.api.routes.memories.merge.sync_memory_to_file", AsyncMock())
         monkeypatch.setattr("apps.api.routes.reviews.sync_memory_to_file", AsyncMock())
         monkeypatch.setattr("packages.domain.task_queue.queue.enqueue", AsyncMock())
 

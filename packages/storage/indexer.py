@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import sqlite3
 import time
 from pathlib import Path
 from typing import Any
@@ -43,7 +44,7 @@ class MemoryIndexer:
         file_store: FileStore,
         vector_index_path: str | None = None,
         embedding_dimensions: int | None = None,
-    ):
+    ) -> None:
         self.db_path = db_path
         self.file_store = file_store
         self._observer: Any = None
@@ -105,15 +106,16 @@ class MemoryIndexer:
         """)
         try:
             await db.execute("ALTER TABLE memory_index ADD COLUMN source TEXT DEFAULT 'mcp'")
-        except Exception:
+        except sqlite3.OperationalError:
+            # 重复加列等预期失败；其他异常类型（如磁盘错误）不吞
             logger.debug("Schema migration: ADD COLUMN source skipped (may already exist)")
         try:
             await db.execute("ALTER TABLE memory_index RENAME COLUMN project TO workspace")
-        except Exception:
+        except sqlite3.OperationalError:
             logger.debug("Schema migration: RENAME COLUMN project skipped (may already exist)")
         try:
             await db.execute("ALTER TABLE memory_index ADD COLUMN workspace TEXT")
-        except Exception:
+        except sqlite3.OperationalError:
             logger.debug("Schema migration: ADD COLUMN workspace skipped (may already exist)")
         await db.execute("""
             CREATE INDEX IF NOT EXISTS idx_memory_type ON memory_index(type)
@@ -132,6 +134,7 @@ class MemoryIndexer:
         embedding: list[float] | None = None,
         update_vector: bool = True,
         file_path: str | Path | None = None,
+        commit: bool = True,
     ) -> None:
         """将单条记忆写入 SQLite 索引与向量索引。
 
@@ -177,7 +180,8 @@ class MemoryIndexer:
                 _normalize_path(file_path),
             ),
         )
-        await db.commit()
+        if commit:
+            await db.commit()
 
         # 优先使用传入的 embedding，否则现场生成
         if update_vector:
@@ -311,8 +315,15 @@ class MemoryIndexer:
                             continue
                 except (ValueError, OSError):
                     pass  # 解析失败则回退为重新索引
-            await self.index_memory(memory, update_vector=memory.id in active_ids)
+            # 批量操作时不立即提交，最后统一提交
+            await self.index_memory(
+                memory, update_vector=memory.id in active_ids, commit=False
+            )
             indexed_count += 1
+
+        # 批量索引完成后统一提交
+        db = await self._get_db()
+        await db.commit()
 
         # 清理向量索引中的孤儿/过期向量：MD 已删除或已非 active 的
         # 记忆不应再参与语义检索（MD 与 SQLite/索引双轨保持一致）。
@@ -328,9 +339,13 @@ class MemoryIndexer:
         rows = await cursor.fetchall()
         sqlite_ids = {row[0] for row in rows}
         orphan_sqlite_ids = sqlite_ids - valid_ids
-        for oid in orphan_sqlite_ids:
-            await db.execute("DELETE FROM memory_index WHERE id = ?", (oid,))
         if orphan_sqlite_ids:
+            # 批量删除而非逐个删除
+            placeholders = ",".join("?" * len(orphan_sqlite_ids))
+            await db.execute(
+                f"DELETE FROM memory_index WHERE id IN ({placeholders})",
+                tuple(orphan_sqlite_ids),
+            )
             await db.commit()
             logger.info("Removed %d orphan SQLite index rows", len(orphan_sqlite_ids))
 

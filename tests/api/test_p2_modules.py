@@ -2221,7 +2221,9 @@ class TestAutoConsolidateSimilar:
             mock_session_ctx.__aenter__ = AsyncMock(return_value=mock_session)
             mock_session_ctx.__aexit__ = AsyncMock(return_value=False)
 
-            with patch("apps.worker.tasks.async_session_maker", return_value=mock_session_ctx):
+            with patch(
+                "apps.worker.tasks.consolidate.async_session_maker", return_value=mock_session_ctx
+            ):
                 result = await task_auto_consolidate_similar({})
 
             assert result["status"] == "completed"
@@ -2267,7 +2269,9 @@ class TestAutoConsolidateSimilar:
             mock_session_ctx.__aenter__ = AsyncMock(return_value=mock_session)
             mock_session_ctx.__aexit__ = AsyncMock(return_value=False)
 
-            with patch("apps.worker.tasks.async_session_maker", return_value=mock_session_ctx):
+            with patch(
+                "apps.worker.tasks.consolidate.async_session_maker", return_value=mock_session_ctx
+            ):
                 result = await task_auto_consolidate_similar({})
 
             assert result["groups_found"] == 0
@@ -2301,7 +2305,9 @@ class TestAutoConsolidateSimilar:
             mock_session_ctx.__aenter__ = AsyncMock(return_value=mock_session)
             mock_session_ctx.__aexit__ = AsyncMock(return_value=False)
 
-            with patch("apps.worker.tasks.async_session_maker", return_value=mock_session_ctx):
+            with patch(
+                "apps.worker.tasks.consolidate.async_session_maker", return_value=mock_session_ctx
+            ):
                 result = await task_auto_consolidate_similar({})
 
             assert result["groups_found"] == 0
@@ -2345,7 +2351,9 @@ class TestAutoConsolidateSimilar:
             mock_session_ctx.__aenter__ = AsyncMock(return_value=mock_session)
             mock_session_ctx.__aexit__ = AsyncMock(return_value=False)
 
-            with patch("apps.worker.tasks.async_session_maker", return_value=mock_session_ctx):
+            with patch(
+                "apps.worker.tasks.consolidate.async_session_maker", return_value=mock_session_ctx
+            ):
                 result = await task_auto_consolidate_similar({})
 
             assert len(result["suggestions"]) == 1

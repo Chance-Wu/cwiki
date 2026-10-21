@@ -52,7 +52,7 @@ class VectorType(TypeDecorator[str]):
     impl = Text
     cache_ok = True
 
-    def __init__(self, dimensions: int):
+    def __init__(self, dimensions: int) -> None:
         super().__init__()
         self.dimensions = dimensions
 

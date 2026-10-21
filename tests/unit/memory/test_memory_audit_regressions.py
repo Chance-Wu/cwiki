@@ -53,7 +53,7 @@ async def audit_client(sessions, monkeypatch):
                 raise
 
     app.dependency_overrides[get_db] = get_test_db
-    monkeypatch.setattr("apps.api.routes.memories.sync_memory_to_file", AsyncMock())
+    monkeypatch.setattr("apps.api.routes.memories.crud.sync_memory_to_file", AsyncMock())
     monkeypatch.setattr("apps.api.routes.reviews.sync_memory_to_file", AsyncMock())
     monkeypatch.setattr("apps.api.routes.memories.task_queue.enqueue", AsyncMock())
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -410,7 +410,7 @@ async def test_committed_patch_failure_is_recovered_from_db_on_restart(
             assert (await observer.get(Memory, mid)).version == 2
         raise RuntimeError("simulated queue failure")
 
-    monkeypatch.setattr("apps.api.routes.memories.sync_memory_to_file", sync_after_commit)
+    monkeypatch.setattr("apps.api.routes.memories.crud.sync_memory_to_file", sync_after_commit)
     monkeypatch.setattr("apps.api.routes.memories.task_queue.enqueue", enqueue_after_commit)
     response = await audit_client.patch(f"/v1/memories/{mid}", json={field: value})
     assert response.status_code == 200, response.text
@@ -418,7 +418,7 @@ async def test_committed_patch_failure_is_recovered_from_db_on_restart(
 
     # 全新队列对失败的请求一无所知；恢复依赖 DB 中的行。
     monkeypatch.setattr(store, "save", real_save)
-    monkeypatch.setattr("apps.worker.tasks.async_session_maker", sessions)
+    monkeypatch.setattr("apps.worker.tasks.embedding.async_session_maker", sessions)
     recovered_queue = AsyncMock()
     await recover_orphaned_candidates(recovered_queue)
     recovered_queue.enqueue.assert_any_await("batch_generate_embeddings")
@@ -445,7 +445,7 @@ async def test_worker_file_failure_retries_with_committed_embedding_and_recovers
 
     _, mid, _ = await seed(sessions)
     store, _ = file_components
-    monkeypatch.setattr("apps.worker.tasks.async_session_maker", sessions)
+    monkeypatch.setattr("apps.worker.tasks.embedding.async_session_maker", sessions)
     svc = AsyncMock()
     svc.generate_embedding.return_value = [1.0, 0.0, 0.0]
     real_save = store.save
@@ -479,7 +479,7 @@ async def test_embedding_does_not_overwrite_concurrently_updated_memory(
     from apps.worker.tasks import task_generate_embedding
 
     _, mid, _ = await seed(sessions)
-    monkeypatch.setattr("apps.worker.tasks.async_session_maker", sessions)
+    monkeypatch.setattr("apps.worker.tasks.embedding.async_session_maker", sessions)
 
     async def changed_while_generating(text):
         async with sessions() as db:
@@ -529,7 +529,7 @@ async def test_startup_recovery_enqueues_embedding_for_memories_missing_vectors(
     from apps.worker.tasks import recover_orphaned_candidates
 
     _, mid, _ = await seed(sessions)
-    monkeypatch.setattr("apps.worker.tasks.async_session_maker", sessions)
+    monkeypatch.setattr("apps.worker.tasks.embedding.async_session_maker", sessions)
     queue = AsyncMock()
     await recover_orphaned_candidates(queue)
     queue.enqueue.assert_any_await("generate_embedding", str(mid))
@@ -543,7 +543,7 @@ async def test_startup_recovery_skips_memories_with_embeddings(sessions, monkeyp
         memory = await db.get(Memory, mid)
         memory.embedding = [0.5, 0.5, 0.0]
         await db.commit()
-    monkeypatch.setattr("apps.worker.tasks.async_session_maker", sessions)
+    monkeypatch.setattr("apps.worker.tasks.embedding.async_session_maker", sessions)
     queue = AsyncMock()
     await recover_orphaned_candidates(queue)
     assert not any(
@@ -555,7 +555,7 @@ async def test_batch_embedding_covers_candidates_only(sessions, monkeypatch):
     from apps.worker.tasks import task_batch_generate_embeddings
 
     ws, mid, cid = await seed(sessions)
-    monkeypatch.setattr("apps.worker.tasks.async_session_maker", sessions)
+    monkeypatch.setattr("apps.worker.tasks.embedding.async_session_maker", sessions)
     svc = AsyncMock()
     svc.generate_embeddings_batch.return_value = [[0.25, 0.5, 0.75]]
     queue = AsyncMock()
@@ -753,7 +753,7 @@ async def test_patch_commit_failure_never_runs_side_effects(sessions, monkeypatc
     _, mid, _ = await seed(sessions)
     sync = AsyncMock()
     enqueue = AsyncMock()
-    monkeypatch.setattr("apps.api.routes.memories.sync_memory_to_file", sync)
+    monkeypatch.setattr("apps.api.routes.memories.crud.sync_memory_to_file", sync)
     monkeypatch.setattr("apps.api.routes.memories.task_queue.enqueue", enqueue)
     async with sessions() as db:
         monkeypatch.setattr(db, "commit", AsyncMock(side_effect=RuntimeError("commit failed")))
@@ -803,7 +803,7 @@ async def test_recovery_keeps_archived_mirror_out_of_vector_index(
 
     _, mid, _ = await seed(sessions)
     store, indexer = file_components
-    monkeypatch.setattr("apps.worker.tasks.async_session_maker", sessions)
+    monkeypatch.setattr("apps.worker.tasks.embedding.async_session_maker", sessions)
     svc = AsyncMock()
     svc.generate_embedding.return_value = [1.0, 0.0, 0.0]
     await task_generate_embedding({"embedding_service": svc}, str(mid))

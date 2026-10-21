@@ -73,6 +73,7 @@ _CANDIDATE_FIELDS = [
     "title",
     "content",
     "type",
+    "tags",
     "client_write_id",
     "confidence",
     "importance",
@@ -119,7 +120,7 @@ def _memory_to_file(mem: Memory, workspace_name: str) -> MemoryFile:
         title=mem.title,
         content=mem.content,
         type=mem.type,
-        tags=[],  # DB 不存 tags；导出时保留既有 MD 中已存在的值
+        tags=list(mem.tags or []),
         related=[],  # DB 不直接存 related
         version=mem.version,
         status=mem.status,

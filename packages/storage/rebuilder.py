@@ -616,6 +616,7 @@ class DatabaseRebuilder:
                     title=mf.title,
                     content=mf.content,
                     type=mf.type,
+                    tags=list(mf.tags or []),
                     source=mf.source,
                     status=mf.status,
                     confidence=mf.confidence if mf.confidence is not None else 0.5,
