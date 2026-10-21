@@ -183,8 +183,12 @@ class FileStore:
                 metadata, _ = self._parse_frontmatter(content)
                 if metadata.get("id") == memory_id:
                     return file_path
-            except Exception:
-                logger.debug("Failed to parse frontmatter from %s", file_path, exc_info=True)
+            except (OSError, UnicodeDecodeError, yaml.YAMLError, KeyError) as exc:
+                # OSError: 文件读取失败
+                # UnicodeDecodeError: 文件编码不是 UTF-8
+                # yaml.YAMLError: frontmatter YAML 格式错误
+                # KeyError: frontmatter 结构不完整
+                logger.debug("Failed to parse frontmatter from %s: %s", file_path, exc)
                 continue
         return None
 

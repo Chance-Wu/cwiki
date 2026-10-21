@@ -64,7 +64,7 @@ class VectorIndex:
                     self.vectors[id_str] = vecs[i]
                 self.metadata = meta.get("metadata", {})
                 logger.info("Loaded %d vectors from index", len(self.vectors))
-            except Exception as e:
+            except (OSError, ValueError, KeyError) as e:
                 logger.warning(
                     "Failed to load vector index %s: %s, trying legacy", self.index_path, e
                 )
@@ -85,6 +85,8 @@ class VectorIndex:
             # 旧格式加载成功后立即按新格式落盘，完成格式升级
             self.save()
         except Exception as e:
+            # pickle 反序列化可能抛出多种异常（AttributeError, ImportError 等），
+            # 且 np.load 可能遇到 OSError/ValueError/KeyError，统一捕获并记录
             logger.error("Error loading vector index %s: %s", self.index_path, e)
 
     def save(self) -> None:
@@ -131,7 +133,8 @@ class VectorIndex:
                 raise
 
             logger.info("Saved %d vectors to index", len(self.vectors))
-        except Exception as e:
+        except OSError as e:
+            # 保存操作主要风险是 I/O 错误（磁盘满、权限问题等）
             logger.error("Error saving vector index %s: %s", self.index_path, e)
 
     def add(

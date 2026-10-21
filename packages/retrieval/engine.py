@@ -7,6 +7,7 @@ import logging
 import time
 import uuid
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
@@ -62,6 +63,23 @@ _VEC_CACHE_SIZE = 2  # 从 4 减少到 2
 # 曾设 5s 短 TTL，但该时间窗会让过期指纹掩盖新写入、连带 BM25 索引缓存
 # 一起滞后，故已禁用（置 0）；retrieve() 内的单请求复用已足够。
 _FINGERPRINT_CACHE_TTL = 0.0
+
+
+@dataclass
+class _SearchParams:
+    """search_ranked() 的参数聚合，减少方法签名长度。"""
+
+    db: Any  # AsyncSession
+    query: str | None
+    workspace_id: uuid.UUID | None
+    project_id: uuid.UUID | None = None
+    top_k: int = 10
+    memory_type: str | None = None
+    min_confidence: float | None = None
+    min_similarity: float | None = None
+    session_id: uuid.UUID | None = None
+    record_trace: bool = True
+    tags: list[str] | None = None
 
 
 def _ensure_candidate(candidates: dict[str, dict[str, Any]], doc_id: str) -> dict[str, Any]:
@@ -287,403 +305,84 @@ class RetrievalEngine:
         双路召回 → RRF 融合 → 多信号重排 → 图扩展 → 候选过滤 → 多样性
         → 效用分。/v1/search 与 retrieve() 共用本方法，保证两条入口的
         排序行为一致。
-
-        memory_type/min_confidence 在 hydrate 后、重排前过滤候选（图扩展
-        邻居同样受约束）；min_similarity 为最低向量相似度门槛，低于该值
-        或无向量信号的候选被剔除，用于拦截乱码/无关查询的凑数结果；
-        显式指定 memory_type 时取消多样性按类型限额，
-        避免同类型过滤结果被限额截断。workspace_id=None 表示跨全部
-        workspace 检索，此时 trace 无从归属，跳过写库；record_trace=False
-        供 retrieve() 委托调用——上下文组装后由其记录带 filter_reasons
-        的完整 trace。
-
-        返回 memories（含 version 与各信号分）、total（hydrate 后通过
-        过滤的候选数，上限为 3×top_k 候选池）、fallback、latency_ms，
-        另附 analyzed/candidates 供 retrieve() 记 trace 复用。
         """
         start_time = time.time()
+        params = _SearchParams(
+            db=db, query=query, workspace_id=workspace_id,
+            project_id=project_id, top_k=top_k, memory_type=memory_type,
+            min_confidence=min_confidence, min_similarity=min_similarity,
+            session_id=session_id, record_trace=record_trace, tags=tags,
+        )
 
-        # 规范化标签过滤：与写入路径保持一致，确保匹配正确
-        if tags:
+        # 规范化标签过滤
+        if params.tags:
             from packages.memory.service import normalize_tags
+            params.tags = normalize_tags(params.tags)
 
-            tags = normalize_tags(tags)
-
-        # 指纹只计算一次，供 BM25 索引与向量矩阵两路缓存共用
+        # 指纹 + BM25 索引
         fingerprint = await self._content_fingerprint(db, workspace_id, project_id)
         index = await self._ensure_index(db, workspace_id, project_id, fingerprint=fingerprint)
-
         analyzed = analyze_query(query or "")
 
-        candidates: dict[str, dict[str, Any]] = {}
+        # Phase 1: 双路召回
+        candidates = await self._dual_recall(params, index, analyzed, fingerprint)
 
-        if query and query.strip():
-            search_query = query
-            if analyzed.is_short and analyzed.key_terms:
-                search_query = " ".join(analyzed.key_terms[:5])
-
-            # 提前算好向量查询串，尽早启动 embedding 生成以便并行
-            embedding_svc = get_embedding_service()
-            vector_query = preprocess_query_for_embedding(query, analyzed)
-
-            # embedding 生成作为后台任务启动（模型推理较慢，先并行起来）
-            embedding_task = asyncio.create_task(embedding_svc.generate_embedding(vector_query))
-
-            # BM25 检索与 embedding 生成并发执行（CPU 密集）
-            bm25_results = index.search(search_query, top_k=50)
-            for rank, (doc_id, score) in enumerate(bm25_results, 1):
-                entry = _ensure_candidate(candidates, doc_id)
-                entry["bm25_score"] = score
-                entry["bm25_rank"] = rank
-
-            # 短语命中加成：得分 ×1.2、名次 +30——精确短语匹配比散词命中更可信，
-            # 只取前 3 个短语，且只在其加成高于原分时替换，避免分数膨胀
-            if analyzed.phrases:
-                for phrase in analyzed.phrases[:3]:
-                    phrase_results = index.search(phrase, top_k=20)
-                    for rank, (doc_id, score) in enumerate(phrase_results, 1):
-                        entry = _ensure_candidate(candidates, doc_id)
-                        boost = score * 1.2
-                        if entry["bm25_score"] < boost:
-                            entry["bm25_score"] = boost
-                            entry["bm25_rank"] = min(
-                                entry["bm25_rank"] or _FALLBACK_RANK, rank + 30
-                            )
-
-            # 同义词扩展命中打折（×0.7、名次 +50）：扩展词只是语义近似，
-            # 相关性弱于原文命中，仅作补充召回，不与原始得分竞争
-            if analyzed.expanded_terms:
-                expanded_query = query + " " + " ".join(analyzed.expanded_terms[:5])
-                expanded_results = index.search(expanded_query, top_k=30)
-                for rank, (doc_id, score) in enumerate(expanded_results, 1):
-                    entry = _ensure_candidate(candidates, doc_id)
-                    boost = score * 0.7
-                    if entry["bm25_score"] < boost:
-                        entry["bm25_score"] = boost
-                        entry["bm25_rank"] = min(entry["bm25_rank"] or _FALLBACK_RANK, rank + 50)
-
-            # 等待与 BM25 并行的 embedding 生成完成
-            query_embedding = await embedding_task
-
-            if query_embedding is not None:
-                try:
-                    vector_results = await self._vector_search(
-                        db,
-                        query_embedding,
-                        workspace_id,
-                        top_k=50,
-                        project_id=project_id,
-                        fingerprint=fingerprint,
-                    )
-                except Exception:
-                    logger.exception("Vector search failed, degrading to BM25-only")
-                    vector_results = []
-                for rank, (doc_id, score) in enumerate(vector_results, 1):
-                    entry = _ensure_candidate(candidates, doc_id)
-                    entry["vector_score"] = score
-                    entry["vector_rank"] = rank
-
+        # Phase 2: 无候选 fallback
         if not candidates:
-            stmt = select(
-                Memory.id,
-                Memory.title,
-                Memory.content,
-                Memory.type,
-                Memory.tags,
-                Memory.version,
-            ).where(Memory.status == "active")
-            if workspace_id is not None:
-                stmt = stmt.where(Memory.workspace_id == workspace_id)
-            if project_id:
-                stmt = stmt.where(Memory.project_id == project_id)
-            if memory_type:
-                stmt = stmt.where(Memory.type == memory_type)
-            if min_confidence is not None:
-                stmt = stmt.where(Memory.confidence >= min_confidence)
-            if tags:
-                for tag in tags:
-                    # SQLite JSON 查询：tags 以 JSON 数组存储，用 LIKE 匹配标签值
-                    stmt = stmt.where(Memory.tags.cast(String).contains(f'"{tag}"'))
-            result = await db.execute(stmt.order_by(Memory.importance.desc()).limit(top_k))
-            rows = result.all()
-            mem_dicts = [
-                {
-                    "id": str(r.id),
-                    "title": r.title,
-                    "content": r.content,
-                    "type": r.type,
-                    "tags": r.tags or [],
-                    "version": r.version,
-                    # 无候选 fallback：没有任何相关性信号，score 归零并显式标记，
-                    # 不伪造 1.0 高分（会误导按分数过滤的消费方，如主动推送）
-                    "score": 0.0,
-                    "fallback": True,
-                }
-                for r in rows
-            ]
-            latency_ms = int((time.time() - start_time) * 1000)
+            return await self._fallback_search(params, analyzed, start_time)
 
-            if record_trace and workspace_id is not None:
-                try:
-                    await self._record_trace(
-                        db=db,
-                        workspace_id=workspace_id,
-                        session_id=session_id,
-                        query=query or "",
-                        analyzed=analyzed,
-                        candidates=candidates,
-                        final_memories=mem_dicts,
-                        latency_ms=latency_ms,
-                    )
-                except Exception as e:
-                    logger.warning("Failed to record retrieval trace: %s", e)
+        # Phase 3: RRF 融合
+        rrf_scores = self._rrf_fusion(candidates)
+        top_ids = [
+            doc_id for doc_id, _ in
+            sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)[:top_k * 3]
+        ]
 
-            return {
-                "memories": mem_dicts,
-                "sources": [{"memory_id": m["id"], "score": m["score"]} for m in mem_dicts],
-                "total": len(mem_dicts),
-                "fallback": True,
-                "latency_ms": latency_ms,
-                "analyzed": analyzed,
-                "candidates": candidates,
-            }
-
-        # RRF 倒数排名融合：score = Σ 权重/(k+rank)。两路原始分数量纲不可比，
-        # 只用名次融合天然公平；bm25/vector 权重来自 config，可调两路偏重
-        rrf_scores: dict[str, float] = {}
-        bm25_w = settings.bm25_weight
-        vec_w = settings.vector_weight
-        for doc_id, data in candidates.items():
-            bm25_r = data.get("bm25_rank", 0)
-            vec_r = data.get("vector_rank", 0)
-            rrf = 0.0
-            if bm25_r > 0:
-                rrf += bm25_w / (RRF_K + bm25_r)
-            if vec_r > 0:
-                rrf += vec_w / (RRF_K + vec_r)
-            rrf_scores[doc_id] = rrf
-
-        sorted_candidates = sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)
-        # RRF 融合后截断为 max_items×3 的候选池：给后续重排与多样性过滤
-        # 留足余量，同时控制取回完整记录与重排的开销
-        top_ids = [doc_id for doc_id, _ in sorted_candidates[: top_k * 3]]
-
-        uuid_ids = []
-        for did in top_ids:
-            try:
-                uuid_ids.append(uuid.UUID(did))
-            except ValueError:
-                pass
-
+        uuid_ids = self._parse_uuid_ids(top_ids)
         if not uuid_ids:
             return {
-                "memories": [],
-                "total": 0,
-                "sources": [],
-                "context": "",
-                "latency_ms": 0,
-                "fallback": False,
+                "memories": [], "total": 0, "sources": [],
+                "context": "", "latency_ms": 0, "fallback": False,
             }
 
-        final_stmt = select(
-            Memory.id,
-            Memory.title,
-            Memory.content,
-            Memory.type,
-            Memory.tags,
-            Memory.version,
-            Memory.confidence,
-            Memory.importance,
-            Memory.usage_count,
-            Memory.valid_from,
-            Memory.valid_to,
-            Memory.created_at,
-            Memory.last_used_at,
-            Memory.embedding,
-        ).where(
-            Memory.id.in_(uuid_ids),
-            Memory.status == "active",
+        # Phase 4: Hydrate + 过滤
+        mem_map = await self._hydrate_memories(db, uuid_ids, workspace_id, project_id)
+        rerank_inputs = self._build_rerank_inputs(
+            top_ids, mem_map, candidates, rrf_scores, params, analyzed,
         )
-        if workspace_id is not None:
-            final_stmt = final_stmt.where(Memory.workspace_id == workspace_id)
-        if project_id:
-            final_stmt = final_stmt.where(Memory.project_id == project_id)
-        hydrated_result = await db.execute(final_stmt)
-        mem_map = {str(m.id): m for m in hydrated_result.all()}
 
-        rerank_inputs: list[RerankInput] = []
-        for doc_id in top_ids:
-            m = mem_map.get(doc_id)
-            if not m:
-                continue
-            # 类型/置信度/相似度门槛在重排前生效：不合格候选不占用重排与多样性名额
-            if memory_type and m.type != memory_type:
-                continue
-            if min_confidence is not None and (m.confidence or 0.0) < min_confidence:
-                continue
-            if min_similarity is not None and (
-                float(candidates.get(doc_id, {}).get("vector_score", 0.0) or 0.0) < min_similarity
-            ):
-                continue
-            if tags:
-                mem_tags = set(m.tags or [])
-                if not all(t in mem_tags for t in tags):
-                    continue
-            data = candidates.get(doc_id, {})
-            freshness = temporal_score(
-                valid_from=m.valid_from,
-                valid_to=m.valid_to,
-                created_at=m.created_at,
-                last_used_at=m.last_used_at,
-                ignore_expiry=analyzed.is_historical_query,
-            )
-            # 使用次数归一化：100 次即满分，抑制超高频记忆的过度优势
-            usage_score = min(m.usage_count / 100.0, 1.0) if m.usage_count else 0.0
-
-            rerank_inputs.append(
-                RerankInput(
-                    memory_id=doc_id,
-                    title=m.title,
-                    content=m.content,
-                    memory_type=m.type,
-                    bm25_score=data.get("bm25_score", 0.0),
-                    vector_score=data.get("vector_score", 0.0),
-                    rrf_score=rrf_scores.get(doc_id, 0.0),
-                    confidence=m.confidence,
-                    importance=m.importance,
-                    freshness=freshness,
-                    usage_score=usage_score,
-                )
-            )
-
+        # Phase 5: 重排
         reranked = rerank(
-            rerank_inputs,
-            query_intent=analyzed.intent,
-            top_k=top_k * 2,
-            intent_confidence=analyzed.confidence,
-            negations=analyzed.negations,
+            rerank_inputs, query_intent=analyzed.intent, top_k=top_k * 2,
+            intent_confidence=analyzed.confidence, negations=analyzed.negations,
             key_terms=analyzed.key_terms,
         )
 
-        # 一跳图扩展：沿记忆关系边给邻居加分，让与高置信结果强相关的
-        # 记忆也能进入最终列表。关系视为无向图，入边与出边同等扩展。
-        try:
-            from packages.domain.config import parasitic_evolution_config
+        # Phase 6: 图扩展
+        reranked = await self._graph_expansion(reranked, mem_map, candidates, params)
 
-            if parasitic_evolution_config.memory_relations_enabled:
-                top_ids_for_expansion = [mid for mid, _ in reranked[:5]]
-                if top_ids_for_expansion:
-                    uuid_top_ids = [uuid.UUID(mid) for mid in top_ids_for_expansion]
-                    boosts = await self._relation_neighbor_boosts(db, uuid_top_ids)
-                    reranked_dict = dict(reranked)
-                    for neighbor_id, boost in boosts.items():
-                        if neighbor_id in reranked_dict:
-                            reranked_dict[neighbor_id] += boost
-                        elif neighbor_id in mem_map:
-                            # 图扩展邻居同样受类型/置信度/相似度过滤约束，不得绕过
-                            neighbor = mem_map[neighbor_id]
-                            if memory_type and neighbor.type != memory_type:
-                                continue
-                            if (
-                                min_confidence is not None
-                                and (neighbor.confidence or 0.0) < min_confidence
-                            ):
-                                continue
-                            if (
-                                min_similarity is not None
-                                and float(
-                                    candidates.get(neighbor_id, {}).get("vector_score", 0.0) or 0.0
-                                )
-                                < min_similarity
-                            ):
-                                continue
-                            if tags:
-                                neighbor_tags = set(neighbor.tags or [])
-                                if not all(t in neighbor_tags for t in tags):
-                                    continue
-                            reranked_dict[neighbor_id] = boost
-                    reranked = sorted(reranked_dict.items(), key=lambda x: x[1], reverse=True)
-        except Exception:
-            logger.warning("Graph expansion failed, continuing without", exc_info=True)
-
-        # 候选三档过滤（W3-T3）：过期/低置信候选按 config 档位压分或剔除，
-        # 挂在 rerank 与多样性之间——被 hard 剔除的候选不再占用多样性名额
+        # Phase 7: 候选过滤 + 多样性 + 效用分
         reranked = self._apply_candidate_filters(
-            reranked, mem_map, skip_stale=analyzed.is_historical_query
+            reranked, mem_map, skip_stale=analyzed.is_historical_query,
         )
-
-        ranked_with_type: list[tuple[str, float, str]] = []
-        for mem_id, score in reranked:
-            m = mem_map.get(mem_id)
-            if m:
-                ranked_with_type.append((mem_id, score, m.type))
-
-        max_per_type = diversity_limit_for_intent(analyzed.intent)
-        if memory_type:
-            # 类型过滤下结果同型，按类型限额只会把结果截断到限额数
-            max_per_type = top_k
-        diverse = apply_diversity(ranked_with_type, top_k=top_k, max_per_type=max_per_type)
-
-        # 只对进入最终列表的记忆（≤ max_items 条）批量计算效用分，
-        # 供上下文优先级排序在同优先级内综合 score + utility 排序
+        diverse = self._apply_diversity(reranked, mem_map, params, analyzed, top_k)
         utility_map = await self._aggregate_utility_scores(
-            db, [mem_id for mem_id, _, _ in diverse], mem_map
+            db, [mid for mid, _, _ in diverse], mem_map,
         )
 
-        final_memories: list[dict[str, Any]] = []
-        sources: list[dict[str, Any]] = []
-        rank = 0
-        for mem_id, final_score, _mem_type in diverse:
-            m = mem_map.get(mem_id)
-            if not m:
-                continue
-            rank += 1
-            final_memories.append(
-                {
-                    "id": mem_id,
-                    "title": m.title,
-                    "content": m.content,
-                    "type": m.type,
-                    "tags": m.tags or [],
-                    "version": m.version,
-                    "score": round(final_score, 4),
-                    # 信号分项：显式命名各路分数，与 rrf/utility 一起供
-                    # trace metadata 落库与调用方排查"为什么排在这个位置"
-                    "bm25_score": round(
-                        float(candidates.get(mem_id, {}).get("bm25_score", 0.0)), 6
-                    ),
-                    "vector_score": round(
-                        float(candidates.get(mem_id, {}).get("vector_score", 0.0)), 6
-                    ),
-                    "rerank_score": round(final_score, 4),
-                    "utility_score": utility_map.get(mem_id, 0.0),
-                    "rrf_score": round(rrf_scores.get(mem_id, 0), 6),
-                    # confidence/valid_to 供组装器入口三档过滤判定
-                    # （置信下限与过期判定），API 返回中仅是额外元数据
-                    "confidence": m.confidence,
-                    "valid_to": m.valid_to,
-                    "rank": rank,
-                    "embedding": m.embedding,
-                }
-            )
-            sources.append({"memory_id": mem_id, "score": round(final_score, 4)})
-
+        # Phase 8: 构建结果
+        final_memories, sources = self._build_final_results(
+            diverse, mem_map, candidates, rrf_scores, utility_map,
+        )
         latency_ms = int((time.time() - start_time) * 1000)
 
+        # Phase 9: 记录 trace
         if record_trace and workspace_id is not None:
-            try:
-                await self._record_trace(
-                    db=db,
-                    workspace_id=workspace_id,
-                    session_id=session_id,
-                    query=query or "",
-                    analyzed=analyzed,
-                    candidates=candidates,
-                    final_memories=final_memories,
-                    latency_ms=latency_ms,
-                )
-            except Exception as e:
-                logger.warning("Failed to record retrieval trace: %s", e)
+            await self._safe_record_trace(
+                db=db, workspace_id=workspace_id, session_id=session_id,
+                query=query or "", analyzed=analyzed, candidates=candidates,
+                final_memories=final_memories, latency_ms=latency_ms,
+            )
 
         return {
             "memories": final_memories,
@@ -694,6 +393,348 @@ class RetrievalEngine:
             "analyzed": analyzed,
             "candidates": candidates,
         }
+
+    async def _dual_recall(
+        self,
+        params: _SearchParams,
+        index: BM25Index,
+        analyzed: AnalyzedQuery,
+        fingerprint: tuple[int, datetime | None, int],
+    ) -> dict[str, dict[str, Any]]:
+        """Phase 1: BM25 + 向量双路召回，含短语/同义词加成。"""
+        candidates: dict[str, dict[str, Any]] = {}
+        query = params.query
+        if not query or not query.strip():
+            return candidates
+
+        search_query = query
+        if analyzed.is_short and analyzed.key_terms:
+            search_query = " ".join(analyzed.key_terms[:5])
+
+        # 提前启动 embedding 生成（模型推理慢，与 BM25 并行）
+        embedding_svc = get_embedding_service()
+        vector_query = preprocess_query_for_embedding(query, analyzed)
+        embedding_task = asyncio.create_task(embedding_svc.generate_embedding(vector_query))
+
+        # BM25 检索
+        bm25_results = index.search(search_query, top_k=50)
+        for rank, (doc_id, score) in enumerate(bm25_results, 1):
+            entry = _ensure_candidate(candidates, doc_id)
+            entry["bm25_score"] = score
+            entry["bm25_rank"] = rank
+
+        # 短语命中加成：得分 x1.2、名次 +30
+        if analyzed.phrases:
+            for phrase in analyzed.phrases[:3]:
+                phrase_results = index.search(phrase, top_k=20)
+                for rank, (doc_id, score) in enumerate(phrase_results, 1):
+                    entry = _ensure_candidate(candidates, doc_id)
+                    boost = score * 1.2
+                    if entry["bm25_score"] < boost:
+                        entry["bm25_score"] = boost
+                        entry["bm25_rank"] = min(
+                            entry["bm25_rank"] or _FALLBACK_RANK, rank + 30
+                        )
+
+        # 同义词扩展命中打折（x0.7、名次 +50）
+        if analyzed.expanded_terms:
+            expanded_query = query + " " + " ".join(analyzed.expanded_terms[:5])
+            expanded_results = index.search(expanded_query, top_k=30)
+            for rank, (doc_id, score) in enumerate(expanded_results, 1):
+                entry = _ensure_candidate(candidates, doc_id)
+                boost = score * 0.7
+                if entry["bm25_score"] < boost:
+                    entry["bm25_score"] = boost
+                    entry["bm25_rank"] = min(
+                        entry["bm25_rank"] or _FALLBACK_RANK, rank + 50
+                    )
+
+        # 等待 embedding 并执行向量检索
+        query_embedding = await embedding_task
+        if query_embedding is not None:
+            try:
+                vector_results = await self._vector_search(
+                    params.db, query_embedding, params.workspace_id,
+                    top_k=50, project_id=params.project_id, fingerprint=fingerprint,
+                )
+            except Exception:
+                logger.exception("Vector search failed, degrading to BM25-only")
+                vector_results = []
+            for rank, (doc_id, score) in enumerate(vector_results, 1):
+                entry = _ensure_candidate(candidates, doc_id)
+                entry["vector_score"] = score
+                entry["vector_rank"] = rank
+
+        return candidates
+
+    async def _fallback_search(
+        self,
+        params: _SearchParams,
+        analyzed: AnalyzedQuery,
+        start_time: float,
+    ) -> dict[str, Any]:
+        """Phase 2: 无候选时按重要性返回 top-N 兜底。"""
+        stmt = select(
+            Memory.id, Memory.title, Memory.content,
+            Memory.type, Memory.tags, Memory.version,
+        ).where(Memory.status == "active")
+        if params.workspace_id is not None:
+            stmt = stmt.where(Memory.workspace_id == params.workspace_id)
+        if params.project_id:
+            stmt = stmt.where(Memory.project_id == params.project_id)
+        if params.memory_type:
+            stmt = stmt.where(Memory.type == params.memory_type)
+        if params.min_confidence is not None:
+            stmt = stmt.where(Memory.confidence >= params.min_confidence)
+        if params.tags:
+            for tag in params.tags:
+                tag_pattern = '"' + tag + '"'
+                stmt = stmt.where(Memory.tags.cast(String).contains(tag_pattern))
+        result = await params.db.execute(
+            stmt.order_by(Memory.importance.desc()).limit(params.top_k)
+        )
+        rows = result.all()
+        mem_dicts = [
+            {
+                "id": str(r.id), "title": r.title, "content": r.content,
+                "type": r.type, "tags": r.tags or [], "version": r.version,
+                "score": 0.0, "fallback": True,
+            }
+            for r in rows
+        ]
+        latency_ms = int((time.time() - start_time) * 1000)
+
+        if params.record_trace and params.workspace_id is not None:
+            await self._safe_record_trace(
+                db=params.db, workspace_id=params.workspace_id,
+                session_id=params.session_id, query=params.query or "",
+                analyzed=analyzed, candidates={}, final_memories=mem_dicts,
+                latency_ms=latency_ms,
+            )
+
+        return {
+            "memories": mem_dicts,
+            "sources": [{"memory_id": m["id"], "score": m["score"]} for m in mem_dicts],
+            "total": len(mem_dicts),
+            "fallback": True,
+            "latency_ms": latency_ms,
+            "analyzed": analyzed,
+            "candidates": {},
+        }
+
+    def _rrf_fusion(self, candidates: dict[str, dict[str, Any]]) -> dict[str, float]:
+        """Phase 3: RRF 倒数排名融合。"""
+        bm25_w = settings.bm25_weight
+        vec_w = settings.vector_weight
+        rrf_scores: dict[str, float] = {}
+        for doc_id, data in candidates.items():
+            bm25_r = data.get("bm25_rank", 0)
+            vec_r = data.get("vector_rank", 0)
+            rrf = 0.0
+            if bm25_r > 0:
+                rrf += bm25_w / (RRF_K + bm25_r)
+            if vec_r > 0:
+                rrf += vec_w / (RRF_K + vec_r)
+            rrf_scores[doc_id] = rrf
+        return rrf_scores
+
+    @staticmethod
+    def _parse_uuid_ids(top_ids: list[str]) -> list[uuid.UUID]:
+        """将字符串 ID 列表转为 UUID 列表，跳过无效值。"""
+        uuid_ids: list[uuid.UUID] = []
+        for did in top_ids:
+            try:
+                uuid_ids.append(uuid.UUID(did))
+            except ValueError:
+                pass
+        return uuid_ids
+
+    async def _hydrate_memories(
+        self,
+        db: AsyncSession,
+        uuid_ids: list[uuid.UUID],
+        workspace_id: uuid.UUID | None,
+        project_id: uuid.UUID | None,
+    ) -> dict[str, Any]:
+        """Phase 4a: 从 DB 取回完整记忆记录。"""
+        final_stmt = select(
+            Memory.id, Memory.title, Memory.content, Memory.type, Memory.tags,
+            Memory.version, Memory.confidence, Memory.importance, Memory.usage_count,
+            Memory.valid_from, Memory.valid_to, Memory.created_at,
+            Memory.last_used_at, Memory.embedding,
+        ).where(Memory.id.in_(uuid_ids), Memory.status == "active")
+        if workspace_id is not None:
+            final_stmt = final_stmt.where(Memory.workspace_id == workspace_id)
+        if project_id:
+            final_stmt = final_stmt.where(Memory.project_id == project_id)
+        hydrated_result = await db.execute(final_stmt)
+        return {str(m.id): m for m in hydrated_result.all()}
+
+    def _build_rerank_inputs(
+        self,
+        top_ids: list[str],
+        mem_map: dict[str, Any],
+        candidates: dict[str, dict[str, Any]],
+        rrf_scores: dict[str, float],
+        params: _SearchParams,
+        analyzed: AnalyzedQuery,
+    ) -> list[RerankInput]:
+        """Phase 4b: 构建重排输入，应用类型/置信度/相似度/标签过滤。"""
+        rerank_inputs: list[RerankInput] = []
+        for doc_id in top_ids:
+            m = mem_map.get(doc_id)
+            if not m:
+                continue
+            if params.memory_type and m.type != params.memory_type:
+                continue
+            if params.min_confidence is not None and (m.confidence or 0.0) < params.min_confidence:
+                continue
+            if params.min_similarity is not None and (
+                float(candidates.get(doc_id, {}).get("vector_score", 0.0) or 0.0)
+                < params.min_similarity
+            ):
+                continue
+            if params.tags:
+                mem_tags = set(m.tags or [])
+                if not all(t in mem_tags for t in params.tags):
+                    continue
+            data = candidates.get(doc_id, {})
+            freshness = temporal_score(
+                valid_from=m.valid_from, valid_to=m.valid_to,
+                created_at=m.created_at, last_used_at=m.last_used_at,
+                ignore_expiry=analyzed.is_historical_query,
+            )
+            usage_score = min(m.usage_count / 100.0, 1.0) if m.usage_count else 0.0
+            rerank_inputs.append(
+                RerankInput(
+                    memory_id=doc_id, title=m.title, content=m.content,
+                    memory_type=m.type,
+                    bm25_score=data.get("bm25_score", 0.0),
+                    vector_score=data.get("vector_score", 0.0),
+                    rrf_score=rrf_scores.get(doc_id, 0.0),
+                    confidence=m.confidence, importance=m.importance,
+                    freshness=freshness, usage_score=usage_score,
+                )
+            )
+        return rerank_inputs
+
+    async def _graph_expansion(
+        self,
+        reranked: list[tuple[str, float]],
+        mem_map: dict[str, Any],
+        candidates: dict[str, dict[str, Any]],
+        params: _SearchParams,
+    ) -> list[tuple[str, float]]:
+        """Phase 6: 一跳图扩展——沿记忆关系边给邻居加分。"""
+        try:
+            from packages.domain.config import parasitic_evolution_config
+            if not parasitic_evolution_config.memory_relations_enabled:
+                return reranked
+            top_ids_for_expansion = [mid for mid, _ in reranked[:5]]
+            if not top_ids_for_expansion:
+                return reranked
+            uuid_top_ids = [uuid.UUID(mid) for mid in top_ids_for_expansion]
+            boosts = await self._relation_neighbor_boosts(params.db, uuid_top_ids)
+            reranked_dict = dict(reranked)
+            for neighbor_id, boost in boosts.items():
+                if neighbor_id in reranked_dict:
+                    reranked_dict[neighbor_id] += boost
+                elif neighbor_id in mem_map:
+                    neighbor = mem_map[neighbor_id]
+                    if params.memory_type and neighbor.type != params.memory_type:
+                        continue
+                    if (
+                        params.min_confidence is not None
+                        and (neighbor.confidence or 0.0) < params.min_confidence
+                    ):
+                        continue
+                    if (
+                        params.min_similarity is not None
+                        and float(
+                            candidates.get(neighbor_id, {}).get("vector_score", 0.0) or 0.0
+                        )
+                        < params.min_similarity
+                    ):
+                        continue
+                    if params.tags:
+                        neighbor_tags = set(neighbor.tags or [])
+                        if not all(t in neighbor_tags for t in params.tags):
+                            continue
+                    reranked_dict[neighbor_id] = boost
+            return sorted(reranked_dict.items(), key=lambda x: x[1], reverse=True)
+        except Exception:
+            logger.warning("Graph expansion failed, continuing without", exc_info=True)
+            return reranked
+
+    def _apply_diversity(
+        self,
+        reranked: list[tuple[str, float]],
+        mem_map: dict[str, Any],
+        params: _SearchParams,
+        analyzed: AnalyzedQuery,
+        top_k: int,
+    ) -> list[tuple[str, float, str]]:
+        """Phase 7b: 多样性过滤。"""
+        ranked_with_type: list[tuple[str, float, str]] = []
+        for mem_id, score in reranked:
+            m = mem_map.get(mem_id)
+            if m:
+                ranked_with_type.append((mem_id, score, m.type))
+        max_per_type = diversity_limit_for_intent(analyzed.intent)
+        if params.memory_type:
+            max_per_type = top_k
+        return apply_diversity(
+            ranked_with_type, top_k=top_k, max_per_type=max_per_type,
+        )
+
+    def _build_final_results(
+        self,
+        diverse: list[tuple[str, float, str]],
+        mem_map: dict[str, Any],
+        candidates: dict[str, dict[str, Any]],
+        rrf_scores: dict[str, float],
+        utility_map: dict[str, float],
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """Phase 8: 构建最终结果字典。"""
+        final_memories: list[dict[str, Any]] = []
+        sources: list[dict[str, Any]] = []
+        rank = 0
+        for mem_id, final_score, _mem_type in diverse:
+            m = mem_map.get(mem_id)
+            if not m:
+                continue
+            rank += 1
+            final_memories.append({
+                "id": mem_id,
+                "title": m.title,
+                "content": m.content,
+                "type": m.type,
+                "tags": m.tags or [],
+                "version": m.version,
+                "score": round(final_score, 4),
+                "bm25_score": round(
+                    float(candidates.get(mem_id, {}).get("bm25_score", 0.0)), 6
+                ),
+                "vector_score": round(
+                    float(candidates.get(mem_id, {}).get("vector_score", 0.0)), 6
+                ),
+                "rerank_score": round(final_score, 4),
+                "utility_score": utility_map.get(mem_id, 0.0),
+                "rrf_score": round(rrf_scores.get(mem_id, 0), 6),
+                "confidence": m.confidence,
+                "valid_to": m.valid_to,
+                "rank": rank,
+                "embedding": m.embedding,
+            })
+            sources.append({"memory_id": mem_id, "score": round(final_score, 4)})
+        return final_memories, sources
+
+    async def _safe_record_trace(self, **kwargs: Any) -> None:
+        """记录 trace，异常时仅警告不抛出。"""
+        try:
+            await self._record_trace(**kwargs)
+        except Exception as e:
+            logger.warning("Failed to record retrieval trace: %s", e)
 
     async def retrieve(
         self,

@@ -11,13 +11,14 @@ from typing import Any
 from packages.domain.config import settings
 from packages.domain.types import MIN_CONTENT_LENGTH, TYPE_DEFINITIONS
 
+_TYPE_ROWS = [
+    f"{key}({tpl.get('name') or ''})" if tpl.get("name") else key
+    for key, tpl in TYPE_DEFINITIONS.items()
+]
+
 
 def build_tool_definitions() -> list[dict[str, Any]]:
     """构建带 JSON Schema 输入的完整 MCP 工具定义列表。"""
-    type_rows = [
-        f"{key}({tpl.get('name') or ''})" if tpl.get("name") else key
-        for key, tpl in TYPE_DEFINITIONS.items()
-    ]
     return [
         {
             "name": "memory_search",
@@ -135,7 +136,7 @@ def build_tool_definitions() -> list[dict[str, Any]]:
                     },
                     "type": {
                         "type": "string",
-                        "description": "记忆类型，不传自动推断：" + "、".join(type_rows),
+                        "description": "记忆类型，不传自动推断：" + "、".join(_TYPE_ROWS),
                     },
                     "tags": {
                         "type": "array",
