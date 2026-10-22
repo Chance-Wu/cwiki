@@ -109,7 +109,9 @@ async def task_auto_consolidate_similar(ctx: dict[str, Any]) -> dict[str, Any]:
         # 计算相似度并构建邻接表
         strategy = settings.similarity_strategy
         weights = HybridWeights(**settings.similarity_hybrid_weights)
-        adjacency = await _compute_adjacency(memories, bm25_candidates, id_to_data, strategy, weights)
+        adjacency = await _compute_adjacency(
+            memories, bm25_candidates, id_to_data, strategy, weights
+        )
 
         # 按高相似连通性分组（连通分量）
         consolidation_groups = _find_groups(memories, adjacency, id_to_mem)
@@ -334,7 +336,7 @@ async def _smart_merge_content(
         else:
             parts.append(f"\n\n{source_mem.content}")
 
-    return "\n".join(parts)
+    return "".join(parts)
 
 
 def _build_bm25_candidates(
@@ -371,9 +373,9 @@ async def _load_extra_memories(
         return
 
     extra_uuids = [uuid.UUID(mid) for mid in extra_ids]
-    detail_stmt = select(
-        Memory.id, Memory.title, Memory.content, Memory.embedding
-    ).where(Memory.id.in_(extra_uuids))
+    detail_stmt = select(Memory.id, Memory.title, Memory.content, Memory.embedding).where(
+        Memory.id.in_(extra_uuids)
+    )
     detail_result = await db_session.execute(detail_stmt)
 
     for row in detail_result.all():

@@ -167,9 +167,9 @@ Codex 当前以 MCP + `AGENTS.md` + `~/.codex/skills` 为主，不假设 hooks�
 
 所有接口前缀 `/v1`，单用户本地部署无认证。以下是最小可用的三个动作：写入、检索、事件上报。完整端点见 [API 参考](api-reference.md)。
 
-### 写入一条记忆（进入人工审核）
+### 写入一条记忆（进入候选队列）
 
-候选记忆提交后进入两阶段提交流水线，人工审核通过才成为正式记忆：
+候选记忆提交后先进入 `pending_review`；默认需要人工审核，开启 `auto_approve` 时满足阈值的高分候选可自动转正：
 
 ```bash
 curl -X POST http://127.0.0.1:5172/v1/candidates \
@@ -187,7 +187,7 @@ curl -X POST http://127.0.0.1:5172/v1/candidates \
 - `workspace_id` / `title` / `content` / `type` 必填；`workspace_id` 支持工作区名称或 UUID
 - `client_write_id` 可选：同一 id 幂等，重复提交不会产生重复候选
 - 响应 `201`，含创建的候选、提交时发现的相似记忆（`similar_items`）与建议（`hint`）
-- 审核端点为 `POST /v1/reviews`（approve / edit / reject / merge）
+- 审核端点为 `POST /v1/reviews`（approve / edit / reject / later / merge / update）
 
 ### 检索
 

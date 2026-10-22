@@ -5,9 +5,8 @@ Tests the outbox-related methods that will be extracted during refactoring.
 
 from __future__ import annotations
 
-import asyncio
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
 
@@ -19,9 +18,7 @@ from adapters.mcp.outbox_manager import ReplayRejected, WriteUnconfirmedError
 def mock_client():
     """Mock CwikiClient."""
     client = AsyncMock()
-    client.submit_candidate = AsyncMock(
-        return_value={"candidate": {"id": "cand-123"}}
-    )
+    client.submit_candidate = AsyncMock(return_value={"candidate": {"id": "cand-123"}})
     return client
 
 
@@ -220,11 +217,12 @@ class TestReplayEntry:
         mock_outbox.mark_success.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_rejects_suspicious_content(self, server):
+    async def test_rejects_suspicious_content(self, server, monkeypatch):
         """_replay_entry rejects suspicious content."""
-        # Mock the security_error function that OutboxManager is using
-        server._outbox_manager._security_error = Mock(
-            return_value={"error": "suspicious content", "security_flag": "test"}
+        # 重放编排在 MCPServer 上，安全检测注入点也在该模块
+        monkeypatch.setattr(
+            "adapters.mcp.mcp_server._security_error",
+            Mock(return_value={"error": "suspicious content", "security_flag": "test"}),
         )
         write = {
             "id": "entry-1",

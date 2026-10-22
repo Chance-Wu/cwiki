@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import StaticPool
 
 from packages.domain.database import Base
+from packages.domain.models import CandidateMemory
 
 TEST_DB_URL = "sqlite+aiosqlite:///:memory:"
 
@@ -316,6 +317,23 @@ class TestReviewActionSuccessPaths:
         r = await review_client.post(f"/v1/candidates/{rejected_id}/restore")
         assert r.status_code == 200
         assert await candidate_status(review_client, rejected_id) == "pending_review"
+
+    async def test_restore_needs_enrichment_candidate(
+        self, review_client: AsyncClient, review_env: str, review_engine
+    ) -> None:
+        cand_id = await make_candidate(
+            review_client, review_env, f"enrich-me {uuid.uuid4().hex[:8]}"
+        )
+        async with AsyncSession(bind=review_engine, expire_on_commit=False) as session:
+            candidate = await session.get(CandidateMemory, uuid.UUID(cand_id))
+            assert candidate is not None
+            candidate.status = "needs_enrichment"
+            await session.commit()
+
+        assert await candidate_status(review_client, cand_id) == "needs_enrichment"
+        r = await review_client.post(f"/v1/candidates/{cand_id}/restore")
+        assert r.status_code == 200, r.text
+        assert await candidate_status(review_client, cand_id) == "pending_review"
 
     async def test_merge_action_updates_target(
         self, review_client: AsyncClient, review_env: str

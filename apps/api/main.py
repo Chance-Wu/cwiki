@@ -6,7 +6,7 @@ import asyncio
 import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import Any, cast
+from typing import Any
 
 import typer
 import uvicorn
@@ -96,25 +96,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         scheduler_config.meta_export_interval_hours * 3600,
     )
     await _scheduler.start()
-
-    # 一次性清理：拒绝即删除语义，移除历史遗留的 rejected 候选
-    try:
-        from sqlalchemy import CursorResult
-        from sqlalchemy import delete as sa_delete
-
-        from packages.domain.models import CandidateMemory
-
-        async with async_session_maker() as cleanup_db:
-            result = await cleanup_db.execute(
-                sa_delete(CandidateMemory).where(CandidateMemory.status == "rejected")
-            )
-            # DELETE 语句返回 CursorResult，rowcount 仅在其上可用
-            rowcount = cast(CursorResult[Any], result).rowcount
-            if rowcount > 0:
-                await cleanup_db.commit()
-                logger.info("Cleaned up %d historical rejected candidates", rowcount)
-    except Exception:
-        logger.warning("Failed to clean up rejected candidates", exc_info=True)
 
     file_store = FileStore(storage_config.memory_dir)
     _indexer = MemoryIndexer(storage_config.index_db_path, file_store)

@@ -88,7 +88,7 @@ graph TB
 
 ### 审核与安全
 
-候选创建后以 `pending_review` 进入 Embedding → 价值评分 → 人工审核流程，安全检查保持启用，没有自动格式化任务。检查点只对有限的已采集事件和笔记做规则提取，不代表完整对话检查。
+候选创建后以 `pending_review` 进入 Embedding → 价值评分；满足 `auto_approve` 阈值时自动转正，否则进入人工审核。安全检查保持启用，没有自动格式化任务。检查点只对有限的已采集事件和笔记做规则提取，不代表完整对话检查。
 
 > 详细契约见[记忆系统](memory-system.md)。安装更新及宿主/API 分别重载见[开发指南](development.md#agent-接入配置)。
 
@@ -99,7 +99,7 @@ graph TB
 ```
 cwiki/
 ├── apps/
-│   ├── api/                  # FastAPI 服务端（23 个路由模块）
+│   ├── api/                  # FastAPI 服务端（24 个路由模块）
 │   │   ├── main.py           # 应用入口（含进程内任务队列）
 │   │   ├── auth.py           # 本地单用户模式，默认身份，无 token 认证
 │   │   └── routes/           # workspaces / agents / events /
@@ -112,10 +112,10 @@ cwiki/
 │   │                         # _skill_scanner / _skill_publisher（内部模块）
 │   ├── worker/               # 后台任务（asyncio.Queue，随 API 进程启动）
 │   │   ├── run_worker.py     # 历史事件手动回填入口
-│   │   ├── tasks.py          # 8 个注册任务：Episode 处理 / 候选评分 /
-│   │   │                     #   批量 Embedding / 去重 / 整合 / 复习提醒
+│   │   ├── tasks/            # 9 个注册任务：Episode 处理 / 候选评分 /
+│   │   │                     #   Embedding / 去重 / 整合 / 复习提醒 / meta 导出
 │   │   ├── episode_builder.py
-│   │   ├── scoring.py        # 候选价值评分（6 维加权）
+│   │   ├── scoring.py        # 候选价值评分（5 维加权，novelty 仅作排序）
 │   │   └── dedup.py
 │   └── web/                  # 前端控制台（React 18 + Vite + Tailwind）
 │

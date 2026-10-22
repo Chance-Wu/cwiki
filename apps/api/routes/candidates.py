@@ -169,7 +169,7 @@ async def get_candidate(
     return CandidateMemoryRead.model_validate(candidate)
 
 
-RESTORABLE_STATUSES = {"quarantined", "rejected", "deferred", "discarded"}
+RESTORABLE_STATUSES = {"quarantined", "rejected", "deferred", "discarded", "needs_enrichment"}
 
 
 @router.post("/{candidate_id}/restore", response_model=CandidateMemoryRead)
@@ -178,7 +178,7 @@ async def restore_candidate(
     db: Annotated[AsyncSession, Depends(get_db)],
     _identity: Annotated[AgentIdentity | None, Depends(require_scope("reviews:write"))] = None,
 ) -> CandidateMemoryRead:
-    """把隔离/拒绝/暂缓的候选恢复为待人工审核。"""
+    """把隔离/拒绝/暂缓/待补全的候选恢复为待人工审核。"""
     candidate = await get_or_404(db, CandidateMemory, candidate_id)
     if candidate.status not in RESTORABLE_STATUSES:
         raise HTTPException(

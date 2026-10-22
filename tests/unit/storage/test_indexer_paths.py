@@ -324,6 +324,8 @@ async def test_sync_repairs_legacy_paths_and_commits_orphan_cleanup(
     )
     await db.commit()
     renamed = original.rename(original.with_name("Renamed.MD"))
+    # 重命名会保留 mtime；显式回拨以复现"仅靠 mtime 会跳过路径修复"的场景
+    os.utime(renamed, (1, 1))
     if not keep_memory:
         renamed.unlink()
     orphan = MemoryFile(id="sqlite-orphan", title="Deleted memory", content="Missing file.")

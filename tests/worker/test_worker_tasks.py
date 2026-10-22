@@ -221,6 +221,12 @@ class TestAutoConsolidateMerge:
         monkeypatch.setattr(parasitic_evolution_config, "auto_consolidate_enabled", True)
         monkeypatch.setattr(parasitic_evolution_config, "auto_merge_enabled", True)
         monkeypatch.setattr(parasitic_evolution_config, "auto_merge_threshold", 0.9)
+        # 标题不同时 hybrid 相似度约 0.846，略低于 0.85 分组阈值；
+        # 本用例只验证合并持久化与收敛，固定相似度以隔离阈值噪声。
+        monkeypatch.setattr(
+            "apps.worker.tasks.consolidate.compute_similarity",
+            AsyncMock(return_value=1.0),
+        )
         monkeypatch.setattr("apps.worker.tasks.consolidate.Path.home", lambda: tmp_path / "home")
 
         queue = AsyncMock()
@@ -233,7 +239,9 @@ class TestAutoConsolidateMerge:
             async with sessions() as db:
                 assert (await db.get(Memory, source_id)).status == "archived"
                 keeper_row = await db.get(Memory, keeper_id)
-                assert keeper_row.content == f"{MERGE_CONTENT}\n\n{MERGE_CONTENT}"
+                assert (
+                    keeper_row.content == f"{MERGE_CONTENT}\n\n## Merge source\n\n{MERGE_CONTENT}"
+                )
                 assert keeper_row.embedding is None
                 relations = (await db.execute(select(MemoryRelation))).scalars().all()
                 events = (
@@ -264,7 +272,7 @@ class TestAutoConsolidateMerge:
             source_mirror = file_store.load(workspace, "fact", "Merge source", str(source_id))
             assert source_mirror.status == "archived"
             keeper_mirror = file_store.load(workspace, "fact", "Merge keeper", str(keeper_id))
-            assert keeper_mirror.content == f"{MERGE_CONTENT}\n\n{MERGE_CONTENT}"
+            assert keeper_mirror.content == f"{MERGE_CONTENT}\n\n## Merge source\n\n{MERGE_CONTENT}"
         finally:
             await indexer.close()
             await engine.dispose()

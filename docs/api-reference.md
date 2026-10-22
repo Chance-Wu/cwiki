@@ -12,7 +12,7 @@
 | `agent_capture` | 宿主无关的 Agent 捕获（compact / 工具失败 / 会话结束） |
 | `events` | 事件上报（支持批量） |
 | `candidates` | 候选记忆 CRUD |
-| `reviews` | 审核操作（approve / reject / merge） |
+| `reviews` | 审核操作（approve / edit / reject / later / merge / update） |
 | `memories` | 正式记忆 CRUD + 状态更新 |
 | `tags` | 标签管理：列表 + 按标签过滤记忆 |
 | `search` | 关键词 / 混合 / 语义检索 |
@@ -39,10 +39,15 @@
 |------|------|------|
 | `POST` | `/v1/events` | 上报 Agent 事件（支持批量） |
 | `GET` | `/v1/candidates` | 候选记忆列表 |
-| `POST` | `/v1/reviews` | 提交审核结果（approve / edit / reject / merge） |
+| `POST` | `/v1/candidates/{id}/restore` | 把 `rejected` / `deferred` / `needs_enrichment`（及历史 `quarantined` / `discarded`）恢复为 `pending_review` |
+| `POST` | `/v1/candidates/{id}/revert-auto-approve` | 撤销自动生效：归档生成的正式记忆，候选保持 `approved` |
+| `POST` | `/v1/reviews` | 提交审核结果（approve / edit / reject / later / merge / update） |
 | `GET` | `/v1/memories` | 正式记忆列表；支持 `tags` 参数（逗号分隔，AND 逻辑） |
 | `PATCH` | `/v1/memories/{id}` | 更新记忆；`status=archived` 即软遗忘（可恢复）；支持 `tags` 字段更新 |
-| `GET` | `/v1/tags` | 标签列表（含计数） |
+| `GET` | `/v1/tags` | 标签列表（含计数）；`workspace_id` 限定工作区，`status` 限定状态（不传含归档） |
+| `PUT` | `/v1/tags/{tag}` | 重命名标签（覆盖全部状态；`workspace_id` 限定工作区） |
+| `POST` | `/v1/tags/merge` | 合并多个标签（覆盖全部状态；`workspace_id` 限定工作区） |
+| `DELETE` | `/v1/tags/{tag}` | 删除标签（覆盖全部状态；`workspace_id` 限定工作区） |
 | `GET` | `/v1/review/weekly` | 本周回顾：新增/复习/掌握提升/高频复用/待整理 |
 | `POST` | `/v1/search` | 关键词检索 |
 | `POST` | `/v1/context` | 混合检索 + 上下文组装 |

@@ -17,7 +17,7 @@ logger = logging.getLogger("cwiki.mcp.checkpoint")
 DEFAULT_SINCE_MINUTES = 60
 MIN_WINDOW_MINUTES = 5
 MAX_WINDOW_MINUTES = 120
-CHECKPOINT_FETCH_LIMIT = 50
+CHECKPOINT_FETCH_LIMIT = 200
 
 
 class CheckpointManager:
@@ -47,6 +47,14 @@ class CheckpointManager:
         self._security_error = security_error
         self._summarize_notes_by_type = summarize_notes_by_type
         self._build_event_analysis_report = build_event_analysis_report
+
+    @property
+    def outbox(self) -> Any:
+        return self._outbox
+
+    @outbox.setter
+    def outbox(self, value: Any) -> None:
+        self._outbox = value
 
     async def fetch_events(
         self,
@@ -87,7 +95,9 @@ class CheckpointManager:
             )
             return notes, None
         except Exception as exc:
-            logger.warning("Failed to fetch session notes for checkpoint: %s", self._safe_error(exc))
+            logger.warning(
+                "Failed to fetch session notes for checkpoint: %s", self._safe_error(exc)
+            )
             return [], {"stage": "notes", "error": self._safe_error(exc)}
 
     async def submit_candidates(

@@ -303,6 +303,10 @@ class MemoryIndexer:
                     if memory.file_path is None:
                         continue
                     file_mtime = os.path.getmtime(memory.file_path)
+                    # 路径变化时即使 mtime 未变也要重索引：重命名保留 mtime，
+                    # 仅靠时间戳会漏掉 file_path 修复。
+                    current_path = os.path.normcase(os.path.abspath(memory.file_path))
+                    path_changed = existing["file_path"] != current_path
                     # 解析 ISO 时间戳以与 mtime 比较
                     from datetime import datetime
 
@@ -310,15 +314,13 @@ class MemoryIndexer:
                     if indexed_updated_str:
                         indexed_dt = datetime.fromisoformat(indexed_updated_str)
                         indexed_ts = indexed_dt.timestamp()
-                        if indexed_ts >= file_mtime:
+                        if not path_changed and indexed_ts >= file_mtime:
                             skipped_count += 1
                             continue
                 except (ValueError, OSError):
                     pass  # 解析失败则回退为重新索引
             # 批量操作时不立即提交，最后统一提交
-            await self.index_memory(
-                memory, update_vector=memory.id in active_ids, commit=False
-            )
+            await self.index_memory(memory, update_vector=memory.id in active_ids, commit=False)
             indexed_count += 1
 
         # 批量索引完成后统一提交

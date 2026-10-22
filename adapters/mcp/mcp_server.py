@@ -63,7 +63,7 @@ except ImportError:
     parasitic_evolution_config = None  # type: ignore[assignment]
 
 from adapters.hooks.profiles import clean_workspace_name
-from adapters.mcp.checkpoint_manager import CheckpointManager
+from adapters.mcp.checkpoint_manager import CHECKPOINT_FETCH_LIMIT, CheckpointManager
 from adapters.mcp.client import CwikiClient, MemoryUpdateUncertainError
 from adapters.mcp.outbox import WriteAheadOutbox
 from adapters.mcp.outbox_manager import OutboxManager, ReplayRejected, WriteUnconfirmedError
@@ -217,7 +217,6 @@ def current_workspace_for(server: MCPServer) -> str:
 
 REQUEST_TIMEOUT = float(os.environ.get("CWIKI_TIMEOUT", "10.0"))
 AUTO_RETRY_INTERVAL = 30.0
-CHECKPOINT_FETCH_LIMIT = 200
 DEFAULT_SINCE_MINUTES = 60
 MAX_WINDOW_MINUTES = 1440
 MIN_WINDOW_MINUTES = 5
@@ -520,9 +519,7 @@ class MCPServer:
             workspace_resolver=lambda: self.session_workspace or current_workspace_for(self),
             classify_memory_type=_classify_memory_type,
             is_client_rejection=_is_client_rejection,
-            make_write_id=_make_write_id,
             safe_error=_safe_error,
-            security_error=_security_error,
         )
         self._checkpoint_manager = CheckpointManager(
             client=client,
@@ -541,6 +538,21 @@ class MCPServer:
         # 宿主经 roots/list 声明的项目工作区（与 hook 注册表互补）
         self.roots_workspace: str | None = None
         self._drain_task: asyncio.Task[None] | None = None
+
+    @property
+    def outbox(self) -> WriteAheadOutbox:
+        return self._outbox
+
+    @outbox.setter
+    def outbox(self, value: WriteAheadOutbox) -> None:
+        """替换 outbox 时同步管理器引用，避免二者读到不同实例。"""
+        self._outbox = value
+        manager = getattr(self, "_outbox_manager", None)
+        if manager is not None:
+            manager.outbox = value
+        checkpoint_manager = getattr(self, "_checkpoint_manager", None)
+        if checkpoint_manager is not None:
+            checkpoint_manager.outbox = value
 
     @staticmethod
     def _config_disk_stamp() -> tuple[str, int | None]:
@@ -604,30 +616,110 @@ class MCPServer:
         汇总 memory_save 与 memory_checkpoint 共用的
         outbox_log + _submit_write + _outbox_on_error 流程。
         """
-        return await self._outbox_manager.submit(tool, args, workspace_id, write_id)
+        frozen = dict(args)
+        entry = self._outbox_log(workspace_id, tool, frozen, write_id)
+        try:
+            response = await self._submit_write(tool, frozen, write_id, entry)
+            return response, entry, None
+        except Exception as exc:
+            if entry:
+                self._outbox_on_error(workspace_id, entry["id"], exc)
+            return None, entry, exc
 
     async def _replay_entry(
         self, workspace_id: str, write: dict[str, Any]
     ) -> dict[str, Any] | None:
         """启动清账、自动重试与手动重试共用的唯一重放路径。"""
-        return await self._outbox_manager.replay_entry(workspace_id, write)
+        try:
+            if write.get("tool") not in ("memory_save", "memory_checkpoint"):
+                raise ReplayRejected("Unsupported outbox tool")
+            args = write["arguments"]
+            content = args.get("wrapped_content")
+            if _security_error(content if content is not None else args.get("content", "")):
+                raise ReplayRejected("Suspicious content blocked")
+            write_id = write.get("client_write_id") or _make_write_id(
+                args.get("content", ""),
+                prefix="cp" if write["tool"] == "memory_checkpoint" else "ms",
+            )
+            response = await self._submit_write(write["tool"], args, write_id, write)
+            warning = self._outbox_done(workspace_id, write["id"])
+            if warning:
+                return {
+                    "entry_id": write["id"],
+                    "error": warning,
+                    "delivery": "confirmed",
+                    "candidate_id": response["candidate"]["id"],
+                }
+            return None
+        except Exception as exc:
+            self._outbox_on_error(workspace_id, write["id"], exc)
+            reason = _safe_error(exc)
+            logger.warning("Outbox replay failed: %s", reason)
+            return {"entry_id": write["id"], "error": reason}
 
     def _auto_retry_allowed(self, workspace_id: str, write: dict[str, Any]) -> bool:
-        return self._outbox_manager.auto_retry_allowed(workspace_id, write)
+        if write.get("state", "pending") not in ("pending", "failed"):
+            return False
+        if write.get("attempts", 0) >= MAX_AUTO_RETRY_ATTEMPTS:
+            self.outbox.mark_exhausted(workspace_id, write["id"])
+            return False
+        return True
 
     async def _try_auto_retry_one(self, *, respect_backoff: bool = False) -> None:
         """至多重放一条可重试条目；respect_backoff 时按指数退避跳过未到期项。"""
-        await self._outbox_manager.try_auto_retry_one(respect_backoff=respect_backoff)
+        for workspace_id, entries in self.outbox.load_retryable().items():
+            for write in entries:
+                if not self._auto_retry_allowed(workspace_id, write):
+                    continue
+                if respect_backoff and write.get("last_error_at"):
+                    try:
+                        last_error = datetime.fromisoformat(write["last_error_at"])
+                        delay = AUTO_RETRY_INTERVAL * 2 ** max(write.get("attempts", 1) - 1, 0)
+                        if (datetime.now(UTC) - last_error).total_seconds() < delay:
+                            continue
+                    except (ValueError, TypeError):
+                        pass
+                await self._replay_entry(workspace_id, write)
+                return
 
     async def _drain_outbox(self) -> None:
         """只遍历一次启动时的快照；绝不清理 exhausted 条目的原文。"""
-        await self._outbox_manager.drain()
+        reset = self.outbox.reset_all_exhausted()
+        if reset:
+            logger.info("Reset %d exhausted outbox entries for retry", reset)
+        total = 0
+        succeeded = 0
+        failed = 0
+        for workspace_id, entries in self.outbox.load_retryable().items():
+            for write in entries:
+                if not self._auto_retry_allowed(workspace_id, write):
+                    continue
+                total += 1
+                result = await self._replay_entry(workspace_id, write)
+                if result is None or result.get("delivery") == "confirmed":
+                    succeeded += 1
+                else:
+                    failed += 1
+                if total > 0:
+                    await asyncio.sleep(DRAIN_ENTRY_INTERVAL)
+        if total > 0:
+            logger.info("Outbox drain: %d total, %d succeeded, %d failed", total, succeeded, failed)
 
     def _start_background_drain(self) -> None:
-        self._outbox_manager.start_background_drain()
+        if self._drain_task and not self._drain_task.done():
+            return
+        try:
+            self._drain_task = asyncio.get_running_loop().create_task(self._background_drain())
+        except RuntimeError:
+            logger.debug("No running loop; skipping background outbox drain")
 
     async def _background_drain(self) -> None:
-        await self._outbox_manager._background_drain()
+        try:
+            await self._drain_outbox()
+        except Exception as exc:
+            logger.warning("Background outbox drain failed: %s", _safe_error(exc))
+        finally:
+            self._drain_task = None
 
     # -- 各工具处理器（自 _handle_tool 抽出）-----------------------------------
 

@@ -1,24 +1,17 @@
-"""Outbox manager: write-ahead log, retry, and background drain.
+"""Outbox primitives: write-ahead log, submission, and state summaries.
 
-Extracted from MCPServer to reduce class size and improve cohesion.
+Retry/replay orchestration stays on MCPServer so its hooks remain patchable.
 """
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from collections.abc import Callable
-from datetime import UTC, datetime
 from typing import Any
 
 from adapters.mcp.outbox import WriteAheadOutbox
 
 logger = logging.getLogger(__name__)
-
-# Outbox retry constants
-AUTO_RETRY_INTERVAL = 30.0
-MAX_AUTO_RETRY_ATTEMPTS = 3
-DRAIN_ENTRY_INTERVAL = 0.5
 
 
 class ReplayRejected(Exception):
@@ -30,11 +23,7 @@ class WriteUnconfirmedError(Exception):
 
 
 class OutboxManager:
-    """Manages outbox operations for MCPServer.
-    
-    This class encapsulates all write-ahead log, retry, and background drain
-    logic, reducing MCPServer's responsibility and improving testability.
-    """
+    """Wraps outbox storage and candidate submission primitives."""
 
     def __init__(
         self,
@@ -43,31 +32,24 @@ class OutboxManager:
         workspace_resolver: Callable[[], str | None],
         classify_memory_type: Callable[[str], str],
         is_client_rejection: Callable[[Exception], bool],
-        make_write_id: Callable[..., str],
         safe_error: Callable[[Exception], str],
-        security_error: Callable[[str], dict[str, Any] | None],
     ) -> None:
         """Initialize OutboxManager.
-        
+
         Args:
             client: CwikiClient instance for API calls
             outbox: WriteAheadOutbox instance for persistence
             workspace_resolver: Callable that returns current workspace ID
             classify_memory_type: Function to classify memory type from content
             is_client_rejection: Function to check if exception is client rejection
-            make_write_id: Function to generate write ID from content
             safe_error: Function to safely extract error message
-            security_error: Function to check content for security issues
         """
         self.client = client
         self.outbox = outbox
         self._workspace_resolver = workspace_resolver
         self._classify_memory_type = classify_memory_type
         self._is_client_rejection = is_client_rejection
-        self._make_write_id = make_write_id
         self._safe_error = safe_error
-        self._security_error = security_error
-        self._drain_task: asyncio.Task[None] | None = None
 
     def log(
         self,
@@ -81,7 +63,7 @@ class OutboxManager:
 
     def done(self, workspace_id: str, entry_id: str) -> str | None:
         """Mark an entry as successfully completed.
-        
+
         Returns warning message if cleanup fails, None otherwise.
         """
         try:
@@ -118,7 +100,7 @@ class OutboxManager:
 
     def on_error(self, workspace_id: str, entry_id: str, exc: Exception) -> None:
         """Handle error during write submission.
-        
+
         Marks as rejected for client rejections, failed otherwise.
         """
         if not entry_id:
@@ -140,7 +122,7 @@ class OutboxManager:
         entry: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Submit a frozen save/checkpoint payload to the API.
-        
+
         Infers memory type if not provided, resolves workspace, and submits
         via client.submit_candidate.
         """
@@ -180,137 +162,3 @@ class OutboxManager:
         if not isinstance(candidate_id, str) or not candidate_id.strip():
             raise WriteUnconfirmedError()
         return response if isinstance(response, dict) else {}
-
-    async def submit(
-        self,
-        tool: str,
-        args: dict[str, Any],
-        workspace_id: str,
-        write_id: str,
-    ) -> tuple[dict[str, Any] | None, dict[str, Any] | None, Exception | None]:
-        """Orchestrate log → submit → return (response, entry, error).
-        
-        Combines log, submit_write, and on_error into a single workflow.
-        """
-        frozen = dict(args)
-        entry = self.log(workspace_id, tool, frozen, write_id)
-        try:
-            response = await self.submit_write(tool, frozen, write_id, entry)
-            return response, entry, None
-        except Exception as exc:
-            if entry:
-                self.on_error(workspace_id, entry["id"], exc)
-            return None, entry, exc
-
-    async def replay_entry(
-        self, workspace_id: str, write: dict[str, Any]
-    ) -> dict[str, Any] | None:
-        """Replay a single outbox entry.
-        
-        This is the unified replay path for startup drain, auto-retry, and
-        manual retry.
-        """
-        try:
-            if write.get("tool") not in ("memory_save", "memory_checkpoint"):
-                raise ReplayRejected("Unsupported outbox tool")
-            args = write["arguments"]
-            content = args.get("wrapped_content")
-            if self._security_error(content if content is not None else args.get("content", "")):
-                raise ReplayRejected("Suspicious content blocked")
-            write_id = write.get("client_write_id") or self._make_write_id(
-                args.get("content", ""),
-                prefix="cp" if write["tool"] == "memory_checkpoint" else "ms",
-            )
-            response = await self.submit_write(write["tool"], args, write_id, write)
-            warning = self.done(workspace_id, write["id"])
-            if warning:
-                return {
-                    "entry_id": write["id"],
-                    "error": warning,
-                    "delivery": "confirmed",
-                    "candidate_id": response["candidate"]["id"],
-                }
-            return None
-        except Exception as exc:
-            self.on_error(workspace_id, write["id"], exc)
-            reason = self._safe_error(exc)
-            logger.warning("Outbox replay failed: %s", reason)
-            return {"entry_id": write["id"], "error": reason}
-
-    def auto_retry_allowed(self, workspace_id: str, write: dict[str, Any]) -> bool:
-        """Check if auto-retry is allowed for this entry."""
-        if write.get("state", "pending") not in ("pending", "failed"):
-            return False
-        if write.get("attempts", 0) >= MAX_AUTO_RETRY_ATTEMPTS:
-            self.outbox.mark_exhausted(workspace_id, write["id"])
-            return False
-        return True
-
-    async def try_auto_retry_one(self, *, respect_backoff: bool = False) -> None:
-        """Retry at most one retryable entry.
-        
-        When respect_backoff is True, skips entries that haven't waited long
-        enough based on exponential backoff.
-        """
-        for workspace_id, entries in self.outbox.load_retryable().items():
-            for write in entries:
-                if not self.auto_retry_allowed(workspace_id, write):
-                    continue
-                if respect_backoff and write.get("last_error_at"):
-                    try:
-                        last_error = datetime.fromisoformat(write["last_error_at"])
-                        delay = AUTO_RETRY_INTERVAL * 2 ** max(write.get("attempts", 1) - 1, 0)
-                        if (datetime.now(UTC) - last_error).total_seconds() < delay:
-                            continue
-                    except (ValueError, TypeError):
-                        pass
-                await self.replay_entry(workspace_id, write)
-                return
-
-    async def drain(self) -> None:
-        """Drain all retryable entries once.
-        
-        Resets exhausted entries first, then processes all retryable entries
-        with a delay between each.
-        """
-        reset = self.outbox.reset_all_exhausted()
-        if reset:
-            logger.info("Reset %d exhausted outbox entries for retry", reset)
-        total = 0
-        succeeded = 0
-        failed = 0
-        for workspace_id, entries in self.outbox.load_retryable().items():
-            for write in entries:
-                if not self.auto_retry_allowed(workspace_id, write):
-                    continue
-                total += 1
-                result = await self.replay_entry(workspace_id, write)
-                if result is None or result.get("delivery") == "confirmed":
-                    succeeded += 1
-                else:
-                    failed += 1
-                if total > 0:
-                    await asyncio.sleep(DRAIN_ENTRY_INTERVAL)
-        if total > 0:
-            logger.info(
-                "Outbox drain: %d total, %d succeeded, %d failed", total, succeeded, failed
-            )
-
-    def start_background_drain(self) -> None:
-        """Start background drain task if not already running."""
-        if self._drain_task and not self._drain_task.done():
-            return
-        try:
-            loop = asyncio.get_running_loop()
-            self._drain_task = loop.create_task(self._background_drain())
-        except RuntimeError:
-            logger.debug("No running loop; skipping background outbox drain")
-
-    async def _background_drain(self) -> None:
-        """Background task that drains the outbox."""
-        try:
-            await self.drain()
-        except Exception as exc:
-            logger.warning("Background outbox drain failed: %s", self._safe_error(exc))
-        finally:
-            self._drain_task = None

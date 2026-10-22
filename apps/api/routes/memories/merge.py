@@ -239,13 +239,16 @@ async def merge_memories_post(
     if body.strategy is not None:
         metadata["strategy"] = body.strategy
 
-    lifecycle_event = MemoryLifecycleEvent(
-        id=uuid.uuid4(),
-        memory_id=target.id,  # 记录在保留的记忆上
-        event_type="merged",
-        metadata_json=json.dumps(metadata, ensure_ascii=False),
-    )
-    db.add(lifecycle_event)
+    # target 记录"接收合并"，source 记录"被合并归档"，两侧生命周期都可追溯
+    for memory_id in (target.id, source.id):
+        db.add(
+            MemoryLifecycleEvent(
+                id=uuid.uuid4(),
+                memory_id=memory_id,
+                event_type="merged",
+                metadata_json=json.dumps(metadata, ensure_ascii=False),
+            )
+        )
 
     rel = MemoryRelation(
         id=uuid.uuid4(),
