@@ -12,7 +12,6 @@ import asyncio
 import hashlib
 import json
 import logging
-import math
 import os
 import re
 import signal
@@ -64,8 +63,10 @@ except ImportError:
     parasitic_evolution_config = None  # type: ignore[assignment]
 
 from adapters.hooks.profiles import clean_workspace_name
+from adapters.mcp.checkpoint_manager import CheckpointManager
 from adapters.mcp.client import CwikiClient, MemoryUpdateUncertainError
 from adapters.mcp.outbox import WriteAheadOutbox
+from adapters.mcp.outbox_manager import OutboxManager, ReplayRejected, WriteUnconfirmedError
 
 # -- 抽取出的子模块（signal_engine / transport 等纯逻辑已拆分，便于测试替换）--
 from adapters.mcp.signal_engine import AUTO_GROUP_SIGNAL_TYPE
@@ -275,14 +276,6 @@ def _is_stale_agent_session(started_at: object, now: datetime) -> bool:
 
 
 # -- 异常与辅助函数 -----------------------------------------------------------
-
-
-class ReplayRejected(Exception):
-    """只允许传入固定的、不含敏感信息的拒绝原因。"""
-
-
-class WriteUnconfirmedError(Exception):
-    """响应中缺少可用的候选确认信息，写入结果无法确认。"""
 
 
 def _safe_error(exc: Exception) -> str:
@@ -521,6 +514,27 @@ class MCPServer:
         self.client = client
         self.tools = build_tool_definitions()
         self.outbox = WriteAheadOutbox()
+        self._outbox_manager = OutboxManager(
+            client=client,
+            outbox=self.outbox,
+            workspace_resolver=lambda: self.session_workspace or current_workspace_for(self),
+            classify_memory_type=_classify_memory_type,
+            is_client_rejection=_is_client_rejection,
+            make_write_id=_make_write_id,
+            safe_error=_safe_error,
+            security_error=_security_error,
+        )
+        self._checkpoint_manager = CheckpointManager(
+            client=client,
+            outbox=self.outbox,
+            outbox_submit=self._outbox_submit,
+            outbox_done=self._outbox_done,
+            safe_error=_safe_error,
+            make_write_id=_make_write_id,
+            security_error=_security_error,
+            summarize_notes_by_type=_summarize_notes_by_type,
+            build_event_analysis_report=_build_event_analysis_report,
+        )
         self._config_stamp = self._config_disk_stamp()
         self._config_error: str | None = None
         self.session_workspace: str | None = None
@@ -557,95 +571,26 @@ class MCPServer:
         arguments: dict[str, Any],
         client_write_id: str,
     ) -> dict[str, Any] | None:
-        return self.outbox.log_pending(workspace_id, tool, arguments, client_write_id)
+        return self._outbox_manager.log(workspace_id, tool, arguments, client_write_id)
 
     def _outbox_done(self, workspace_id: str, entry_id: str) -> str | None:
-        try:
-            self.outbox.mark_success(workspace_id, entry_id)
-        except Exception as exc:
-            logger.warning("Acknowledged write cleanup failed: %s", _safe_error(exc))
-            return "API 已确认，但本地 outbox 清理失败；残留条目使用原写入标识重试。"
-        return None
+        return self._outbox_manager.done(workspace_id, entry_id)
 
     def _outbox_fail(self, workspace_id: str, entry_id: str) -> None:
-        self.outbox.mark_failed(workspace_id, entry_id)
+        self._outbox_manager.fail(workspace_id, entry_id)
 
     def _outbox_summary(self, *, status_tool: bool = False) -> dict[str, Any]:
-        counts = dict.fromkeys(("pending", "failed", "exhausted", "rejected"), 0)
-        try:
-            counts.update(self.outbox.count_all_by_state())
-        except Exception as exc:
-            logger.warning("Outbox counts unavailable: %s", _safe_error(exc))
-            return {
-                "outbox_counts": None,
-                "outbox_total": None,
-                "outbox_pending": None,
-                "outbox_exhausted": None,
-                "outbox_error": "本地 outbox 计数不可用",
-            }
-        return {
-            "outbox_counts": counts,
-            "outbox_total": sum(counts.values()),
-            # 保留历史遗留的工具专用字段，兼容只认旧字段的宿主
-            "outbox_pending": counts["failed"] + (0 if status_tool else counts["exhausted"]),
-            "outbox_exhausted": counts["exhausted"],
-        }
+        return self._outbox_manager.summary(status_tool=status_tool)
 
     def _outbox_on_error(self, workspace_id: str, entry_id: str, exc: Exception) -> None:
         """保留被拒绝的载荷供人工恢复；不落盘响应体或凭据。"""
-        if not entry_id:
-            return
-        reason = _safe_error(exc)
-        try:
-            if _is_client_rejection(exc):
-                self.outbox.mark_rejected(workspace_id, entry_id, reason)
-            else:
-                self.outbox.mark_failed(workspace_id, entry_id, reason)
-        except Exception as disk_exc:
-            # log_pending 已落盘原始载荷；这里只是状态更新，不产生新写入
-            logger.warning("Outbox failure state update failed: %s", _safe_error(disk_exc))
+        self._outbox_manager.on_error(workspace_id, entry_id, exc)
 
     async def _submit_write(
         self, tool: str, args: dict[str, Any], write_id: str, entry: dict[str, Any] | None = None
     ) -> dict[str, Any]:
         """提交已冻结的 save/checkpoint 载荷；workspace 在写前日志之后才解析。"""
-        if tool not in ("memory_save", "memory_checkpoint"):
-            raise ReplayRejected("Unsupported outbox tool")
-        content = args.get("wrapped_content")
-        if content is None:
-            content = args.get("content", "")
-        memory_type = args.get("type") or args.get("inferred_type")
-        if not memory_type:
-            memory_type = (
-                "fact"
-                if tool == "memory_checkpoint" or args.get("wrapped_content") is not None
-                else _classify_memory_type(content)
-            )
-            args = {**args, "inferred_type": memory_type}
-            if entry:
-                self.outbox.update_entry(entry["workspace_id"], entry["id"], {"arguments": args})
-        workspace = (
-            args.get("workspace_id")
-            or (entry or {}).get("workspace_id")
-            or self.session_workspace
-            or current_workspace_for(self)
-        )
-        kwargs: dict[str, Any] = {"source": "memory_save"} if tool == "memory_save" else {}
-        if tool == "memory_save" and args.get("tags"):
-            kwargs["tags"] = args["tags"]
-        response = await self.client.submit_candidate(
-            title=args.get("title", ""),
-            content=content,
-            memory_type=memory_type,
-            workspace_id=workspace,
-            client_write_id=write_id,
-            **kwargs,
-        )
-        candidate = response.get("candidate") if isinstance(response, dict) else None
-        candidate_id = candidate.get("id") if isinstance(candidate, dict) else None
-        if not isinstance(candidate_id, str) or not candidate_id.strip():
-            raise WriteUnconfirmedError()
-        return response
+        return await self._outbox_manager.submit_write(tool, args, write_id, entry)
 
     async def _outbox_submit(
         self,
@@ -659,117 +604,30 @@ class MCPServer:
         汇总 memory_save 与 memory_checkpoint 共用的
         outbox_log + _submit_write + _outbox_on_error 流程。
         """
-        frozen = dict(args)
-        entry = self._outbox_log(workspace_id, tool, frozen, write_id)
-        try:
-            response = await self._submit_write(tool, frozen, write_id, entry)
-            return response, entry, None
-        except Exception as exc:
-            if entry:
-                self._outbox_on_error(workspace_id, entry["id"], exc)
-            return None, entry, exc
+        return await self._outbox_manager.submit(tool, args, workspace_id, write_id)
 
     async def _replay_entry(
         self, workspace_id: str, write: dict[str, Any]
     ) -> dict[str, Any] | None:
         """启动清账、自动重试与手动重试共用的唯一重放路径。"""
-        try:
-            if write.get("tool") not in ("memory_save", "memory_checkpoint"):
-                raise ReplayRejected("Unsupported outbox tool")
-            args = write["arguments"]
-            content = args.get("wrapped_content")
-            if _security_error(content if content is not None else args.get("content", "")):
-                raise ReplayRejected("Suspicious content blocked")
-            write_id = write.get("client_write_id") or _make_write_id(
-                args.get("content", ""),
-                prefix="cp" if write["tool"] == "memory_checkpoint" else "ms",
-            )
-            response = await self._submit_write(write["tool"], args, write_id, write)
-            warning = self._outbox_done(workspace_id, write["id"])
-            if warning:
-                return {
-                    "entry_id": write["id"],
-                    "error": warning,
-                    "delivery": "confirmed",
-                    "candidate_id": response["candidate"]["id"],
-                }
-            return None
-        except Exception as exc:
-            self._outbox_on_error(workspace_id, write["id"], exc)
-            reason = _safe_error(exc)
-            logger.warning("Outbox replay failed: %s", reason)
-            return {"entry_id": write["id"], "error": reason}
+        return await self._outbox_manager.replay_entry(workspace_id, write)
 
     def _auto_retry_allowed(self, workspace_id: str, write: dict[str, Any]) -> bool:
-        if write.get("state", "pending") not in ("pending", "failed"):
-            return False
-        if write.get("attempts", 0) >= MAX_AUTO_RETRY_ATTEMPTS:
-            self.outbox.mark_exhausted(workspace_id, write["id"])
-            return False
-        return True
+        return self._outbox_manager.auto_retry_allowed(workspace_id, write)
 
     async def _try_auto_retry_one(self, *, respect_backoff: bool = False) -> None:
         """至多重放一条可重试条目；respect_backoff 时按指数退避跳过未到期项。"""
-        for workspace_id, entries in self.outbox.load_retryable().items():
-            for write in entries:
-                if not self._auto_retry_allowed(workspace_id, write):
-                    continue
-                if respect_backoff and write.get("last_error_at"):
-                    try:
-                        last_error = datetime.fromisoformat(write["last_error_at"])
-                        delay = AUTO_RETRY_INTERVAL * 2 ** max(write.get("attempts", 1) - 1, 0)
-                        if (datetime.now(UTC) - last_error).total_seconds() < delay:
-                            continue
-                    except (ValueError, TypeError):
-                        pass
-                await self._replay_entry(workspace_id, write)
-                return
+        await self._outbox_manager.try_auto_retry_one(respect_backoff=respect_backoff)
 
     async def _drain_outbox(self) -> None:
         """只遍历一次启动时的快照；绝不清理 exhausted 条目的原文。"""
-        reset = self.outbox.reset_all_exhausted()
-        if reset:
-            logger.info("Reset %d exhausted outbox entries for retry", reset)
-        total = 0
-        succeeded = 0
-        failed = 0
-        for workspace_id, entries in self.outbox.load_retryable().items():
-            for write in entries:
-                if not self._auto_retry_allowed(workspace_id, write):
-                    continue
-                total += 1
-                result = await self._replay_entry(workspace_id, write)
-                if result is None or result.get("delivery") == "confirmed":
-                    succeeded += 1
-                else:
-                    failed += 1
-                if total > 0:
-                    await asyncio.sleep(DRAIN_ENTRY_INTERVAL)
-        if total > 0:
-            logger.info(
-                "Outbox drain complete: %d total, %d succeeded, %d failed",
-                total,
-                succeeded,
-                failed,
-            )
+        await self._outbox_manager.drain()
 
     def _start_background_drain(self) -> None:
-        """后台启动清账，不阻塞首个工具调用。
-
-        若在 notifications/initialized 中同步清账，API 不可用时会卡住整个会话；
-        重放靠 client_write_id 幂等，并发执行也安全。
-        """
-        if self._drain_task is not None and not self._drain_task.done():
-            return
-        self._drain_task = asyncio.create_task(self._background_drain())
+        self._outbox_manager.start_background_drain()
 
     async def _background_drain(self) -> None:
-        try:
-            await self._drain_outbox()
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            logger.warning("Background outbox drain failed: %s", _safe_error(exc))
+        await self._outbox_manager._background_drain()
 
     # -- 各工具处理器（自 _handle_tool 抽出）-----------------------------------
 
@@ -1173,23 +1031,9 @@ class MCPServer:
         since_minutes: int,
     ) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
         """为 checkpoint 拉取原始事件。返回 (events, error_dict|None)。"""
-        if not event_session_id:
-            return [], {
-                "stage": "events",
-                "error": "无关联的 event_session_id；"
-                "请确保通过正常流程创建 agent session（会自动关联 event session）。",
-            }
-        try:
-            events = await self.client.get_raw_events(
-                workspace_id=workspace_id,
-                session_id=event_session_id,
-                since_minutes=since_minutes,
-                limit=CHECKPOINT_FETCH_LIMIT,
-            )
-            return events, None
-        except Exception as exc:
-            logger.warning("Failed to fetch events for checkpoint: %s", _safe_error(exc))
-            return [], {"stage": "events", "error": _safe_error(exc)}
+        return await self._checkpoint_manager.fetch_events(
+            workspace_id, event_session_id, since_minutes
+        )
 
     async def _checkpoint_fetch_notes(
         self,
@@ -1197,16 +1041,7 @@ class MCPServer:
         workspace_id: str,
     ) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
         """为 checkpoint 拉取会话笔记。返回 (notes, error_dict|None)。"""
-        try:
-            notes = await self.client.list_session_notes(
-                session_id=session_id,
-                limit=CHECKPOINT_FETCH_LIMIT,
-                workspace_id=workspace_id,
-            )
-            return notes, None
-        except Exception as exc:
-            logger.warning("Failed to fetch session notes for checkpoint: %s", _safe_error(exc))
-            return [], {"stage": "notes", "error": _safe_error(exc)}
+        return await self._checkpoint_manager.fetch_notes(session_id, workspace_id)
 
     async def _checkpoint_submit_candidates(
         self,
@@ -1214,78 +1049,15 @@ class MCPServer:
         workspace_id: str,
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         """经 outbox 提交校验后的候选。返回 (submitted, errors)。"""
-        submitted: list[dict[str, Any]] = []
-        errors: list[dict[str, Any]] = []
-        for candidate in candidates:
-            write_id = _make_write_id(candidate["content"], prefix="cp")
-            frozen = {
-                "title": candidate["title"],
-                "content": candidate["content"],
-                "type": candidate["type"],
-                "workspace_id": workspace_id,
-            }
-            resp, cp_outbox_entry, exc = await self._outbox_submit(
-                "memory_checkpoint", frozen, workspace_id, write_id
-            )
-            if exc is not None:
-                errors.append(
-                    {
-                        "stage": "submit",
-                        "error": _safe_error(exc),
-                        "cached": cp_outbox_entry is not None,
-                    }
-                )
-                continue
-            assert resp is not None
-            candidate_id = resp["candidate"]["id"]
-            submitted.append(
-                {
-                    "title": candidate["title"],
-                    "type": candidate["type"],
-                    "source": candidate.get("source", "unknown"),
-                    "candidate_id": candidate_id,
-                    "delivery": "confirmed",
-                }
-            )
-            # formalize 失败计入 errors 以阻止水位前进：下次 checkpoint 借
-            # client_write_id 幂等去重重新提交并重试 formalize，自愈闭环。
-            for note_id in candidate.get("note_ids", []):
-                try:
-                    await self.client.formalize_session_note(str(note_id))
-                except Exception as formalize_exc:
-                    errors.append(
-                        {
-                            "stage": "formalize",
-                            "error": _safe_error(formalize_exc),
-                            "note_id": str(note_id),
-                        }
-                    )
-            if cp_outbox_entry:
-                warning = self._outbox_done(workspace_id, cp_outbox_entry["id"])
-                if warning:
-                    logger.warning("Checkpoint outbox cleanup: %s", warning)
-        return submitted, errors
+        return await self._checkpoint_manager.submit_candidates(candidates, workspace_id)
 
-    @staticmethod
     def _checkpoint_validate_candidates(
+        self,
         candidates: list[dict[str, Any]],
         errors: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
         """校验并过滤候选，失败项追加到 errors。"""
-        safe: list[dict[str, Any]] = []
-        for candidate in candidates:
-            try:
-                validate_memory_title(candidate["title"])
-                validate_memory_content(candidate["content"])
-            except ValueError as exc:
-                errors.append({"stage": "validation", "error": str(exc)})
-                continue
-            security_error = _security_error(candidate["content"])
-            if security_error:
-                errors.append({"stage": "security", **security_error})
-            else:
-                safe.append(candidate)
-        return safe
+        return self._checkpoint_manager.validate_candidates(candidates, errors)
 
     def _compute_checkpoint_window(
         self,
@@ -1298,25 +1070,9 @@ class MCPServer:
 
         返回 (since_minutes, window_truncated, last_checkpoint_iso)。
         """
-        last_checkpoint = self.outbox.get_last_checkpoint(
-            session_id, workspace_id, event_session_id=event_session_id
+        return self._checkpoint_manager.compute_window(
+            session_id, workspace_id, event_session_id, collection_started_at
         )
-        since_minutes = DEFAULT_SINCE_MINUTES
-        window_truncated = False
-        if last_checkpoint:
-            try:
-                last_dt = datetime.fromisoformat(last_checkpoint)
-                if last_dt.tzinfo is None:
-                    last_dt = last_dt.replace(tzinfo=UTC)
-                # 向上取整并加 1 分钟重叠：补偿 API 相对时钟偏差与请求延迟
-                delta_minutes = (
-                    math.ceil((collection_started_at - last_dt).total_seconds() / 60) + 1
-                )
-                window_truncated = delta_minutes > MAX_WINDOW_MINUTES
-                since_minutes = min(max(delta_minutes, MIN_WINDOW_MINUTES), MAX_WINDOW_MINUTES)
-            except (ValueError, TypeError):
-                window_truncated = True
-        return since_minutes, window_truncated, last_checkpoint
 
     async def _build_checkpoint_result(
         self,
@@ -1336,75 +1092,21 @@ class MCPServer:
         errors: list[dict[str, Any]],
     ) -> dict[str, Any]:
         """组装 checkpoint 响应体。"""
-        from adapters.mcp.signal_engine import CONTENT_PREVIEW_LENGTH
-
-        unformalized = [n for n in all_notes if not n.get("formalized", False)]
-
-        result: dict[str, Any] = {
-            "status": "ok",
-            "dry_run": dry_run,
-            "trigger_reason": trigger_reason,
-            "input_status": input_status,
-            "input_window": {
-                "since_minutes": since_minutes,
-                "event_limit": CHECKPOINT_FETCH_LIMIT,
-                "note_limit": CHECKPOINT_FETCH_LIMIT,
-                "limit_reached": len(events) >= CHECKPOINT_FETCH_LIMIT
-                or len(all_notes) >= CHECKPOINT_FETCH_LIMIT,
-                "time_window_truncated": window_truncated,
-                "collection_started_at": collection_started_at.isoformat(),
-                "incremental": last_checkpoint is not None,
-            },
-            "hint": "仅检查已采集事件和笔记，不代表完整对话已完成语义检查。",
-            "events_analyzed": len(events),
-            "notes_analyzed": len(all_notes),
-            "unformalized_notes": len(unformalized),
-            "candidates_extracted": len(candidates),
-        }
-
-        if dry_run:
-            result["candidates_preview"] = [
-                {
-                    "title": c["title"],
-                    "type": c["type"],
-                    "source": c.get("source", "unknown"),
-                    "content_preview": c["content"][:CONTENT_PREVIEW_LENGTH],
-                }
-                for c in candidates
-            ]
-            result["message"] = (
-                "dry_run 模式：仅分析不提交；预览可能截短，实际提交保留来源正文，"
-                "不要用预览代替完整内容。"
-            )
-        else:
-            result["candidates_submitted"] = len(submitted)
-            result["submitted"] = submitted
-
-        if unformalized:
-            summaries = _summarize_notes_by_type(all_notes)
-            result["notes_summary"] = {
-                "total_unformalized": len(unformalized),
-                "group_summaries": summaries,
-                "action": "摘要仅用于定位信号；用 memory_save 整理时回到原始上下文，保留完整细节，不要仅复述摘要",
-            }
-
-        if events:
-            worker_candidates = []
-            try:
-                worker_candidates = await self.client.get_workers_candidates(
-                    workspace_id=workspace_id,
-                )
-            except Exception as exc:
-                logger.warning(
-                    "Failed to fetch worker candidates for checkpoint: %s", _safe_error(exc)
-                )
-                errors.append({"stage": "worker_candidates", "error": _safe_error(exc)})
-            result["event_analysis"] = _build_event_analysis_report(
-                events,
-                worker_candidates,
-            )
-
-        return result
+        return await self._checkpoint_manager.build_result(
+            dry_run=dry_run,
+            trigger_reason=trigger_reason,
+            input_status=input_status,
+            since_minutes=since_minutes,
+            window_truncated=window_truncated,
+            collection_started_at=collection_started_at,
+            last_checkpoint=last_checkpoint,
+            events=events,
+            all_notes=all_notes,
+            candidates=candidates,
+            submitted=submitted,
+            workspace_id=workspace_id,
+            errors=errors,
+        )
 
     async def _finalize_checkpoint(
         self,
@@ -1421,32 +1123,18 @@ class MCPServer:
         warnings: list[str],
     ) -> dict[str, Any]:
         """记录水位、确定最终状态并附加 errors/warnings。"""
-        if (
-            not errors
-            and submitted
-            and not dry_run
-            and all(state in ("available", "empty") for state in input_status.values())
-        ):
-            try:
-                self.outbox.record_checkpoint(
-                    session_id,
-                    workspace_id,
-                    collection_started_at.isoformat(),
-                    event_session_id=event_session_id,
-                )
-            except Exception as exc:
-                errors.append({"stage": "watermark", "error": _safe_error(exc)})
-        if errors:
-            result["status"] = (
-                "error"
-                if all(state == "unavailable" for state in input_status.values())
-                else "partial"
-            )
-            result["errors"] = errors
-            result["error"] = "检查点未完整完成，请查看 errors；已提交的候选无需重复提交。"
-        if warnings:
-            result["warnings"] = warnings
-        return result
+        return await self._checkpoint_manager.finalize(
+            result,
+            session_id=session_id,
+            workspace_id=workspace_id,
+            event_session_id=event_session_id,
+            collection_started_at=collection_started_at,
+            input_status=input_status,
+            submitted=submitted,
+            dry_run=dry_run,
+            errors=errors,
+            warnings=warnings,
+        )
 
     async def _handle_memory_checkpoint(self, arguments: dict[str, Any]) -> dict[str, Any]:
         session_id = self.client.agent_session_id
