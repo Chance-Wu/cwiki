@@ -29,7 +29,7 @@ from packages.domain.config import settings
 from packages.domain.models import Memory, MemoryLifecycleEvent, MemoryRelation
 from packages.domain.schemas.memory import MemoryContent
 from packages.domain.task_queue import queue as task_queue
-from packages.memory.service import snapshot_and_advance
+from packages.memory.service import snapshot_and_advance, union_tags
 
 logger = logging.getLogger(__name__)
 
@@ -222,6 +222,7 @@ async def merge_memories_post(
         reason=f"Merged from memory {source.id}",
     )
     target.content = body.merged_content
+    target.tags = union_tags(target.tags, source.tags)
     target.embedding = None
 
     # 创建生命周期事件，包含合并元数据

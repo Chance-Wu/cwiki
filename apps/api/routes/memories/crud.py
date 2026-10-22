@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 from typing import Annotated, Any
 
 from fastapi import Depends, HTTPException, Query, status
-from sqlalchemy import String, func, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer
 
@@ -48,6 +48,7 @@ from packages.domain.schemas import (
 )
 from packages.domain.task_queue import queue as task_queue
 from packages.memory.service import snapshot_and_advance
+from packages.memory.tag_query import memory_has_tag
 from packages.memory.utility_aggregation import aggregate_utility_scores, latest_used_at
 from packages.retrieval.optimizer import optimize_memory
 
@@ -84,8 +85,7 @@ async def list_memories(
     if tags:
         tag_list = [t.strip().lower() for t in tags.split(",") if t.strip()]
         for tag in tag_list:
-            # SQLite JSON 查询：tags 以 JSON 数组存储，用 LIKE 匹配标签值
-            conditions.append(Memory.tags.cast(String).contains(f'"{tag}"'))
+            conditions.append(memory_has_tag(tag))
     stmt, count_stmt = apply_optional_filters(stmt, count_stmt, conditions)
 
     total, memories = await execute_paginated(

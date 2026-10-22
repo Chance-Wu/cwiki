@@ -24,7 +24,7 @@ from packages.domain.models.memory import (
     MemoryRelation,
 )
 from packages.domain.text_utils import format_memory_for_embedding
-from packages.memory.service import snapshot_and_advance
+from packages.memory.service import snapshot_and_advance, union_tags
 from packages.memory.similarity import HybridWeights, compute_similarity
 
 logger = logging.getLogger(__name__)
@@ -210,6 +210,7 @@ async def task_auto_consolidate_similar(ctx: dict[str, Any]) -> dict[str, Any]:
                 )
                 keeper_mem.content = merged_content
                 keeper_mem.embedding = None
+                merged_tags = list(keeper_mem.tags or [])
 
                 for sid in source_ids:
                     source_row = await db_session.execute(
@@ -219,6 +220,7 @@ async def task_auto_consolidate_similar(ctx: dict[str, Any]) -> dict[str, Any]:
                     if source_mem is None:
                         continue
 
+                    merged_tags.extend(source_mem.tags or [])
                     source_mem.status = "archived"
                     archived_sources.append(source_mem)
                     modified_keepers[keeper_id] = keeper_mem
@@ -239,6 +241,7 @@ async def task_auto_consolidate_similar(ctx: dict[str, Any]) -> dict[str, Any]:
 
                     auto_merged_count += 1
 
+                keeper_mem.tags = union_tags(merged_tags)
                 await db_session.flush()
 
         if auto_merged_count:

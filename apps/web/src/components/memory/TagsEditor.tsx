@@ -8,11 +8,12 @@ import { useTranslation } from '../../i18n/I18nProvider'
 interface Props {
   tags: string[]
   memoryId: string
+  workspaceId?: string
   onTagsChanged: () => void
   compact?: boolean
 }
 
-export default function TagsEditor({ tags, memoryId, onTagsChanged, compact }: Props) {
+export default function TagsEditor({ tags, memoryId, workspaceId, onTagsChanged, compact }: Props) {
   const { t } = useTranslation()
   const [editing, setEditing] = useState(false)
   const [currentTags, setCurrentTags] = useState<string[]>(Array.isArray(tags) ? tags : [])
@@ -28,14 +29,14 @@ export default function TagsEditor({ tags, memoryId, onTagsChanged, compact }: P
   useEffect(() => {
     if (editing) {
       api
-        .listTags()
+        .listTags(workspaceId)
         .then((res) => {
           setAvailableTags(res.tags?.map((t) => t.name) || [])
         })
         .catch(() => {})
       setTimeout(() => inputRef.current?.focus(), 50)
     }
-  }, [editing])
+  }, [editing, workspaceId])
 
   const handleAddTag = async (tag: string) => {
     const trimmed = tag.trim().toLowerCase()

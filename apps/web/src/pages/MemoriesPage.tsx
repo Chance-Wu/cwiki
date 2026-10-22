@@ -120,21 +120,37 @@ export default function MemoriesPage() {
   )
   const searchQuery = useSearch(deferredQuery.trim(), searchMode, {
     memoryType: typeFilter !== 'all' ? typeFilter : undefined,
+    tags: selectedTags,
   })
   const statsQuery = useMemoryStats()
   const workspacesQuery = useWorkspacesList()
 
-  // 标签列表
+  // 标签列表：与工作区/状态筛选保持一致，并清理已不存在的已选标签
   const [tagsList, setTagsList] = useState<{ name: string; count: number }[]>([])
   const refreshTagsList = useCallback(() => {
     api
-      .listTags()
-      .then((res) => setTagsList(res.tags || []))
+      .listTags(
+        workspaceFilter !== 'all' ? workspaceFilter : undefined,
+        statusFilter !== 'all' ? statusFilter : undefined,
+      )
+      .then((res) => {
+        setTagsList(res.tags || [])
+        const names = new Set((res.tags || []).map((tag) => tag.name))
+        setSelectedTags((prev) => {
+          const next = prev.filter((tag) => names.has(tag))
+          return next.length === prev.length ? prev : next
+        })
+      })
       .catch(() => {})
-  }, [])
+  }, [workspaceFilter, statusFilter])
   useEffect(() => {
     refreshTagsList()
   }, [refreshTagsList])
+
+  const handleTagsChanged = useCallback(() => {
+    refreshTagsList()
+    void memoriesQuery.refetch()
+  }, [refreshTagsList, memoriesQuery])
 
   // /v1/memories 返回 workspace_id（UUID），徽标展示需要名称——用工作区列表解析；
   // 解析不到时回退到 item 自带的 workspace 字段（搜索结果走此路径）
@@ -516,7 +532,7 @@ export default function MemoriesPage() {
         timeRange={timeRange}
         onTimeRangeChange={setTimeRange}
         tagsList={tagsList}
-        onTagsChanged={refreshTagsList}
+        onTagsChanged={handleTagsChanged}
         selectedTags={selectedTags}
         onSelectedTagsChange={(tags) => {
           setSelectedTags(tags)
@@ -683,7 +699,7 @@ export default function MemoriesPage() {
         <MemoryDetailModal
           memory={detailMemory}
           onClose={() => setDetailMemory(null)}
-          onMemoryUpdated={() => memoriesQuery.refetch()}
+          onMemoryUpdated={handleTagsChanged}
           onNavigateToMemory={async (id) => {
             try {
               const mem = await api.getMemoryDetail(id)

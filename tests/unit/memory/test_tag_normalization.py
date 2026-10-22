@@ -3,7 +3,7 @@
 验证标签在所有写入路径被统一处理：去空格、转小写、去重、过滤空串。
 """
 
-from packages.memory.service import normalize_tags
+from packages.memory.service import normalize_tags, union_tags
 
 
 class TestNormalizeTags:
@@ -36,3 +36,11 @@ class TestNormalizeTags:
     def test_dedup_keeps_first_occurrence(self):
         result = normalize_tags(["Python", "python", "PYTHON"])
         assert result == ["python"]
+
+
+class TestUnionTags:
+    def test_merges_multiple_lists_in_order(self):
+        assert union_tags(["a", "b"], ["b", "c"], None, []) == ["a", "b", "c"]
+
+    def test_normalizes_merged_lists(self):
+        assert union_tags(["Python"], [" python ", "FASTAPI"]) == ["python", "fastapi"]

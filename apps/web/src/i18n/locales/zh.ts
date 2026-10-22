@@ -351,6 +351,7 @@ const zh: TranslationKeys = {
     mergeDiffResult: '合并结果',
     mergeDiffNoChanges: '无变更',
     mergeDiffPending: '{n} 处待处理',
+    mergeDiffPendingUnit: '处待处理',
     mergeDiffAcceptLeft: '接受左侧',
     mergeDiffAcceptRight: '接受右侧',
     mergeDiffAcceptBoth: '接受两者',

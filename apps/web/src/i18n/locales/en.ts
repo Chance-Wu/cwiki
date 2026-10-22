@@ -352,6 +352,7 @@ const en = {
     mergeDiffResult: 'Merged Result',
     mergeDiffNoChanges: 'no changes',
     mergeDiffPending: '{n} pending',
+    mergeDiffPendingUnit: 'pending',
     mergeDiffAcceptLeft: 'Accept left',
     mergeDiffAcceptRight: 'Accept right',
     mergeDiffAcceptBoth: 'Accept both',

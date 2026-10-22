@@ -288,6 +288,7 @@ export default function MemoryDetailModal({
         <TagsEditor
           tags={Array.isArray(memory.tags) ? memory.tags : []}
           memoryId={memory.id}
+          workspaceId={memory.workspace ?? undefined}
           onTagsChanged={onMemoryUpdated}
           compact
         />

@@ -175,9 +175,9 @@ export default function MemoriesFilterPanel({
       {tagsList.length > 0 &&
         (() => {
           const hotTags = tagsList.filter((t) => t.count >= 2).slice(0, 8)
-          const coldTags = tagsList.filter((t) => t.count < 2 || !hotTags.includes(t))
-          const showMore = hotTags.length < tagsList.length && !showAllTags
-          const displayTags = showAllTags ? tagsList.filter((t) => t.count >= 2) : hotTags
+          const coldTags = tagsList.filter((t) => !hotTags.includes(t))
+          const showMore = coldTags.length > 0 && !showAllTags
+          const displayTags = showAllTags ? tagsList : hotTags
           return (
             <>
               <div className="flex flex-wrap items-center gap-1.5 mt-2.5">
@@ -251,7 +251,7 @@ export default function MemoriesFilterPanel({
                     +{coldTags.length} {t.memories.tagMore}
                   </button>
                 )}
-                {showAllTags && hotTags.length > 8 && (
+                {showAllTags && coldTags.length > 0 && (
                   <button
                     onClick={() => setShowAllTags(false)}
                     className="px-2 py-0.5 text-xs rounded-full border border-dashed border-[var(--border-default)] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:border-[var(--text-tertiary)] transition-colors"
@@ -276,6 +276,7 @@ export default function MemoriesFilterPanel({
                 <div className="mt-2">
                   <TagManagePanel
                     tags={tagsList}
+                    workspaceId={workspaceFilter !== 'all' ? workspaceFilter : undefined}
                     onTagsChanged={onTagsChanged}
                     onClose={() => setShowTagManage(false)}
                   />

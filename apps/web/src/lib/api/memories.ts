@@ -104,7 +104,7 @@ export const searchBM25 = (q: string, limit = 50) =>
 export const hybridSearch = (
   query: string,
   workspaceId: string,
-  opts?: { memory_type?: string; limit?: number; offset?: number },
+  opts?: { memory_type?: string; limit?: number; offset?: number; tags?: string[] },
 ) =>
   request<{ results: SearchResult[]; total: number; query: string; insufficient?: boolean }>(
     '/search',
@@ -241,9 +241,10 @@ export interface TagInfo {
   count: number
 }
 
-export const listTags = (workspaceId?: string) => {
+export const listTags = (workspaceId?: string, status?: string) => {
   const params = new URLSearchParams()
   if (workspaceId) params.set('workspace_id', workspaceId)
+  if (status) params.set('status', status)
   const qs = params.toString()
   return request<{ tags: TagInfo[]; total: number }>(`/tags${qs ? `?${qs}` : ''}`)
 }

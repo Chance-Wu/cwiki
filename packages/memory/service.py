@@ -37,6 +37,11 @@ def normalize_tags(tags: list[str] | None) -> list[str]:
     return result
 
 
+def union_tags(*tag_lists: list[str] | None) -> list[str]:
+    """合并多组标签并规范化，保持首次出现顺序。"""
+    return normalize_tags([tag for tags in tag_lists for tag in (tags or [])])
+
+
 # 判重阈值从全局配置读取，便于按部署调整
 SIMILARITY_THRESHOLD = settings.similarity_threshold
 

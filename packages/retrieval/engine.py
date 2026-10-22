@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 import numpy as np
-from sqlalchemy import String, func, or_, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.domain.config import settings
@@ -487,9 +487,10 @@ class RetrievalEngine:
         if params.min_confidence is not None:
             stmt = stmt.where(Memory.confidence >= params.min_confidence)
         if params.tags:
+            from packages.memory.tag_query import memory_has_tag
+
             for tag in params.tags:
-                tag_pattern = '"' + tag + '"'
-                stmt = stmt.where(Memory.tags.cast(String).contains(tag_pattern))
+                stmt = stmt.where(memory_has_tag(tag))
         result = await params.db.execute(
             stmt.order_by(Memory.importance.desc()).limit(params.top_k)
         )

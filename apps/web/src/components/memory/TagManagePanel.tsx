@@ -7,13 +7,14 @@ import { useToast } from '../Toast'
 
 interface Props {
   tags: TagInfo[]
+  workspaceId?: string
   onTagsChanged: () => void
   onClose: () => void
 }
 
 type Mode = 'idle' | 'rename' | 'merge' | 'delete'
 
-export default function TagManagePanel({ tags, onTagsChanged, onClose }: Props) {
+export default function TagManagePanel({ tags, workspaceId, onTagsChanged, onClose }: Props) {
   const { t } = useTranslation()
   const { toast } = useToast()
   const [mode, setMode] = useState<Mode>('idle')
@@ -35,7 +36,7 @@ export default function TagManagePanel({ tags, onTagsChanged, onClose }: Props) 
     if (!selectedTag || !newName.trim()) return
     setLoading(true)
     try {
-      const res = await api.renameTag(selectedTag, newName.trim())
+      const res = await api.renameTag(selectedTag, newName.trim(), workspaceId)
       toast(t.memories.tagRenamed + ` (${res.updated_count})`, 'success')
       onTagsChanged()
       resetForm()
@@ -50,7 +51,7 @@ export default function TagManagePanel({ tags, onTagsChanged, onClose }: Props) 
     if (mergeSources.length < 2 || !mergeTarget.trim()) return
     setLoading(true)
     try {
-      const res = await api.mergeTags(mergeSources, mergeTarget.trim())
+      const res = await api.mergeTags(mergeSources, mergeTarget.trim(), workspaceId)
       toast(t.memories.tagMerged + ` (${res.updated_count})`, 'success')
       onTagsChanged()
       resetForm()
@@ -65,7 +66,7 @@ export default function TagManagePanel({ tags, onTagsChanged, onClose }: Props) 
     if (!selectedTag) return
     setLoading(true)
     try {
-      const res = await api.deleteTag(selectedTag)
+      const res = await api.deleteTag(selectedTag, workspaceId)
       toast(t.memories.tagDeleted + ` (${res.updated_count})`, 'success')
       onTagsChanged()
       resetForm()
