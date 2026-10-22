@@ -2182,7 +2182,7 @@ class TestAutoConsolidateSimilar:
             config_module.parasitic_evolution_config.auto_consolidate_enabled = original
 
     async def test_finds_similar_group(self):
-        from unittest.mock import MagicMock, patch
+        from unittest.mock import AsyncMock, MagicMock, patch
 
         import packages.domain.config as config_module
         from apps.worker.tasks import task_auto_consolidate_similar
@@ -2221,8 +2221,46 @@ class TestAutoConsolidateSimilar:
             mock_session_ctx.__aenter__ = AsyncMock(return_value=mock_session)
             mock_session_ctx.__aexit__ = AsyncMock(return_value=False)
 
-            with patch(
-                "apps.worker.tasks.consolidate.async_session_maker", return_value=mock_session_ctx
+            # Mock BM25 index to return mem1 and mem2 as candidates for each other
+            mock_bm25 = MagicMock()
+
+            def bm25_search_side_effect(query, top_k=10):
+                # Return similar memories based on query content
+                if "Python" in query and "FastAPI" in query:
+                    # For mem1 and mem2, return each other as candidates
+                    return [(str(mem1.id), 0.9), (str(mem2.id), 0.9)]
+                else:
+                    # For mem3, return only itself (no similar memories)
+                    return [(str(mem3.id), 0.5)]
+
+            mock_bm25.search.side_effect = bm25_search_side_effect
+
+            mock_engine = MagicMock()
+            mock_engine.get_bm25_index = AsyncMock(return_value=mock_bm25)
+
+            # Mock compute_similarity to return high similarity for mem1 and mem2
+            async def mock_compute_similarity(data_i, data_j, strategy="hybrid", weights=None):
+                content_i = data_i.get("content", "")
+                content_j = data_j.get("content", "")
+                # mem1 and mem2 have very similar content
+                if ("Python" in content_i and "FastAPI" in content_i and
+                    "Python" in content_j and "FastAPI" in content_j):
+                    return 0.95  # High similarity
+                return 0.3  # Low similarity for others
+
+            with (
+                patch(
+                    "apps.worker.tasks.consolidate.async_session_maker",
+                    return_value=mock_session_ctx,
+                ),
+                patch(
+                    "packages.retrieval.engine.get_retrieval_engine",
+                    return_value=mock_engine,
+                ),
+                patch(
+                    "apps.worker.tasks.consolidate.compute_similarity",
+                    side_effect=mock_compute_similarity,
+                ),
             ):
                 result = await task_auto_consolidate_similar({})
 
@@ -2237,7 +2275,7 @@ class TestAutoConsolidateSimilar:
             config_module.parasitic_evolution_config.auto_consolidate_enabled = original
 
     async def test_no_similar_memories_returns_empty(self):
-        from unittest.mock import MagicMock, patch
+        from unittest.mock import AsyncMock, MagicMock, patch
 
         import packages.domain.config as config_module
         from apps.worker.tasks import task_auto_consolidate_similar
@@ -2269,8 +2307,30 @@ class TestAutoConsolidateSimilar:
             mock_session_ctx.__aenter__ = AsyncMock(return_value=mock_session)
             mock_session_ctx.__aexit__ = AsyncMock(return_value=False)
 
-            with patch(
-                "apps.worker.tasks.consolidate.async_session_maker", return_value=mock_session_ctx
+            # Mock BM25 to return no similar candidates
+            mock_bm25 = MagicMock()
+            mock_bm25.search.return_value = []
+
+            mock_engine = MagicMock()
+            mock_engine.get_bm25_index = AsyncMock(return_value=mock_bm25)
+
+            # Mock compute_similarity to return low similarity
+            async def mock_compute_similarity(data_i, data_j, strategy="hybrid", weights=None):
+                return 0.2
+
+            with (
+                patch(
+                    "apps.worker.tasks.consolidate.async_session_maker",
+                    return_value=mock_session_ctx,
+                ),
+                patch(
+                    "packages.retrieval.engine.get_retrieval_engine",
+                    return_value=mock_engine,
+                ),
+                patch(
+                    "apps.worker.tasks.consolidate.compute_similarity",
+                    side_effect=mock_compute_similarity,
+                ),
             ):
                 result = await task_auto_consolidate_similar({})
 
@@ -2315,7 +2375,7 @@ class TestAutoConsolidateSimilar:
             config_module.parasitic_evolution_config.auto_consolidate_enabled = original
 
     async def test_recommends_highest_quality_keeper(self):
-        from unittest.mock import MagicMock, patch
+        from unittest.mock import AsyncMock, MagicMock, patch
 
         import packages.domain.config as config_module
         from apps.worker.tasks import task_auto_consolidate_similar
@@ -2351,8 +2411,34 @@ class TestAutoConsolidateSimilar:
             mock_session_ctx.__aenter__ = AsyncMock(return_value=mock_session)
             mock_session_ctx.__aexit__ = AsyncMock(return_value=False)
 
-            with patch(
-                "apps.worker.tasks.consolidate.async_session_maker", return_value=mock_session_ctx
+            # Mock BM25 to return both memories as candidates
+            mock_bm25 = MagicMock()
+
+            def bm25_search_side_effect(query, top_k=10):
+                return [(str(mem_low.id), 0.9), (str(mem_high.id), 0.9)]
+
+            mock_bm25.search.side_effect = bm25_search_side_effect
+
+            mock_engine = MagicMock()
+            mock_engine.get_bm25_index = AsyncMock(return_value=mock_bm25)
+
+            # Mock compute_similarity to return high similarity
+            async def mock_compute_similarity(data_i, data_j, strategy="hybrid", weights=None):
+                return 0.95
+
+            with (
+                patch(
+                    "apps.worker.tasks.consolidate.async_session_maker",
+                    return_value=mock_session_ctx,
+                ),
+                patch(
+                    "packages.retrieval.engine.get_retrieval_engine",
+                    return_value=mock_engine,
+                ),
+                patch(
+                    "apps.worker.tasks.consolidate.compute_similarity",
+                    side_effect=mock_compute_similarity,
+                ),
             ):
                 result = await task_auto_consolidate_similar({})
 
