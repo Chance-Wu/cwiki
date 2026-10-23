@@ -2,10 +2,12 @@ import { memo } from 'react'
 import { CheckCircle, AlertTriangle, XCircle } from 'lucide-react'
 import { useTranslation } from '../../i18n/I18nProvider'
 import { useHealthSummary } from '../../hooks/useMemories'
+import { useHealth } from '../../hooks/useSettings'
 
 function HealthCard() {
   const { t } = useTranslation()
   const { data, isLoading } = useHealthSummary()
+  const { data: health } = useHealth()
 
   if (isLoading || !data) return null
 
@@ -67,6 +69,12 @@ function HealthCard() {
             <XCircle size={10} className="text-danger" />
             {distribution.suspicious}
           </span>
+          {health?.version && (
+            <>
+              <span className="opacity-40">·</span>
+              <span className="font-mono">v{health.version}</span>
+            </>
+          )}
         </div>
       </div>
       <div className="h-6 w-px bg-[var(--border-default)]" aria-hidden="true" />

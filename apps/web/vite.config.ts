@@ -14,9 +14,6 @@ export default defineConfig({
       // Windows 上 chokidar 监听其中的 .tmp 文件会抛 EBUSY 并让 dev server 整体崩溃。
       ignored: ['**/.*.tmpdir/**', '**/*.tmp', '**/.~*', '**/node_modules/**', '**/dist/**'],
     },
-    proxy: {
-      '/v1': 'http://127.0.0.1:5172',
-    },
   },
   // 生产预览：日常浏览用（tasks.py preview），内存占用约为 dev 模式一半
   preview: {

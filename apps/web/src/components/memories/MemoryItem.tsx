@@ -150,6 +150,12 @@ const MemoryItem = memo(function MemoryItem({
                   </svg>
                 </span>
               )}
+              <span
+                className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono font-medium tabular-nums bg-brand-50 text-brand-600 border border-brand-100"
+                title={`版本 ${m.version}`}
+              >
+                v{m.version}
+              </span>
               {m.confidence != null && (
                 <span className="text-xs text-[var(--text-tertiary)] tabular-nums font-medium">
                   {Math.round((m.confidence || 0) * 100)}%

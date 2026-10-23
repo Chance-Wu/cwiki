@@ -1,4 +1,6 @@
-export const API_BASE = import.meta.env.VITE_API_BASE ?? '/v1'
+// 开发模式直连本机后端，不依赖 Vite 代理；构建/预览仍走相对路径
+export const API_BASE =
+  import.meta.env.VITE_API_BASE ?? (import.meta.env.DEV ? 'http://127.0.0.1:5172/v1' : '/v1')
 
 /**
  * Bearer token 的 localStorage 键：服务端启用 app.auth_token 后，在浏览器
