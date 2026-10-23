@@ -54,7 +54,7 @@ MCP 服务器以 stdio 方式运行 `python -m adapters.qoder.mcp_server`。最�
 | `env.CWIKI_WORKSPACE` | 否 | 默认工作区，默认 `default` |
 | `env.CWIKI_TIMEOUT` | 否 | API 请求超时秒数，默认 `10.0` |
 
-Qoder 用户的推荐做法仍是 `python scripts/setup.py`：它会修补插件缓存中的 `.mcp.json`（注入 venv python、`cwd`、`PYTHONPATH`），并在全局 `~/.qoder/mcp.json` 注入兜底条目。配置改动后需**完全重启宿主**——插件 MCP 服务器列表只在宿主启动时读取。
+Qoder 用户的推荐做法仍是 `python scripts/setup.py`：它把 cwiki 写入全局 `~/.qoder/settings.json`（Qoder App 实际加载的全局配置），并维护全局 `~/.qoder/mcp.json` 作为 CLI 兜底；插件只提供 hooks/skills，不再声明 MCP。配置改动后需**完全重启宿主**——MCP 服务器列表只在宿主启动时读取。
 
 19 个工具的完整契约（参数、默认值、严格 schema）见 [MCP 工具参考](../adapters/qoder/README.md#mcp-tools)；写入契约（语义原样保存、类型仅分类）见[记忆系统](memory-system.md#写入契约)。
 
@@ -66,7 +66,7 @@ Qoder 用户的推荐做法仍是 `python scripts/setup.py`：它会修补插件
 
 | 能力 | 入口 | 说明 |
 |---|---|---|
-| MCP | `python -m adapters.mcp` | 与 Qoder 共用同一套工具；env 设置 `CWIKI_WORKSPACE` 绑定项目 |
+| MCP | `python -m adapters.mcp` | 与 Qoder 共用同一套工具；用户级全局配置，不绑定项目；工作区归属由运行期 hooks / 目录推导决定 |
 | Hook | `python -m adapters.hooks <host> <event>` | `host`：`qoder` / `claude` / `cursor`；事件见下表 |
 | 捕获 | `POST /v1/integrations/agent/capture` | 任意语言/脚本可直接提交 compact summary、工具失败、会话结束 |
 
@@ -80,16 +80,18 @@ Hook 事件与宿主能力：
 | `post-tool-failure` | ✅ 捕获脱敏错误 | ✅ |
 | `session-end` | ✅ 结束会话 + 补投 | ✅ |
 
+> Cursor 的 hooks 与 rules 只有项目级入口，安装器不再写入；需要时请手动在项目内配置 `.cursor/hooks.json` 与 `.cursor/rules/cwiki.mdc`。
+
 安装器（推荐，先 dry-run 检查将写入的文件）：
 
 ```bash
-python tasks.py setup-agent --host claude --project /path/to/project --dry-run
-python tasks.py setup-agent --host claude --project /path/to/project
-python tasks.py setup-agent --host cursor --project /path/to/project
-python tasks.py setup-agent --host codex  --project /path/to/project
+python tasks.py setup-agent --host claude --dry-run
+python tasks.py setup-agent --host claude
+python tasks.py setup-agent --host cursor
+python tasks.py setup-agent --host codex
 ```
 
-安装器只管理 `cwiki` 配置条目与 `<!-- cwiki:begin -->` 区块，保留用户已有 hooks/MCP/指令；Claude 写 `~/.claude/settings.json` + 项目 `.mcp.json`，Cursor 写项目 `.cursor/{mcp,hooks}.json` 与 `.cursor/rules/cwiki.mdc`，Codex 写 `~/.codex/config.toml` 的托管块与 `AGENTS.md`。
+安装器只管理 `cwiki` 配置条目与 `<!-- cwiki:begin -->` 区块，保留用户已有 hooks/MCP/指令；MCP 一律注册到用户级配置，不写项目文件：Claude 写 `~/.claude.json`（hooks/指令/skill 写在 `~/.claude/`），Cursor 写 `~/.cursor/mcp.json`，Codex 写 `~/.codex/config.toml` 的托管块与 `AGENTS.md`/skills。
 
 #### 最小配置模板（Claude Code / Cursor / Codex）
 
@@ -102,10 +104,8 @@ Claude Code 与 Cursor 使用 JSON 的 `mcpServers` 结构，区别只在文件�
       "type": "stdio",
       "command": "/绝对路径/到/venv 的 python",
       "args": ["-m", "adapters.mcp"],
-      "cwd": "/cwiki 项目根目录绝对路径",
       "env": {
         "PYTHONPATH": "/cwiki 项目根目录绝对路径",
-        "CWIKI_WORKSPACE": "你的项目名",
         "CWIKI_HOST": "claude"
       }
     }
@@ -113,19 +113,18 @@ Claude Code 与 Cursor 使用 JSON 的 `mcpServers` 结构，区别只在文件�
 }
 ```
 
-- Claude Code：项目根目录 `.mcp.json`；hooks 由安装器写入 `~/.claude/settings.json`。
-- Cursor：项目根目录 `.cursor/mcp.json`；hooks 写入 `.cursor/hooks.json`，规则写入 `.cursor/rules/cwiki.mdc`。
+- Claude Code：用户级 `~/.claude.json`；hooks 写入 `~/.claude/settings.json`，指令与 skill 也在 `~/.claude/`。
+- Cursor：用户级 `~/.cursor/mcp.json`。Cursor 的 hooks/rules 只有项目级入口，安装器不再写入；需要时请手动在项目内配置。
 - Codex 使用 TOML，写入 `~/.codex/config.toml`：
 
 ```toml
 [mcp_servers.cwiki]
 command = "/绝对路径/到/venv 的 python"
 args = ["-m", "adapters.mcp"]
-cwd = "/cwiki 项目根目录绝对路径"
-env = { PYTHONPATH = "/cwiki 项目根目录绝对路径", CWIKI_WORKSPACE = "你的项目名", CWIKI_HOST = "codex" }
+env = { PYTHONPATH = "/cwiki 项目根目录绝对路径", CWIKI_HOST = "codex" }
 ```
 
-`CWIKI_API_URL`（默认 `http://127.0.0.1:5172`）、`CWIKI_TIMEOUT`（默认 `10.0`）可选。推荐直接运行 `python tasks.py setup-agent --host <claude|cursor|codex> --project <项目路径>` 自动生成上述配置并合并 hooks/指令。
+全局 MCP 不绑定项目或工作区：归属由运行期 hooks / MCP 实时解析（`CWIKI_API_URL`、`CWIKI_TIMEOUT` 仍可选）。推荐直接运行 `python tasks.py setup-agent --host <claude|cursor|codex>` 自动生成上述配置并合并 hooks/指令。
 
 ### 2.1.1 DeepSeek Harness（dsh）
 
@@ -161,7 +160,7 @@ python tasks.py import-qoder-memory --since-days 30 --apply
 
 导入保留 Markdown 全文与标题，按 `Related files` 推断项目 workspace；无关联文件的进入 `qoder-auto`，由人工整理。
 
-Codex 当前以 MCP + `AGENTS.md` + `~/.codex/skills` 为主，不假设 hooks；无 hooks 时记忆仍可通过 `memory_search` / `memory_save` 使用。具体配置文件位置以各宿主官方文档为准。
+Codex 当前以全局 MCP + `AGENTS.md` + `~/.codex/skills` 为主，不假设 hooks；全局 MCP 不绑定工作区，归属依赖运行期目录/roots 解析。具体配置文件位置以各宿主官方文档为准。
 
 ## 3. HTTP API 直连
 

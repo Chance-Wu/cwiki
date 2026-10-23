@@ -9,81 +9,44 @@ import pytest
 from scripts import setup
 
 
-def test_remove_settings_mcp_preserves_other_servers() -> None:
-    other_server = {"command": "other-mcp"}
-    settings = {
-        "mcpServers": {"cwiki": {"env": {"CWIKI_AGENT_TOKEN": "secret"}}, "other": other_server},
-        "custom": True,
-    }
-    setup.remove_settings_mcp(settings, "qoder")
-    assert settings["mcpServers"] == {"other": other_server}
-    assert settings["custom"] is True
-    assert "CWIKI_AGENT_TOKEN" not in json.dumps(settings)
-
-
-def test_remove_settings_mcp_deletes_empty_mcp_servers() -> None:
-    settings = {"mcpServers": {"cwiki": {"command": "python"}}, "custom": True}
-    setup.remove_settings_mcp(settings, "qoder")
-    assert "mcpServers" not in settings
-    assert settings["custom"] is True
-
-
-def test_patch_plugin_mcp_injects_cwd_and_pythonpath(
+def test_ensure_settings_mcp_injects_and_preserves_other_servers(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    plugin_cache = (
-        tmp_path / "plugins" / "cache" / "local" / setup.PLUGIN_NAME / setup.plugin_version()
-    )
-    plugin_cache.mkdir(parents=True)
-    mcp_json = plugin_cache / ".mcp.json"
-    mcp_json.write_text(
-        json.dumps({"mcpServers": {"cwiki": {"args": ["-m", setup.MCP_MODULE]}}}),
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / ".mcp.json").write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    "cwiki": {
+                        "type": "stdio",
+                        "args": ["-m", setup.MCP_MODULE],
+                        "env": {"CWIKI_HOST": "qoder"},
+                    }
+                }
+            }
+        ),
         encoding="utf-8",
     )
     root = tmp_path / "中文 项目"
     root.mkdir()
-    monkeypatch.setattr(setup, "PLUGINS_DIR", tmp_path / "plugins")
+    monkeypatch.setattr(setup, "PLUGIN_SOURCE_DIR", source)
     monkeypatch.setattr(setup, "PROJECT_ROOT", root)
 
-    setup.patch_plugin_mcp("qoder")
+    settings: dict[str, Any] = {
+        "mcpServers": {"other": {"command": "other-mcp"}},
+        "custom": True,
+    }
+    setup.ensure_settings_mcp(settings, "qoder")
 
-    server = json.loads(mcp_json.read_text(encoding="utf-8"))["mcpServers"]["cwiki"]
+    assert settings["custom"] is True
+    assert settings["mcpServers"]["other"] == {"command": "other-mcp"}
+    server = settings["mcpServers"]["cwiki"]
     assert server["command"] == setup.sys.executable
     assert server["cwd"] == str(root)
     assert server["env"]["PYTHONPATH"] == str(root)
+    assert server["env"]["CWIKI_HOST"] == "qoder"
     assert server["args"] == ["-m", setup.MCP_MODULE]
-
-
-def test_patch_plugin_mcp_skips_missing_cache(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    monkeypatch.setattr(setup, "PLUGINS_DIR", tmp_path / "plugins")
-    setup.patch_plugin_mcp("qoder")
-    assert "跳过修补" in capsys.readouterr().out
-
-
-def test_patch_plugin_mcp_derives_cache_version_from_plugin_json(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    source = tmp_path / "source"
-    (source / ".qoder-plugin").mkdir(parents=True)
-    (source / ".qoder-plugin" / "plugin.json").write_text(
-        json.dumps({"name": setup.PLUGIN_NAME, "version": "9.9.9"}),
-        encoding="utf-8",
-    )
-    monkeypatch.setattr(setup, "PLUGIN_SOURCE_DIR", source)
-    plugins = tmp_path / "plugins"
-    plugin_cache = plugins / "cache" / "local" / setup.PLUGIN_NAME / "9.9.9"
-    plugin_cache.mkdir(parents=True)
-    mcp_json = plugin_cache / ".mcp.json"
-    mcp_json.write_text(json.dumps({"mcpServers": {"cwiki": {}}}), encoding="utf-8")
-    monkeypatch.setattr(setup, "PLUGINS_DIR", plugins)
-    monkeypatch.setattr(setup, "PROJECT_ROOT", tmp_path / "root")
-
-    setup.patch_plugin_mcp("qoder")
-
-    server = json.loads(mcp_json.read_text(encoding="utf-8"))["mcpServers"]["cwiki"]
-    assert server["command"] == setup.sys.executable
 
 
 def test_ensure_global_mcp_json_injects_and_preserves_other_servers(
@@ -445,38 +408,6 @@ def test_sync_plugin_cache_refreshes_stale_hooks_snapshot(
     capsys.readouterr()
     setup.sync_plugin_cache("qoder")
     assert "已是最新" in capsys.readouterr().out
-
-
-def test_sync_plugin_cache_keeps_user_added_mcp_env(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """缓存中带额外 env（如 CWIKI_WORKSPACE 项目绑定）→ 规范化后与模板不一致会被刷新。
-
-    这是配置项同步的代价：patch 注入可再生，用户手动加的 env 键不可再生——
-    因此模板即权威，setup --project 负责重新写入项目绑定。
-    本测试锁定该语义：额外键被模板覆盖。
-    """
-    cache = _write_sync_source(tmp_path, monkeypatch)
-    cache.mkdir(parents=True, exist_ok=True)
-    (cache / ".mcp.json").write_text(
-        json.dumps(
-            {
-                "mcpServers": {
-                    "cwiki": {
-                        "type": "stdio",
-                        "args": ["-m", "adapters.qoder.mcp_server"],
-                        "env": {"CWIKI_HOST": "qoder", "CWIKI_WORKSPACE": "manual-ws"},
-                        "command": "python",
-                    }
-                }
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    setup.sync_plugin_cache("qoder")
-
-    assert "CWIKI_WORKSPACE" not in (cache / ".mcp.json").read_text(encoding="utf-8")
 
 
 def test_sync_plugin_cache_repeat_run_reports_up_to_date(
@@ -1023,7 +954,6 @@ def test_sync_instructions_mode_syncs_plugin_content_without_database(
         patch.object(setup, "ensure_skill") as skill,
         patch.object(setup, "ensure_plugin_installed") as install,
         patch.object(setup, "sync_plugin_cache") as sync_cache,
-        patch.object(setup, "patch_plugin_mcp") as patch_mcp,
         patch.object(setup, "patch_plugin_hooks") as patch_hooks,
         patch.object(setup, "init_db") as database,
     ):
@@ -1032,7 +962,6 @@ def test_sync_instructions_mode_syncs_plugin_content_without_database(
     skill.assert_called_once_with("qoder")
     install.assert_called_once_with("qoder")
     sync_cache.assert_called_once_with("qoder")
-    patch_mcp.assert_called_once_with("qoder")
     patch_hooks.assert_called_once_with("qoder")
     database.assert_not_called()
     # 全局 mcp.json 必须写入隔离的 config_dir，而不是真实 ~/.qoder
@@ -1043,11 +972,16 @@ def test_sync_instructions_mode_syncs_plugin_content_without_database(
     assert server["env"]["PYTHONPATH"] == str(tmp_path)
     if settings_exist:
         synced = json.loads(settings_file.read_text(encoding="utf-8"))
-        assert "mcpServers" not in synced
+        server = synced["mcpServers"]["cwiki"]
+        assert server["command"] == setup.sys.executable
+        assert server["cwd"] == str(tmp_path)
+        assert server["env"]["PYTHONPATH"] == str(tmp_path)
         assert synced["enabledPlugins"] == {"cwiki-qoder@local": True, "other-plugin": True}
         assert synced["custom"] == "preserved"
     else:
-        assert not settings_file.exists()
+        assert settings_file.exists()
+        synced = json.loads(settings_file.read_text(encoding="utf-8"))
+        assert "cwiki" in synced["mcpServers"]
 
 
 @pytest.mark.parametrize("settings_content", ["not json", "[]", "null", '{"mcpServers": null}'])
@@ -1206,7 +1140,18 @@ def doctor_environment(
     installed.write_bytes((source_dir / "SKILL.md").read_bytes())
     settings_file = agents_md_path.parent / "settings.json"
     settings_file.write_text(
-        json.dumps({"enabledPlugins": {f"{setup.PLUGIN_NAME}@local": True}}), encoding="utf-8"
+        json.dumps(
+            {
+                "enabledPlugins": {f"{setup.PLUGIN_NAME}@local": True},
+                "mcpServers": {
+                    "cwiki": {
+                        "command": setup.sys.executable,
+                        "args": ["-m", setup.MCP_MODULE],
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
     )
     monkeypatch.setitem(setup.AGENTS["qoder"], "settings_file", settings_file)
     plugin_cache = (
@@ -1293,19 +1238,13 @@ def test_check_installation_reports_discovery_probe(
 def test_check_installation_skips_probe_when_command_unavailable(
     doctor_environment: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    plugin_cache = (
-        tmp_path / "plugins" / "cache" / "local" / setup.PLUGIN_NAME / setup.plugin_version()
-    )
-    (plugin_cache / ".mcp.json").write_text(
-        json.dumps(
-            {
-                "mcpServers": {
-                    "cwiki": {"command": "missing-python-x", "args": ["-m", setup.MCP_MODULE]}
-                }
-            }
-        ),
-        encoding="utf-8",
-    )
+    settings_file = setup.AGENTS["qoder"]["settings_file"]
+    settings = json.loads(settings_file.read_text(encoding="utf-8"))
+    settings["mcpServers"]["cwiki"] = {
+        "command": "missing-python-x",
+        "args": ["-m", setup.MCP_MODULE],
+    }
+    settings_file.write_text(json.dumps(settings), encoding="utf-8")
     with patch.object(setup, "probe_mcp_discovery") as probe:
         report = setup.check_installation("qoder")
 

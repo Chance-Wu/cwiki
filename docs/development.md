@@ -216,10 +216,10 @@ python tasks.py preview            # 前端生产模式（构建 + :4173，日�
 
 ```bash
 python tasks.py setup-dsh --project /path/to/project        # DeepSeek Harness
-python tasks.py setup-agent --host claude --project /path/to/project --dry-run
-python tasks.py setup-agent --host claude --project /path/to/project
-python tasks.py setup-agent --host cursor --project /path/to/project
-python tasks.py setup-agent --host codex  --project /path/to/project
+python tasks.py setup-agent --host claude --dry-run
+python tasks.py setup-agent --host claude
+python tasks.py setup-agent --host cursor
+python tasks.py setup-agent --host codex
 python tasks.py import-qoder-memory --since-days 30          # dry-run
 python tasks.py import-qoder-memory --since-days 30 --apply  # 写入待整理
 ```

@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
-"""为 Qoder 之外的常用 Agent 写入 cwiki 接入配置。
+"""为 Qoder 之外的常用 Agent 注册全局 cwiki 接入配置。
 
 用法：
-    python scripts/setup_agent.py --host claude --project /path/to/project
-    python scripts/setup_agent.py --host cursor --project /path/to/project
-    python scripts/setup_agent.py --host codex  --project /path/to/project
-    python scripts/setup_agent.py --host claude --project ... --dry-run
+    python scripts/setup_agent.py --host claude
+    python scripts/setup_agent.py --host cursor
+    python scripts/setup_agent.py --host codex
+    python scripts/setup_agent.py --host claude --dry-run
 
 原则：只管理 ``<!-- cwiki:begin -->`` 区块与 ``cwiki`` 配置条目，
 保留用户已有内容；JSON 解析失败/冲突时中止该宿主，不覆盖文件。
+MCP 一律注册到宿主用户级配置，不写项目级文件；工作区归属由运行期
+（hooks / MCP 实时解析）决定。
 """
 
 from __future__ import annotations
@@ -37,7 +39,10 @@ ensure_venv_interpreter(ROOT)
 
 
 def _command(host: str, event: str) -> str:
-    exe = f'"{sys.executable}"' if " " in sys.executable else sys.executable
+    # 宿主可能经 shell 执行 hook：Windows 反斜杠会被 bash 吞掉，统一正斜杠
+    exe = sys.executable.replace("\\", "/")
+    if " " in exe:
+        exe = f'"{exe}"'
     return f"{exe} -m adapters.hooks {host} {event}"
 
 
@@ -45,17 +50,15 @@ def _hook_env() -> dict[str, str]:
     return {"PYTHONPATH": str(ROOT)}
 
 
-def _mcp_server(workspace: str, host: str) -> dict[str, Any]:
+def _mcp_server(host: str) -> dict[str, Any]:
+    """全局 MCP 条目：不绑定项目与工作区，归属由运行期解析。"""
     return {
         "type": "stdio",
         "command": sys.executable,
         "args": ["-m", "adapters.mcp"],
-        "cwd": str(ROOT),
         "env": {
             "PYTHONPATH": str(ROOT),
-            "CWIKI_WORKSPACE": workspace,
             "CWIKI_HOST": host,
-            "CWIKI_WORKSPACE_DIR": str(Path.cwd()),
         },
     }
 
@@ -132,7 +135,7 @@ def _merge_event(
     return kept
 
 
-def install_claude(project: Path, home: Path, workspace: str, dry_run: bool) -> None:
+def install_claude(home: Path, dry_run: bool) -> None:
     settings_path = home / ".claude" / "settings.json"
     settings = _read_json(settings_path)
     hooks = settings.setdefault("hooks", {})
@@ -166,58 +169,35 @@ def install_claude(project: Path, home: Path, workspace: str, dry_run: bool) -> 
         )
     _write_json(settings_path, settings, dry_run)
 
-    mcp_path = project / ".mcp.json"
+    # Claude Code 用户级 MCP 配置位于 ~/.claude.json
+    mcp_path = home / ".claude.json"
     mcp = _read_json(mcp_path)
-    mcp.setdefault("mcpServers", {})["cwiki"] = _mcp_server(workspace, "claude")
+    mcp.setdefault("mcpServers", {})["cwiki"] = _mcp_server("claude")
     _write_json(mcp_path, mcp, dry_run)
 
     _merge_instructions(home / ".claude" / "CLAUDE.md", TEMPLATE.read_text("utf-8"), dry_run)
     _install_skill(ROOT / "skills" / "cwiki-save", home / ".claude" / "skills", dry_run)
 
 
-def install_cursor(project: Path, home: Path, workspace: str, dry_run: bool) -> None:
-    mcp_path = project / ".cursor" / "mcp.json"
+def install_cursor(home: Path, dry_run: bool) -> None:
+    """Cursor 用户级 MCP 配置（~/.cursor/mcp.json）。
+
+    Cursor 的 hooks 与 rules 只有项目级入口，故不再写入；工作区归属由运行期
+    （MCP roots / 目录推导）决定，需要 hooks 时请手动在项目内配置。
+    """
+    mcp_path = home / ".cursor" / "mcp.json"
     mcp = _read_json(mcp_path)
-    mcp.setdefault("mcpServers", {})["cwiki"] = _mcp_server(workspace, "cursor")
+    mcp.setdefault("mcpServers", {})["cwiki"] = _mcp_server("cursor")
     _write_json(mcp_path, mcp, dry_run)
 
-    hooks_path = project / ".cursor" / "hooks.json"
-    hooks = _read_json(hooks_path)
-    hooks["version"] = 1
-    event_map = hooks.setdefault("hooks", {})
-    for event, command in (
-        ("sessionStart", "session-start"),
-        ("postToolUseFailure", "post-tool-use-failure"),
-        ("sessionEnd", "session-end"),
-    ):
-        addition = {"command": _command("cursor", command), "timeout": 10}
-        existing = event_map.get(event)
-        entries = existing if isinstance(existing, list) else []
-        marker = "adapters.hooks cursor"
-        kept = [entry for entry in entries if marker not in str(entry.get("command", ""))]
-        kept.append(addition)
-        event_map[event] = kept
-    _write_json(hooks_path, hooks, dry_run)
 
-    rule = TEMPLATE.read_text("utf-8").strip()
-    rule_path = project / ".cursor" / "rules" / "cwiki.mdc"
-    content = f"---\ndescription: cwiki memory\nglobs: ['**/*']\nalwaysApply: true\n---\n\n{rule}\n"
-    if dry_run:
-        print(f"[dry-run] write {rule_path}")
-        print(content)
-    else:
-        rule_path.parent.mkdir(parents=True, exist_ok=True)
-        rule_path.write_text(content, encoding="utf-8")
-
-
-def install_codex(project: Path, home: Path, workspace: str, dry_run: bool) -> None:
+def install_codex(home: Path, dry_run: bool) -> None:
     config = home / ".codex" / "config.toml"
     block = f"""# cwiki:begin
 [mcp_servers.cwiki]
 command = {json.dumps(sys.executable)}
 args = ["-m", "adapters.mcp"]
-cwd = {json.dumps(str(ROOT))}
-env = {{ PYTHONPATH = {json.dumps(str(ROOT))}, CWIKI_WORKSPACE = {json.dumps(workspace)}, CWIKI_HOST = "codex" }}
+env = {{ PYTHONPATH = {json.dumps(str(ROOT))}, CWIKI_HOST = "codex" }}
 # cwiki:end
 """
     existing = config.read_text(encoding="utf-8") if config.exists() else ""
@@ -243,22 +223,18 @@ env = {{ PYTHONPATH = {json.dumps(str(ROOT))}, CWIKI_WORKSPACE = {json.dumps(wor
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--host", required=True, choices=["claude", "cursor", "codex"])
-    parser.add_argument("--project", type=Path, default=Path.cwd())
     parser.add_argument("--home", type=Path, default=Path.home(), help="测试用 home 覆盖")
-    parser.add_argument("--workspace", default=None)
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
-    project = args.project.expanduser().resolve()
     home = args.home.expanduser().resolve()
-    workspace = args.workspace or project.name
-    print(f"host={args.host} project={project} workspace={workspace}")
+    print(f"host={args.host} home={home}")
     if args.host == "claude":
-        install_claude(project, home, workspace, args.dry_run)
+        install_claude(home, args.dry_run)
     elif args.host == "cursor":
-        install_cursor(project, home, workspace, args.dry_run)
+        install_cursor(home, args.dry_run)
     else:
-        install_codex(project, home, workspace, args.dry_run)
+        install_codex(home, args.dry_run)
     print("done")
     return 0
 

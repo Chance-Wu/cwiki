@@ -320,7 +320,7 @@ def setup_dsh():
 
 @task("setup-agent")
 def setup_agent():
-    """为 Claude Code / Cursor / Codex 写入 cwiki MCP、hooks 与指令。"""
+    """为 Claude Code / Cursor / Codex 写入全局 cwiki MCP、hooks 与指令。"""
     return _py("scripts/setup_agent.py", *sys.argv[2:])
 
 

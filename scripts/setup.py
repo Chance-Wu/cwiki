@@ -150,21 +150,30 @@ def choose_agent() -> str:
 # ── MCP ──────────────────────────────────────────────────────────────
 
 
-def remove_settings_mcp(settings: dict[str, Any], agent_key: str) -> None:
-    """移除 settings.json 中的 mcpServers.cwiki。
+def ensure_settings_mcp(settings: dict[str, Any], agent_key: str) -> None:
+    """将 cwiki MCP 写入宿主全局 settings.json（Qoder 实际加载的全局配置）。
 
-    MCP 配置由插件缓存目录的 .mcp.json 提供，settings.json 中不应再有重复条目。
-    双重定义会导致工具翻倍或名称冲突。
+    插件不再声明 mcpServers；全局条目是唯一的 MCP 注册点，项目级配置不再生成。
     """
-    servers = settings.get("mcpServers", {})
-    if "cwiki" in servers:
-        del servers["cwiki"]
-        info("已移除 settings.json 中的 mcpServers.cwiki（由插件提供）")
-        if not servers:
-            del settings["mcpServers"]
+    if agent_key != "qoder":
+        return
+    source_template = PLUGIN_SOURCE_DIR / ".mcp.json"
+    if not source_template.is_file():
+        warn(f"源码模板 .mcp.json 不存在，跳过全局 MCP 配置: {source_template}")
+        return
+    template = read_json(source_template)
+    server = dict(template.get("mcpServers", {}).get("cwiki", {}))
+    server["command"] = sys.executable
+    server["cwd"] = str(PROJECT_ROOT)
+    env = dict(server.get("env") or {})
+    env["PYTHONPATH"] = str(PROJECT_ROOT)
+    env.setdefault("CWIKI_HOST", "qoder")
+    server["env"] = env
+    settings.setdefault("mcpServers", {})["cwiki"] = server
+    info(f"全局 settings.json 已注入 cwiki MCP (python={sys.executable}, cwd={PROJECT_ROOT})")
 
 
-# ── 插件 .mcp.json 修补 ──────────────────────────────────────────────
+# ── 插件路径与全局 MCP ─────────────────────────────────────────────
 
 
 def plugin_version() -> str:
@@ -176,27 +185,6 @@ def plugin_version() -> str:
 
 def plugin_cache_dir() -> Path:
     return PLUGINS_DIR / "cache" / "local" / PLUGIN_NAME / plugin_version()
-
-
-def patch_plugin_mcp(agent_key: str) -> None:
-    """修补插件缓存目录中的 .mcp.json，注入正确的 cwd 和 PYTHONPATH。
-
-    Qoder 从插件缓存目录加载 MCP 配置，而非源码目录。
-    源码模板不含绝对路径（保证可移植），安装时在此处注入。
-    """
-    plugin_cache = plugin_cache_dir()
-    mcp_json = plugin_cache / ".mcp.json"
-    if not mcp_json.is_file():
-        warn(f"插件缓存 .mcp.json 不存在，跳过修补: {mcp_json}")
-        return
-    data = read_json(mcp_json)
-    server = data.setdefault("mcpServers", {}).setdefault("cwiki", {})
-    server["command"] = sys.executable
-    server["cwd"] = str(PROJECT_ROOT)
-    env = server.setdefault("env", {})
-    env["PYTHONPATH"] = str(PROJECT_ROOT)
-    write_json(mcp_json, data)
-    info(f"插件缓存 .mcp.json 已修补 (python={sys.executable}, cwd={PROJECT_ROOT})")
 
 
 def ensure_global_mcp_json() -> None:
@@ -238,52 +226,11 @@ def ensure_global_mcp_json() -> None:
 HOOK_COMMAND = "-m adapters.hooks qoder session-start"
 
 
-def _project_workspace(project: str | None) -> str | None:
-    """从项目路径推导工作区名（合法时），供项目级 MCP 配置写入 CWIKI_WORKSPACE。"""
-    if not project:
-        return None
-    name = re.sub(r"[^A-Za-z0-9._-]+", "-", Path(project).name).strip("-")
-    if not name or re.match(r"^[A-Za-z]--", name) or re.fullmatch(r"[0-9a-f]{8}", name):
-        return None
-    return name[:64]
-
-
-def write_project_mcp(project: Path, workspace: str) -> Path:
-    """在 Qoder 项目级 .qoder/mcp.json 写入 cwiki 条目（绑定该项目工作区）。
-
-    全局条目靠目录推导工作区；项目级条目显式声明 CWIKI_WORKSPACE，
-    让 Qoder 在该项目下的所有会话都写入正确工作区。
-    """
-    target = project / ".qoder" / "mcp.json"
-    data: dict[str, Any] = {}
-    if target.is_file():
-        try:
-            data = read_json(target)
-        except (OSError, UnicodeError, ValueError):
-            warn(f"项目 mcp.json 解析失败，跳过项目级配置: {target}")
-            return target
-    server = data.setdefault("mcpServers", {}).setdefault("cwiki", {})
-    server["type"] = "stdio"
-    server["command"] = sys.executable
-    server["args"] = ["-m", "adapters.qoder.mcp_server"]
-    server["cwd"] = str(PROJECT_ROOT)
-    server["env"] = {
-        "PYTHONPATH": str(PROJECT_ROOT),
-        "CWIKI_HOST": "qoder",
-        "CWIKI_WORKSPACE": workspace,
-    }
-    target.parent.mkdir(parents=True, exist_ok=True)
-    write_json(target, data)
-    info(f"项目级 MCP 已写入 {target}（workspace={workspace}）")
-    return target
-
-
 def patch_plugin_hooks(agent_key: str) -> None:
     """修补插件缓存目录中的 hooks/hooks.json，注入正确的 python 和 PYTHONPATH。
 
-    与 patch_plugin_mcp 对称：源码模板不含绝对路径（保证可移植），
-    安装时在此处注入。Qoder 通过 shell 执行 command 字符串，
-    含空格的 python 路径需加引号。
+    源码模板不含绝对路径（保证可移植），安装时在此处注入。
+    Qoder 通过 shell 执行 command 字符串，含空格的 python 路径需加引号。
     """
     hooks_json = plugin_cache_dir() / "hooks" / "hooks.json"
     if not hooks_json.is_file():
@@ -355,21 +302,8 @@ def ensure_plugin_installed(agent_key: str) -> None:
 # 安装后可被源码修改的内容项：按字节比对，差异即复制进缓存
 PLUGIN_SYNC_CONTENT = ("skills", "commands", "README.md", ".qoder-plugin")
 # 含安装期注入绝对路径的配置项：与模板规范化比对（剥离注入字段后），
-# 不一致（旧快照缺事件/结构漂移）即从模板刷新，随后由 patch_plugin_* 重新注入
-PLUGIN_SYNC_SEED = (".mcp.json", "hooks")
-
-
-def _normalize_mcp_config(data: dict[str, Any]) -> dict[str, Any]:
-    """剥离 patch_plugin_mcp 注入的机器相关字段，得到可与模板比对的结构。"""
-    data = copy.deepcopy(data)
-    server = data.get("mcpServers", {}).get("cwiki")
-    if isinstance(server, dict):
-        server.pop("command", None)
-        server.pop("cwd", None)
-        env = server.get("env")
-        if isinstance(env, dict):
-            env.pop("PYTHONPATH", None)
-    return data
+# 不一致（旧快照缺事件/结构漂移）即从模板刷新，随后由 patch_plugin_hooks 重新注入
+PLUGIN_SYNC_SEED = ("hooks",)
 
 
 def _normalize_hooks_config(data: dict[str, Any]) -> dict[str, Any]:
@@ -392,7 +326,7 @@ def _normalize_hooks_config(data: dict[str, Any]) -> dict[str, Any]:
     return data
 
 
-def _seed_file_diverged(rel: str, source: Path, target: Path) -> bool:
+def _seed_file_diverged(source: Path, target: Path) -> bool:
     """缓存配置项是否与模板结构性不一致（需要刷新）。解析失败按不一致处理。"""
     template_path = source if source.is_file() else source / "hooks.json"
     cache_path = target if target.is_file() else target / "hooks.json"
@@ -403,8 +337,7 @@ def _seed_file_diverged(rel: str, source: Path, target: Path) -> bool:
         cached = read_json(cache_path)
     except (OSError, UnicodeError, ValueError):
         return True
-    normalize = _normalize_mcp_config if rel == ".mcp.json" else _normalize_hooks_config
-    return normalize(cached) != normalize(template)
+    return _normalize_hooks_config(cached) != _normalize_hooks_config(template)
 
 
 def sync_plugin_cache(agent_key: str) -> None:
@@ -412,10 +345,9 @@ def sync_plugin_cache(agent_key: str) -> None:
 
     插件缓存是 `qodercli plugins install` 时的快照，其后对 adapters/qoder
     内容文件（skill/命令/插件清单）的修改不会自动进入缓存，宿主加载的仍是
-    旧版。内容项按字节比对复制；配置项（.mcp.json/hooks）与模板做规范化
-    比对——剥离注入的绝对路径字段后结构一致则保留缓存（注入保持有效），
-    不一致（旧快照缺事件、结构漂移）则从模板刷新，随后由
-    patch_plugin_mcp / patch_plugin_hooks 重新注入。
+    旧版。内容项按字节比对复制；hooks 与模板做规范化比对——剥离注入的
+    绝对路径字段后结构一致则保留缓存（注入保持有效），不一致（旧快照缺
+    事件、结构漂移）则从模板刷新，随后由 patch_plugin_hooks 重新注入。
     """
     cache = plugin_cache_dir()
     if not cache.is_dir():
@@ -450,7 +382,7 @@ def sync_plugin_cache(agent_key: str) -> None:
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(source, target)
             seeded += 1
-        elif _seed_file_diverged(rel, source, target):
+        elif _seed_file_diverged(source, target):
             # 旧快照与模板结构性不一致：从模板刷新，交由随后的 patch 注入
             if target.is_dir():
                 shutil.rmtree(target)
@@ -859,7 +791,7 @@ def check_installation(agent_key: str) -> dict[str, Any]:
     result: dict[str, Any] = {
         "scope": "disk_and_spawn_probe",
         "host_verified": False,
-        "hint": "磁盘一致且发现自检通过，不代表 Qoder 当前会话已加载；hooks 与 skill 随新会话刷新，插件 MCP 服务器列表在 Qoder 启动时确定，安装或更新插件后需完全重启 Qoder，再以 tools/list 和 memory_status 核对。",
+        "hint": "磁盘一致且发现自检通过，不代表 Qoder 当前会话已加载；hooks 与 skill 随新会话刷新，MCP 服务器列表在 Qoder 启动时确定，安装或更新插件后需完全重启 Qoder，再以 tools/list 和 memory_status 核对。",
     }
     try:
         instructions = agent["agents_md"].read_text(encoding="utf-8")
@@ -886,6 +818,7 @@ def check_installation(agent_key: str) -> dict[str, Any]:
         result["skill_current"] = False
         errors.append("无法读取项目或已安装的 cwiki-save skill")
 
+    settings_server: dict[str, Any] = {}
     try:
         config = json.loads(agent["settings_file"].read_text(encoding="utf-8-sig"))
         result["plugin_enabled"] = bool(
@@ -902,8 +835,8 @@ def check_installation(agent_key: str) -> dict[str, Any]:
         for stale_key in stale_keys:
             errors.append(f"残留条目 {stale_key} 需要清理，重新运行 setup.py")
 
-        if config.get("mcpServers", {}).get("cwiki"):
-            errors.append("settings.json 中存在 mcpServers.cwiki，与插件冲突，重新运行 setup.py")
+        # Qoder App 实际加载的全局 MCP 配置位于 settings.json
+        settings_server = config.get("mcpServers", {}).get("cwiki", {})
     except (OSError, UnicodeError, ValueError, AttributeError, TypeError):
         errors.append("无法解析 Qoder MCP 配置")
 
@@ -929,67 +862,71 @@ def check_installation(agent_key: str) -> dict[str, Any]:
         pass  # 非关键检查，失败不阻断
 
     plugin_cache = plugin_cache_dir() / ".mcp.json"
+    plugin_server: dict[str, Any] = {}
     try:
         plugin_mcp = json.loads(plugin_cache.read_text(encoding="utf-8"))
-        server = plugin_mcp.get("mcpServers", {}).get("cwiki", {})
-        command = server.get("command")
-        args = server.get("args", [])
-        result["mcp_configured"] = bool(command) and not server.get("disabled", False)
-        result["mcp_command_available"] = bool(
-            isinstance(command, str) and (Path(command).is_file() or shutil.which(command))
-        )
-        result["mcp_uses_module_mode"] = (
-            isinstance(args, list)
-            and "-m" in args
-            and (MCP_MODULE in args or MCP_CORE_MODULE in args)
-        )
-        result["mcp_uses_full_python_path"] = bool(
-            isinstance(command, str) and Path(command).is_file()
-        )
-        if not result["mcp_configured"] or not result["mcp_command_available"]:
-            warnings.append(
-                "插件缓存 MCP 未配置或 Python 解释器不可用，"
-                "请重新运行 setup.py 安装本地插件（全局 mcp.json 可兜底）"
-            )
-        if not result.get("mcp_uses_module_mode"):
-            warnings.append("插件缓存 MCP 未使用 python -m 模块模式")
-        if not result.get("mcp_uses_full_python_path"):
-            warnings.append("插件缓存 MCP command 未使用完整 Python 路径")
-
-        if result["mcp_configured"] and result["mcp_command_available"]:
-            probe = probe_mcp_discovery(server)
-            result["discovery"] = probe
-            if probe["ok"]:
-                if (
-                    probe["total_seconds"] is not None
-                    and probe["total_seconds"] > DISCOVERY_WARN_SECONDS
-                ):
-                    warnings.append(
-                        f"MCP 发现耗时 {probe['total_seconds']}s 超过阈值 {DISCOVERY_WARN_SECONDS}s，"
-                        f"Qoder 启动时可能因此超时；可将插件缓存目录与项目目录加入 Windows Defender "
-                        f"排除项：{PLUGINS_DIR}、{PROJECT_ROOT}"
-                    )
-            else:
-                warnings.append(f"MCP 发现自检失败：{probe['error']}")
+        plugin_server = plugin_mcp.get("mcpServers", {}).get("cwiki", {})
     except (OSError, UnicodeError, ValueError, AttributeError, TypeError):
-        warnings.append(
-            "无法读取插件缓存 .mcp.json，请重新运行 setup.py 安装本地插件（全局 mcp.json 仍可兜底）"
-        )
+        plugin_server = {}
 
+    # 全局 MCP 优先看 settings.json（App 实际加载），mcp.json 仅作 CLI 兜底
     global_mcp = agent["config_dir"] / "mcp.json"
+    mcp_json_server: dict[str, Any] = {}
     if global_mcp.is_file():
         try:
             gmcp = json.loads(global_mcp.read_text(encoding="utf-8"))
-            gserver = gmcp.get("mcpServers", {}).get("cwiki", {})
-            result["global_mcp_configured"] = bool(gserver.get("command"))
-            if not result["global_mcp_configured"]:
-                errors.append("全局 mcp.json 存在但 cwiki server 缺少 command")
+            mcp_json_server = gmcp.get("mcpServers", {}).get("cwiki", {})
         except (OSError, UnicodeError, ValueError, AttributeError, TypeError):
-            result["global_mcp_configured"] = False
-            errors.append("全局 mcp.json 解析失败")
+            mcp_json_server = {}
+
+    result["global_mcp_configured"] = bool(
+        settings_server.get("command") or mcp_json_server.get("command")
+    )
+    if not result["global_mcp_configured"] and not plugin_server.get("command"):
+        errors.append("未配置 cwiki MCP（settings.json / mcp.json / 插件均无），重新运行 setup.py")
+
+    server = (
+        settings_server
+        if settings_server.get("command")
+        else mcp_json_server
+        if mcp_json_server.get("command")
+        else plugin_server
+    )
+    command = server.get("command")
+    args = server.get("args", [])
+    result["mcp_configured"] = bool(command) and not server.get("disabled", False)
+    result["mcp_command_available"] = bool(
+        isinstance(command, str) and (Path(command).is_file() or shutil.which(command))
+    )
+    result["mcp_uses_module_mode"] = (
+        isinstance(args, list) and "-m" in args and (MCP_MODULE in args or MCP_CORE_MODULE in args)
+    )
+    result["mcp_uses_full_python_path"] = bool(isinstance(command, str) and Path(command).is_file())
+    if not result["mcp_configured"]:
+        warnings.append("未找到 cwiki MCP 配置（插件与全局均未配置），请重新运行 setup.py")
+    elif not result["mcp_command_available"]:
+        warnings.append("cwiki MCP 的 Python 解释器不可用，请重新运行 setup.py 或检查 command")
     else:
-        result["global_mcp_configured"] = False
-        errors.append("全局 mcp.json 不存在，重新运行 setup.py")
+        if not result["mcp_uses_module_mode"]:
+            warnings.append("cwiki MCP 未使用 python -m 模块模式")
+        if not result["mcp_uses_full_python_path"]:
+            warnings.append("cwiki MCP command 未使用完整 Python 路径")
+
+    if result["mcp_configured"] and result["mcp_command_available"]:
+        probe = probe_mcp_discovery(server)
+        result["discovery"] = probe
+        if probe["ok"]:
+            if (
+                probe["total_seconds"] is not None
+                and probe["total_seconds"] > DISCOVERY_WARN_SECONDS
+            ):
+                warnings.append(
+                    f"MCP 发现耗时 {probe['total_seconds']}s 超过阈值 {DISCOVERY_WARN_SECONDS}s，"
+                    f"Qoder 启动时可能因此超时；可将插件缓存目录与项目目录加入 Windows Defender "
+                    f"排除项：{PLUGINS_DIR}、{PROJECT_ROOT}"
+                )
+        else:
+            warnings.append(f"MCP 发现自检失败：{probe['error']}")
 
     result["status"] = "ok" if not errors else "attention_required"
     result["errors"] = errors
@@ -1013,12 +950,6 @@ def main() -> None:
         action="store_true",
         help="同步全局 AGENTS、skill 与插件启用状态（不初始化数据库）",
     )
-    parser.add_argument(
-        "--project",
-        type=str,
-        default=None,
-        help="项目路径：在该项目下写 .qoder/mcp.json 并绑定工作区（CWIKI_WORKSPACE）",
-    )
     args = parser.parse_args()
     if args.check:
         report = check_installation("qoder")
@@ -1029,24 +960,15 @@ def main() -> None:
         ensure_skill("qoder")
         ensure_plugin_installed("qoder")
         sync_plugin_cache("qoder")
-        patch_plugin_mcp("qoder")
         patch_plugin_hooks("qoder")
         agent = AGENTS["qoder"]
         settings_file = agent["settings_file"]
-        if settings_file.exists():
-            settings = read_json(settings_file)
-            remove_settings_mcp(settings, "qoder")
-            ensure_plugin_enabled(settings, "qoder")
-            write_json(settings_file, settings)
+        settings = read_json(settings_file) if settings_file.exists() else {}
+        ensure_settings_mcp(settings, "qoder")
+        ensure_plugin_enabled(settings, "qoder")
+        write_json(settings_file, settings)
         ensure_plugin_registry()
         ensure_global_mcp_json()
-        if args.project:
-            project_path = Path(args.project).expanduser().resolve()
-            workspace = _project_workspace(str(project_path))
-            if workspace:
-                write_project_mcp(project_path, workspace)
-            else:
-                warn(f"项目路径无法推导合法工作区名，跳过项目级配置: {project_path}")
         return
 
     print_message("╔══════════════════════════════════════╗")
@@ -1073,7 +995,7 @@ def main() -> None:
     if settings_file.exists():
         settings = read_json(settings_file)
 
-    remove_settings_mcp(settings, agent_key)
+    ensure_settings_mcp(settings, agent_key)
     ensure_plugin_enabled(settings, agent_key)
     write_json(settings_file, settings)
     ensure_plugin_registry()
@@ -1081,20 +1003,11 @@ def main() -> None:
 
     ensure_plugin_installed(agent_key)
     sync_plugin_cache(agent_key)
-    patch_plugin_mcp(agent_key)
     patch_plugin_hooks(agent_key)
     ensure_global_mcp_json()
 
     ensure_agents_md(agent_key)
     ensure_skill(agent_key)
-
-    if args.project:
-        project_path = Path(args.project).expanduser().resolve()
-        workspace = _project_workspace(str(project_path))
-        if workspace:
-            write_project_mcp(project_path, workspace)
-        else:
-            warn(f"项目路径无法推导合法工作区名，跳过项目级配置: {project_path}")
 
     # 4. 初始化数据库
     init_db()
