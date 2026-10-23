@@ -901,6 +901,11 @@ class DatabaseRebuilder:
         # uq_memory_version，重复行若直接插入会让 flush 抛
         # IntegrityError 回滚整个重建，故先去重再入批。
         seen_versions: set[tuple[str, int]] = set()
+        # 关系边同时写进两端记忆的 _meta（导出按 source|target 收集），
+        # 重建读取两侧会拿到同一行；按 id / (source,target,type) 去重，
+        # 否则主键与 uq_memory_relation 都会让整次重建回滚。
+        seen_relation_ids: set[str] = set()
+        seen_relation_keys: set[tuple[str, str, str]] = set()
 
         for memory_id_str in memory_ids:
             meta = await asyncio.to_thread(self.meta_store.import_memory, memory_id_str)
@@ -911,8 +916,17 @@ class DatabaseRebuilder:
             self._process_feedback(meta, memory_id_str, feedback_batch, counts)
             self._process_usage(meta, memory_id_str, usage_batch, counts)
             self._process_conflict(meta, memory_id_str, conflict_batch, counts)
-            await self._process_review_schedule(meta, memory_id_str, session, schedule_batch, counts)
-            self._process_relation(meta, memory_id_str, relation_batch, counts)
+            await self._process_review_schedule(
+                meta, memory_id_str, session, schedule_batch, counts
+            )
+            self._process_relation(
+                meta,
+                memory_id_str,
+                relation_batch,
+                counts,
+                seen_relation_ids,
+                seen_relation_keys,
+            )
             self._process_lifecycle_event(meta, memory_id_str, lifecycle_batch, counts)
             self._process_evidence(meta, memory_id_str, evidence_batch, counts)
             self._process_versions(meta, memory_id_str, version_batch, counts, seen_versions)
@@ -995,9 +1009,7 @@ class DatabaseRebuilder:
                         workspace_id=uuid.UUID(item["workspace_id"]),
                         memory_id=uuid.UUID(memory_id_str),
                         candidate_id=(
-                            uuid.UUID(item["candidate_id"])
-                            if item.get("candidate_id")
-                            else None
+                            uuid.UUID(item["candidate_id"]) if item.get("candidate_id") else None
                         ),
                         conflict_type=item.get("conflict_type", "contradiction"),
                         description=item.get("description"),
@@ -1013,7 +1025,12 @@ class DatabaseRebuilder:
                 logger.debug("Skipping conflict for %s: %s", memory_id_str, exc)
 
     async def _process_review_schedule(
-        self, meta: dict[str, Any], memory_id_str: str, session: AsyncSession, batch: list[Any], counts: dict[str, int]
+        self,
+        meta: dict[str, Any],
+        memory_id_str: str,
+        session: AsyncSession,
+        batch: list[Any],
+        counts: dict[str, int],
     ) -> None:
         """处理 review_schedule（1:1 关系，需查 workspace_id）。"""
         rs = meta.get("review_schedule")
@@ -1047,17 +1064,32 @@ class DatabaseRebuilder:
             logger.debug("Skipping review_schedule for %s: %s", memory_id_str, exc)
 
     def _process_relation(
-        self, meta: dict[str, Any], memory_id_str: str, batch: list[Any], counts: dict[str, int]
+        self,
+        meta: dict[str, Any],
+        memory_id_str: str,
+        batch: list[Any],
+        counts: dict[str, int],
+        seen_ids: set[str],
+        seen_keys: set[tuple[str, str, str]],
     ) -> None:
-        """处理 relation 实体批次。"""
+        """处理 relation 实体批次（两端 meta 会重复出现同一条边，需去重）。"""
         for item in meta.get("relation", []):
             try:
+                relation_id = str(item["id"]) if item.get("id") else str(uuid.uuid4())
+                source = str(item.get("source_memory_id", memory_id_str))
+                target = str(item["target_memory_id"])
+                relation_type = item.get("relation_type", "related")
+                key = (source, target, relation_type)
+                if relation_id in seen_ids or key in seen_keys:
+                    continue
+                seen_ids.add(relation_id)
+                seen_keys.add(key)
                 batch.append(
                     MemoryRelation(
-                        id=uuid.UUID(item["id"]) if item.get("id") else uuid.uuid4(),
-                        source_memory_id=uuid.UUID(item.get("source_memory_id", memory_id_str)),
-                        target_memory_id=uuid.UUID(item["target_memory_id"]),
-                        relation_type=item.get("relation_type", "related"),
+                        id=uuid.UUID(relation_id),
+                        source_memory_id=uuid.UUID(source),
+                        target_memory_id=uuid.UUID(target),
+                        relation_type=relation_type,
                         confidence=item.get("confidence", 1.0),
                         created_at=_parse_dt(item.get("created_at")),
                     )
@@ -1079,13 +1111,12 @@ class DatabaseRebuilder:
                         event_type=item.get("event_type", "unknown"),
                         metadata_json=(
                             json.dumps(item["metadata_json"])
-                            if item.get("metadata_json")
-                            and isinstance(item["metadata_json"], dict)
+                            if item.get("metadata_json") and isinstance(item["metadata_json"], dict)
                             else item.get("metadata_json")
                         ),
                         created_at=_parse_dt(item.get("created_at")),
                     )
-               )
+                )
                 counts["lifecycle_event"] += 1
             except (ValueError, KeyError) as exc:
                 logger.debug("Skipping lifecycle_event for %s: %s", memory_id_str, exc)
@@ -1101,16 +1132,12 @@ class DatabaseRebuilder:
                         id=uuid.UUID(item["id"]) if item.get("id") else uuid.uuid4(),
                         memory_id=uuid.UUID(memory_id_str),
                         candidate_id=(
-                            uuid.UUID(item["candidate_id"])
-                            if item.get("candidate_id")
-                            else None
+                            uuid.UUID(item["candidate_id"]) if item.get("candidate_id") else None
                         ),
                         episode_id=(
                             uuid.UUID(item["episode_id"]) if item.get("episode_id") else None
                         ),
-                        event_id=(
-                            uuid.UUID(item["event_id"]) if item.get("event_id") else None
-                        ),
+                        event_id=(uuid.UUID(item["event_id"]) if item.get("event_id") else None),
                         source_type=item.get("source_type", "unknown"),
                         source_ref=item.get("source_ref"),
                         content=item.get("content"),

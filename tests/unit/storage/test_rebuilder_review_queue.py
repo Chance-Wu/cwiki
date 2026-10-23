@@ -18,6 +18,7 @@ from packages.domain.models import (
     Base,
     CandidateMemory,
     Memory,
+    MemoryRelation,
     MemoryVersion,
     Review,
     ReviewHistory,
@@ -417,5 +418,68 @@ async def test_rebuild_clears_stale_rows_in_four_tables(tmp_path):
                 str(h) for h in (await session.execute(select(ReviewHistory.id))).scalars()
             }
             assert str(stale_history) not in history_ids
+    finally:
+        await rebuilder.close()
+
+
+async def test_rebuild_dedupes_relations_exported_to_both_endpoints(tmp_path):
+    """同一条关系边写进两端记忆的 _meta，重建时只应恢复一行。"""
+    m1 = "aaaaaaaa-0000-0000-0000-000000000001"
+    m2 = "aaaaaaaa-0000-0000-0000-000000000002"
+    rel_id = "bbbbbbbb-0000-0000-0000-000000000001"
+    relation = {
+        "id": rel_id,
+        "source_memory_id": m2,
+        "target_memory_id": m1,
+        "relation_type": "supersedes",
+        "confidence": 1.0,
+        "created_at": "2026-01-01T00:00:00",
+    }
+
+    data_dir = tmp_path / "data"
+    file_store = FileStore(str(data_dir))
+    for mid in (m1, m2):
+        file_store.save(
+            MemoryFile(
+                id=mid,
+                title=f"记忆 {mid[-1]}",
+                content="关系去重测试正文",
+                workspace="cwiki",
+                created=_DT_CREATED,
+                updated=_DT_UPDATED,
+            ),
+            workspace_name="cwiki",
+        )
+    meta_dir = data_dir / "_meta"
+    meta_dir.mkdir(parents=True, exist_ok=True)
+    MetaStore(meta_dir).export_workspaces(
+        [{"name": "cwiki", "id": _WS_ID, "created_at": None, "updated_at": None}]
+    )
+    for mid in (m1, m2):
+        meta = {
+            "feedback": [],
+            "usage": [],
+            "conflict": [],
+            "review_schedule": {},
+            "relation": [relation],
+            "lifecycle_event": [],
+            "evidence": [],
+            "versions": [],
+            "review_history": [],
+        }
+        (meta_dir / f"{mid}.json").write_text(
+            json.dumps(meta, ensure_ascii=False), encoding="utf-8"
+        )
+
+    rebuilder = _make_rebuilder(tmp_path)
+    try:
+        await _create_schema(rebuilder)
+        result = await rebuilder.rebuild()
+
+        assert result.relation_counts["relation"] == 1
+        async with rebuilder._session_factory() as session:
+            rows = (await session.execute(select(MemoryRelation))).scalars().all()
+            assert len(rows) == 1
+            assert str(rows[0].id) == rel_id
     finally:
         await rebuilder.close()
