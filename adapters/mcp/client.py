@@ -214,6 +214,8 @@ class CwikiClient:
         source: str | None = None,
         client_write_id: str | None = None,
         tags: list[str] | None = None,
+        is_permanent: bool = False,
+        permanent_reason: str | None = None,
     ) -> dict[str, Any]:
         body: dict[str, Any] = {
             "title": title,
@@ -229,6 +231,10 @@ class CwikiClient:
             body["client_write_id"] = client_write_id
         if tags:
             body["tags"] = tags
+        if is_permanent:
+            body["is_permanent"] = True
+            if permanent_reason:
+                body["permanent_reason"] = permanent_reason
         return await self._request("POST", f"{API_V1_PREFIX}/candidates", json_body=body)
 
     async def get_memory_status(self, workspace_id: str) -> dict[str, Any]:

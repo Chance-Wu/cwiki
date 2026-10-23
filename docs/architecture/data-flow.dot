@@ -1,0 +1,176 @@
+// cwiki Data Flow: Store → Retrieve → Evolve
+// Audience: developers understanding the memory lifecycle
+// Scope: end-to-end data flow from agent write to knowledge evolution
+// Evidence: adapters/mcp/mcp_server.py, packages/memory/service.py,
+//           packages/retrieval/engine.py, apps/worker/tasks/
+// Skill: flow-visualizer + graphviz
+
+digraph cwiki_data_flow {
+    rankdir=TB
+    node [shape=box, style="rounded,filled", fontname="Segoe UI", fontsize=11]
+    edge [fontname="Segoe UI", fontsize=9, color="#555"]
+    graph [fontname="Segoe UI", fontsize=13, label="cwiki Data Flow: Store → Retrieve → Evolve", labelloc=t, fontsize=16, pad=0.4]
+
+    // --- Color Palette ---
+    // Actor: #E8D5B7 (warm beige)
+    // MCP: #B8D4E3 (light blue)
+    // API: #C5E1A5 (light green)
+    // Memory Service: #FFE0B2 (light orange)
+    // Worker: #E1BEE7 (light purple)
+    // Storage: #FFCCBC (light salmon)
+    // Retrieval: #B2DFDB (light teal)
+    // File: #F5F5F5 (light gray)
+
+    // ===== PHASE 1: STORE =====
+    subgraph cluster_store {
+        label="① STORE (写入)"
+        style=dashed
+        color="#B8D4E3"
+        fontcolor="#37474F"
+
+        agent [label="Coding Agent\n(Qoder/Codex)", fillcolor="#E8D5B7"]
+        mcp_save [label="memory_save\n(JSON-RPC tools/call)", fillcolor="#B8D4E3"]
+        outbox [label="WriteAheadOutbox\n(磁盘 WAL 预写)", fillcolor="#B8D4E3"]
+        api_candidate [label="POST /v1/candidates\n(FastAPI)", fillcolor="#C5E1A5"]
+        validate [label="内容校验\n注入检测 + 格式规范化", fillcolor="#FFE0B2"]
+        dedup_inline [label="相似检测\nn-gram + 关键词 + embedding", fillcolor="#FFE0B2"]
+        quality_gate [label="质量门控\n5 维评分", fillcolor="#FFE0B2"]
+        create_candidate [label="创建 CandidateMemory\n(status=pending_review)", fillcolor="#FFE0B2"]
+        checkpoint [label="memory_checkpoint\n(事件/笔记提取)", fillcolor="#B8D4E3", style="rounded,dashed"]
+    }
+
+    // ===== PHASE 2: ASYNC SCORING =====
+    subgraph cluster_score {
+        label="② ASYNC SCORING (异步评分)"
+        style=dashed
+        color="#E1BEE7"
+        fontcolor="#37474F"
+
+        task_embed [label="generate_candidate_embedding\n(fastembed ONNX, 512d)", fillcolor="#E1BEE7"]
+        task_score [label="score_candidate\n6 维加权价值评分", fillcolor="#E1BEE7"]
+        value_filter [label="value_score < 0.35?\n→ 自动丢弃", fillcolor="#E1BEE7", shape=diamond]
+        auto_approve [label="auto-approve\n(分数达标 + 开关开启)", fillcolor="#E1BEE7"]
+        queue_review [label="进入审核队列\nhigh_value / normal / low", fillcolor="#E1BEE7"]
+    }
+
+    // ===== PHASE 3: REVIEW =====
+    subgraph cluster_review {
+        label="③ REVIEW (审核)"
+        style=dashed
+        color="#C5E1A5"
+        fontcolor="#37474F"
+
+        web_ui [label="Web UI\n(InboxPage :5173)", fillcolor="#C5E1A5"]
+        approve [label="Approve → active", fillcolor="#C5E1A5"]
+        reject [label="Reject", fillcolor="#EF9A9A"]
+        merge [label="Merge → archived", fillcolor="#FFE0B2"]
+        defer [label="Defer → 稍后再审", fillcolor="#F5F5F5"]
+    }
+
+    // ===== PHASE 4: PERSIST =====
+    subgraph cluster_persist {
+        label="④ PERSIST (落盘)"
+        style=dashed
+        color="#FFCCBC"
+        fontcolor="#37474F"
+
+        dual_write [label="sync_memory_to_file\n(版本守卫双写)", fillcolor="#FFCCBC"]
+        md_file [label="Markdown 文件\ncwiki-data/{ws}/{type}/{id}.md", fillcolor="#F5F5F5", shape=folder]
+        meta_json [label="_meta/ JSON\n(sidecar 元数据)", fillcolor="#F5F5F5", shape=folder]
+        sqlite_db [label="SQLite cwiki.db\n(主存储索引)", fillcolor="#FFCCBC", shape=cylinder]
+        vectors_npz [label="vectors.npz\n(向量索引权威源)", fillcolor="#FFCCBC", shape=cylinder]
+    }
+
+    // ===== PHASE 5: RETRIEVE =====
+    subgraph cluster_retrieve {
+        label="⑤ RETRIEVE (检索)"
+        style=dashed
+        color="#B2DFDB"
+        fontcolor="#37474F"
+
+        mcp_search [label="memory_search\n(JSON-RPC)", fillcolor="#B8D4E3"]
+        api_search [label="POST /v1/search\n(FastAPI)", fillcolor="#C5E1A5"]
+        query_analysis [label="Query Analysis\n意图提取 + 关键词", fillcolor="#B2DFDB"]
+        bm25_recall [label="BM25 Top50\n(CJK 倒排索引)", fillcolor="#B2DFDB"]
+        vector_recall [label="Vector Top50\n(余弦相似度)", fillcolor="#B2DFDB"]
+        rrf_fusion [label="RRF 融合\nk=60", fillcolor="#B2DFDB"]
+        reranker [label="Multi-signal Rerank\n8 信号加权", fillcolor="#B2DFDB"]
+        diversity [label="Diversity Filter\n每类型 ≤3", fillcolor="#B2DFDB"]
+        context_assembly [label="Context Assembly\nToken 预算组装", fillcolor="#B2DFDB"]
+    }
+
+    // ===== PHASE 6: EVOLVE =====
+    subgraph cluster_evolve {
+        label="⑥ EVOLVE (进化)"
+        style=dashed
+        color="#FFE0B2"
+        fontcolor="#37474F"
+
+        consolidate [label="auto_consolidate_similar\n(Jaccard ≥ 0.92)", fillcolor="#E1BEE7"]
+        health_check [label="健康度评估\npriority + negative signals", fillcolor="#E1BEE7"]
+        state_evolve [label="状态演化\nactive ↔ archived/superseded", fillcolor="#E1BEE7"]
+        orphan_recover [label="孤儿恢复\n启动时重放未完成任务", fillcolor="#E1BEE7"]
+        spaced_review [label="间隔重复\nSM-2 算法", fillcolor="#E1BEE7"]
+    }
+
+    // ===== EDGES =====
+    // Phase 1: Store
+    agent -> mcp_save
+    agent -> checkpoint [style=dashed, label="事件采集"]
+    mcp_save -> outbox [label="先落盘"]
+    outbox -> api_candidate [label="HTTP POST"]
+    api_candidate -> validate
+    validate -> dedup_inline
+    dedup_inline -> quality_gate
+    quality_gate -> create_candidate
+
+    // Phase 2: Scoring
+    create_candidate -> task_embed [label="入队", style=bold]
+    task_embed -> task_score [label="向量就绪"]
+    task_score -> value_filter
+    value_filter -> auto_approve [label="≥ 0.35"]
+    value_filter -> queue_review [label="< 0.35 丢弃"]
+    auto_approve -> approve [label="自动通过"]
+
+    // Phase 3: Review
+    queue_review -> web_ui
+    web_ui -> approve
+    web_ui -> reject
+    web_ui -> merge
+    web_ui -> defer
+
+    // Phase 4: Persist
+    approve -> dual_write [label="active 落盘"]
+    dual_write -> md_file
+    dual_write -> meta_json
+    dual_write -> sqlite_db
+    dual_write -> vectors_npz [label="embedding 写入"]
+
+    // Phase 5: Retrieve
+    mcp_search -> api_search
+    api_search -> query_analysis
+    query_analysis -> bm25_recall [label="并行"]
+    query_analysis -> vector_recall [label="并行"]
+    bm25_recall -> rrf_fusion
+    vector_recall -> rrf_fusion
+    rrf_fusion -> reranker
+    reranker -> diversity
+    diversity -> context_assembly
+
+    // Phase 6: Evolve
+    sqlite_db -> consolidate [label="定时 6h"]
+    consolidate -> dual_write [label="合并后重写"]
+    sqlite_db -> health_check [label="后台评估"]
+    health_check -> state_evolve
+    state_evolve -> vectors_npz [label="向量回收/回填"]
+    orphan_recover -> task_embed [label="启动恢复"]
+    spaced_review -> review_schedule [label="SM-2 调度"]
+
+    // Cross-cutting: retrieval reads from storage
+    bm25_recall -> sqlite_db [label="读索引", style=dashed]
+    vector_recall -> vectors_npz [label="读向量", style=dashed]
+
+    // Git sync
+    md_file -> git_sync [label="cwiki-data/sync.py"]
+    git_sync [label="Git 双仓库同步\ncode: cwiki.git\ndata: cwiki-data.git", fillcolor="#F5F5F5", shape=cloud]
+}

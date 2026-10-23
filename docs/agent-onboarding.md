@@ -186,6 +186,8 @@ curl -X POST http://127.0.0.1:5172/v1/candidates \
 - `workspace_id` / `title` / `content` / `type` 必填；`workspace_id` 支持工作区名称或 UUID
 - `client_write_id` 可选：同一 id 幂等，重复提交不会产生重复候选
 - 响应 `201`，含创建的候选、提交时发现的相似记忆（`similar_items`）与建议（`hint`）
+- 若配置了 `agent_policy.write_decisions`，SessionStart 会注入写入决策摘要，`memory_save` 时服务端按规则准入（write/skip/update，优先级 skip > update > write）；被 skip/update 拒绝时响应带 `write_decision`。详见[写入决策](memory-system.md#写入决策write_decisions)
+- 若配置了 `memory.write_policy`，响应的候选会带 `policy_rule_id` / `policy_action`；命中的 `reject` 规则直接返回 4xx。详见[写入策略](memory-system.md#写入策略write_policy)
 - 审核端点为 `POST /v1/reviews`（approve / edit / reject / later / merge / update）
 
 ### 检索

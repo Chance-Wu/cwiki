@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
+from adapters.hooks.profiles import render_hooks_config
 from scripts import setup
 
 
@@ -161,9 +162,9 @@ def test_patch_plugin_hooks_injects_python_and_pythonpath(
         0
     ]
     expected_exe = setup.sys.executable.replace("\\", "/")
-    expected_command = f"{expected_exe} -m adapters.qoder.hooks session-start"
+    expected_command = f"{expected_exe} -m adapters.hooks qoder session-start"
     if " " in expected_exe:
-        expected_command = f'"{expected_exe}" -m adapters.qoder.hooks session-start'
+        expected_command = f'"{expected_exe}" -m adapters.hooks qoder session-start'
     assert hook["command"] == expected_command
     assert hook["env"]["PYTHONPATH"] == str(root)
 
@@ -174,7 +175,7 @@ def test_patch_plugin_hooks_skips_missing_cache(
     monkeypatch.setattr(setup, "PLUGINS_DIR", tmp_path / "plugins")
     monkeypatch.setattr(setup, "PROJECT_ROOT", tmp_path)
     setup.patch_plugin_hooks("qoder")
-    assert "跳过修补" in capsys.readouterr().out
+    assert "跳过生成" in capsys.readouterr().out
 
 
 def test_ensure_plugin_installed_skips_when_cache_present(
@@ -338,33 +339,12 @@ def test_sync_plugin_cache_refreshes_stale_hooks_snapshot(
     """
     cache = _write_sync_source(tmp_path, monkeypatch)
     source = setup.PLUGIN_SOURCE_DIR
-    # 模板改为多事件新版（模拟仓库真实 hooks.json 的演进）
-    template_hooks = {
-        "hooks": {
-            "SessionStart": [
-                {
-                    "hooks": [
-                        {
-                            "type": "command",
-                            "command": "python -m adapters.hooks qoder session-start",
-                            "env": {"PYTHONPATH": "."},
-                        }
-                    ]
-                }
-            ],
-            "UserPromptSubmit": [
-                {
-                    "hooks": [
-                        {
-                            "type": "command",
-                            "command": "python -m adapters.hooks qoder user-prompt-submit",
-                            "env": {"PYTHONPATH": "."},
-                        }
-                    ]
-                }
-            ],
-        }
-    }
+    # 模板与 HostProfile 渲染结果一致（模拟仓库真实 hooks.json）
+    template_hooks = render_hooks_config(
+        "qoder",
+        command_prefix="python -m adapters.hooks",
+        env={"PYTHONPATH": "."},
+    )
     (source / "hooks" / "hooks.json").write_text(json.dumps(template_hooks), encoding="utf-8")
     # 缓存是安装期旧快照：仅 session-start，旧模块 adapters.qoder.hooks，且已注入绝对路径
     (cache / "hooks").mkdir(parents=True)
@@ -864,6 +844,9 @@ def test_check_installation_is_read_only_and_never_claims_host_loaded(
         tmp_path / "plugins" / "cache" / "local" / setup.PLUGIN_NAME / setup.plugin_version()
     )
     plugin_cache.mkdir(parents=True)
+    (plugin_cache / "README.md").write_bytes(
+        (setup.PLUGIN_SOURCE_DIR / "README.md").read_bytes()
+    )
     (plugin_cache / ".mcp.json").write_text(
         json.dumps(
             {
@@ -1158,6 +1141,9 @@ def doctor_environment(
         tmp_path / "plugins" / "cache" / "local" / setup.PLUGIN_NAME / setup.plugin_version()
     )
     plugin_cache.mkdir(parents=True)
+    (plugin_cache / "README.md").write_bytes(
+        (setup.PLUGIN_SOURCE_DIR / "README.md").read_bytes()
+    )
     (plugin_cache / ".mcp.json").write_text(
         json.dumps(
             {

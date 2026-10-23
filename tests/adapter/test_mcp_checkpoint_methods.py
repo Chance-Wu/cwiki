@@ -6,7 +6,7 @@ Tests the checkpoint-related methods that will be extracted during refactoring.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
 
@@ -111,8 +111,11 @@ class TestCheckpointSubmitCandidates:
         candidates = [
             {"title": "Test", "content": "content", "type": "fact", "note_ids": []}
         ]
-        submitted, errors = await server._checkpoint_submit_candidates(candidates, "ws-1")
+        submitted, rejected, errors = await server._checkpoint_submit_candidates(
+            candidates, "ws-1"
+        )
         assert len(submitted) == 1
+        assert len(rejected) == 0
         assert len(errors) == 0
         assert submitted[0]["candidate_id"] == "cand-1"
         mock_outbox.log_pending.assert_called_once()
@@ -124,8 +127,11 @@ class TestCheckpointSubmitCandidates:
         candidates = [
             {"title": "Test", "content": "content", "type": "fact"}
         ]
-        submitted, errors = await server._checkpoint_submit_candidates(candidates, "ws-1")
+        submitted, rejected, errors = await server._checkpoint_submit_candidates(
+            candidates, "ws-1"
+        )
         assert len(submitted) == 0
+        assert len(rejected) == 0
         assert len(errors) == 1
         assert errors[0]["stage"] == "submit"
 
@@ -147,10 +153,48 @@ class TestCheckpointSubmitCandidates:
         candidates = [
             {"title": "Test", "content": "content", "type": "fact", "note_ids": ["note-1"]}
         ]
-        submitted, errors = await server._checkpoint_submit_candidates(candidates, "ws-1")
+        submitted, _rejected, errors = await server._checkpoint_submit_candidates(
+            candidates, "ws-1"
+        )
         assert len(submitted) == 1
         assert len(errors) == 1
         assert errors[0]["stage"] == "formalize"
+
+    @pytest.mark.asyncio
+    async def test_policy_rejection_is_terminal_and_formalizes_notes(
+        self, server, mock_client
+    ):
+        """4xx 是确定性拒绝：记录 rejected、整理来源笔记、不阻塞水位。"""
+        import httpx
+
+        request = httpx.Request("POST", "http://127.0.0.1:5172/v1/candidates")
+        response = httpx.Response(
+            400,
+            request=request,
+            json={"detail": "内容被写入策略拒绝（规则 deny-noise）"},
+        )
+        mock_client.submit_candidate.side_effect = httpx.HTTPStatusError(
+            "400 Bad Request", request=request, response=response
+        )
+        candidates = [
+            {
+                "title": "Test",
+                "content": "content",
+                "type": "issue",
+                "source": "note:issue",
+                "note_ids": ["note-1"],
+            }
+        ]
+
+        submitted, rejected, errors = await server._checkpoint_submit_candidates(
+            candidates, "ws-1"
+        )
+
+        assert submitted == []
+        assert errors == []
+        assert len(rejected) == 1
+        assert "deny-noise" in rejected[0]["reason"]
+        mock_client.formalize_session_note.assert_awaited_once_with("note-1")
 
 
 class TestCheckpointValidateCandidates:
@@ -161,7 +205,7 @@ class TestCheckpointValidateCandidates:
             {"title": "", "content": "empty title"},  # Invalid: empty title
         ]
         errors = []
-        safe = server._checkpoint_validate_candidates(candidates, errors)
+        server._checkpoint_validate_candidates(candidates, errors)
         # Both should pass validation (empty title is allowed by validate_memory_title)
         # The actual validation depends on the implementation
         assert len(errors) >= 0  # May or may not filter
@@ -200,7 +244,7 @@ class TestComputeCheckpointWindow:
         last_checkpoint = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
         mock_outbox.get_last_checkpoint.return_value = last_checkpoint.isoformat()
         now = last_checkpoint.replace(hour=2)  # 2 hours later
-        since, truncated, last = server._compute_checkpoint_window(
+        since, _truncated, last = server._compute_checkpoint_window(
             "session-1", "ws-1", "event-1", now
         )
         assert since >= 120  # At least 120 minutes
@@ -213,7 +257,7 @@ class TestComputeCheckpointWindow:
         mock_outbox.get_last_checkpoint.return_value = last_checkpoint.isoformat()
         now = last_checkpoint.replace(hour=0, minute=0, second=0, microsecond=0)
         now = now.replace(day=now.day + 1)  # 24 hours later
-        since, truncated, last = server._compute_checkpoint_window(
+        since, truncated, _last = server._compute_checkpoint_window(
             "session-1", "ws-1", "event-1", now
         )
         assert truncated is True
@@ -331,7 +375,7 @@ class TestFinalizeCheckpoint:
     async def test_sets_partial_status_on_partial_errors(self, server):
         """_finalize_checkpoint sets partial status on partial errors."""
         result = {"status": "ok"}
-        final = await server._finalize_checkpoint(
+        _final = await server._finalize_checkpoint(
             result,
             session_id="session-1",
             workspace_id="ws-1",
@@ -363,3 +407,25 @@ class TestFinalizeCheckpoint:
         )
         assert "warnings" in final
         assert len(final["warnings"]) == 2
+
+    @pytest.mark.asyncio
+    async def test_rejected_only_still_advances_watermark(self, server, mock_outbox):
+        """全部候选被确定性拒绝时也应推进水位，避免重复提取。"""
+        result = {"status": "ok"}
+        rejected = [{"title": "被策略拒绝", "type": "issue", "reason": "deny-noise"}]
+        final = await server._finalize_checkpoint(
+            result,
+            session_id="session-1",
+            workspace_id="ws-1",
+            event_session_id="event-1",
+            collection_started_at=datetime.now(UTC),
+            input_status={"events": "available", "notes": "available"},
+            submitted=[],
+            dry_run=False,
+            errors=[],
+            warnings=[],
+            rejected=rejected,
+        )
+        assert final["rejected"] == rejected
+        assert final.get("errors") is None
+        mock_outbox.record_checkpoint.assert_called_once()

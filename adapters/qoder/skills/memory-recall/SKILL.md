@@ -21,4 +21,4 @@ description: 开工前查询 cwiki 获取项目知识、历史决策、已知问
 
 ## 前置条件
 
-cwiki API 须运行中（默认 `http://127.0.0.1:5172`），启动命令：`python tasks.py serve`。API 不可用时 MCP 工具会连接失败——继续任务但注明记忆不可用。
+检索不依赖 API：MCP 直接以只读模式读取 `cwiki-data/cwiki.db`，强命中直接返回本地结果；弱命中会自动回落 API 的混合检索。API 不可用时降级为本地关键词检索（结果带 `degraded: true`、无语义重排）。写入（`memory_save`/`memory_update`/`memory_feedback`）仍需 API 运行（默认 `http://127.0.0.1:5172`，`python tasks.py serve`）；不可用时继续任务并注明写入暂不可用。

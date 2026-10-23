@@ -55,6 +55,8 @@ async def create_candidate_endpoint(
             content=body.content,
             type=body.type,
             tags=body.tags,
+            is_permanent=body.is_permanent,
+            permanent_reason=body.permanent_reason,
             source=body.source,
             confidence=body.confidence or 0.5,
             importance=body.importance or 0.5,

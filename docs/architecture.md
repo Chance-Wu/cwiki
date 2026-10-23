@@ -79,6 +79,20 @@ graph TB
 | AGENTS | 行为契约（触发条件 + 关键约定），约 10 行；不另设提取策略或重复工具用法 |
 | [cwiki-save skill](../skills/cwiki-save/SKILL.md) | 唯一维护知识提取策略：双重价值判断（agent 记忆 + 个人学习平台）、分类信号识别、查重决策流程、内容组织与排版模式、标题生成与类型辨析、检查点与反馈校准 |
 
+### 读路径与降级
+
+- `memory_search`（含 `curated`）与 hook 的 `UserPromptSubmit` 召回优先读取 `cwiki-data/cwiki.db`（`mode=ro`），在进程内构建 BM25 索引，不依赖 API。
+- **本地优先**：本地结果覆盖率 ≥ `STRONG_COVERAGE (0.6)` 视为强命中，直接返回；弱命中/空结果才请求 API 走完整混合检索（语义 + RRF + 重排）。`mode=semantic` 是显式语义请求，保持 API 优先。
+- API 连接失败或 5xx 时回落本地关键词检索，响应带 `degraded: true` 与 `warnings`；4xx 属于请求错误，原样返回，不触发降级。
+- 本地检索使用二元组分词（不加载 jieba，避免 hook 超时）与 IDF 覆盖率门控（`MIN_COVERAGE 0.5`）抑制误召回；写入仍必须经 API + outbox。
+
+### 写入与注入策略
+
+- `agent_policy.write_decisions`：SessionStart 注入结构化写入决策（write/skip/update，优先级 skip > update > write），`memory_save` 时服务端复核；`update` 命中相似记忆时提示改用 `memory_update`。写入后的审核仍由 `memory.write_policy` 管理。
+- `memory.write_policy`：候选创建后按 `auto / review / reject` 规则决策，命中信息随候选持久化；`auto` 在评分任务中优先自动生效，`reject` 直接拒绝提交。
+- `agent_policy.always_inject`：SessionStart 从本地 SQLite 注入永久记忆与指定类型/标签（默认 feedback/rule/pinned），受 `max_items` 与 `max_chars` 预算约束，不依赖 API。
+- `memory_update(is_permanent=true, permanent_reason=...)` 是“必须常驻”的显式入口；永久记忆参与健康分保底与常驻注入。
+
 ### 写入规则
 
 - `memory_save` 要求 Agent 概括主题生成并显式传入 `title`，标题最大长度默认 80 个字符（`config.yaml` 的 `memory.title_max_length`）；MCP 不自动生成标题或添加临时前缀。
@@ -88,7 +102,7 @@ graph TB
 
 ### 审核与安全
 
-候选创建后以 `pending_review` 进入 Embedding → 价值评分；满足 `auto_approve` 阈值时自动转正，否则进入人工审核。安全检查保持启用，没有自动格式化任务。检查点只对有限的已采集事件和笔记做规则提取，不代表完整对话检查。
+候选创建后以 `pending_review` 进入 Embedding → 价值评分；满足 `auto_approve` 阈值时自动转正，否则进入人工审核。`memory.write_policy` 命中规则时可覆盖该行为（auto / review / reject），规则 id 随候选留痕。安全检查保持启用，没有自动格式化任务。检查点只对有限的已采集事件和笔记做规则提取，不代表完整对话检查。
 
 > 详细契约见[记忆系统](memory-system.md)。安装更新及宿主/API 分别重载见[开发指南](development.md#agent-接入配置)。
 

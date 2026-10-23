@@ -276,3 +276,70 @@ class TestAutoConsolidateMerge:
         finally:
             await indexer.close()
             await engine.dispose()
+
+    async def test_auto_merge_skips_group_with_permanent_memory(self, tmp_path, monkeypatch):
+        """组内存在永久记忆时只保留建议，不自动合并或归档。"""
+        engine = create_async_engine(f"sqlite+aiosqlite:///{(tmp_path / 'db.sqlite').as_posix()}")
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        sessions = async_sessionmaker(engine, expire_on_commit=False)
+
+        async with sessions() as db:
+            ws = Workspace(name="permanent-merge-ws")
+            db.add(ws)
+            await db.flush()
+            permanent = Memory(
+                workspace_id=ws.id,
+                title="Permanent keeper",
+                content=MERGE_CONTENT,
+                type="fact",
+                confidence=0.2,
+                importance=0.2,
+                is_permanent=True,
+                permanent_reason="用户指定长期保留",
+            )
+            other = Memory(
+                workspace_id=ws.id,
+                title="Merge candidate",
+                content=MERGE_CONTENT,
+                type="fact",
+                confidence=0.9,
+                importance=0.9,
+            )
+            db.add_all([permanent, other])
+            await db.commit()
+            permanent_id, other_id = permanent.id, other.id
+
+        class _FakeBM25:
+            def search(self, query, top_k):
+                return [(str(permanent_id), 1.0), (str(other_id), 1.0)]
+
+        fake_engine = SimpleNamespace(get_bm25_index=AsyncMock(return_value=_FakeBM25()))
+        monkeypatch.setattr("packages.retrieval.engine.get_retrieval_engine", lambda: fake_engine)
+        monkeypatch.setattr("apps.worker.tasks.consolidate.async_session_maker", sessions)
+        monkeypatch.setattr("apps.worker.tasks.consolidate._consolidate_last_snapshot", None)
+        monkeypatch.setattr(parasitic_evolution_config, "auto_consolidate_enabled", True)
+        monkeypatch.setattr(parasitic_evolution_config, "auto_merge_enabled", True)
+        monkeypatch.setattr(parasitic_evolution_config, "auto_merge_threshold", 0.9)
+        monkeypatch.setattr(
+            "apps.worker.tasks.consolidate.compute_similarity",
+            AsyncMock(return_value=1.0),
+        )
+        monkeypatch.setattr("apps.worker.tasks.consolidate.Path.home", lambda: tmp_path / "home")
+
+        try:
+            result = await task_auto_consolidate_similar({"queue": AsyncMock()})
+
+            assert result["auto_merged_count"] == 0
+            assert result["auto_merge_skipped_permanent"] == 1
+            assert result["suggestions"][0]["has_permanent"] is True
+
+            async with sessions() as db:
+                preserved = await db.get(Memory, permanent_id)
+                untouched = await db.get(Memory, other_id)
+            assert preserved.status == "active"
+            assert preserved.is_permanent is True
+            assert preserved.permanent_reason == "用户指定长期保留"
+            assert untouched.status == "active"
+        finally:
+            await engine.dispose()

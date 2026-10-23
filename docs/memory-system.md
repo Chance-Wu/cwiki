@@ -72,6 +72,7 @@ sequenceDiagram
 - Agent 必须概括主题生成并显式传入 `title`；标题最大长度默认 80 个字符（`config.yaml` 的 `memory.title_max_length`）。MCP 不自动生成标题或添加临时前缀。
 - 类型必须有效，正文须满足 `len(content.strip()) >= 20`（去除首尾空白后至少 20 个字符）。`strip()` 仅用于校验，不改写存储内容。
 - **排除规则**：服务端会拒绝 `len(content.strip()) < 30` 或代码行占比 >80% 的内容（认为可从代码/git 直接推导）。
+- **永久声明**：`memory_save` 可传 `is_permanent=true`（可附 `permanent_reason`），候选审批通过后正式记忆继承该标记。永久记忆不参与自动衰减与自动合并归档；自动合并分组若包含永久记忆，只保留建议、不自动执行。
 - 正文必须使用 Markdown 格式，不要求固定标题、段落或顺序。`memory_types` 提供类型列表供分类参考，不是提交前置步骤。
 - 标题和展示预览的长度约束不代表正文篇幅限制，也不会截短正文；不能用标题代替正文。
 
@@ -86,6 +87,63 @@ sequenceDiagram
 安全检查和审核仍然保留；提交创建 `pending_review` 候选，不等于已批准的正式记忆。候选按三档策略处理（自动生效 / 人工审核 / 低分留存），详见[候选记忆流水线](#候选记忆流水线)。
 
 > 提取质量、查重更新与检查点使用策略统一维护在 [cwiki-save skill](../skills/cwiki-save/SKILL.md)；MCP、AGENTS 与 skill 的职责见[架构设计](architecture.md#记忆写入与-agent-职责)。
+
+### 写入决策（write_decisions）
+
+`config.yaml` 的 `agent_policy.write_decisions` 决定“是否写入/更新/强制审核/拒绝”，在候选创建前执行；下面的 `memory.write_policy` 只决定候选创建后的审核方式。配置默认启用一条等价旧 `must_save` 的 write 规则：
+
+```yaml
+agent_policy:
+  write_decisions:
+    enabled: true
+    default_action: write   # write | review | skip
+    rules:
+      - id: must-save-signals
+        action: write        # write | review | skip | update
+        description: 用户纠正、明确偏好、强制规则必须记录
+        examples: ["不要这样做，改用 X", "以后都按这个约定"]
+        match:
+          type: [feedback, rule]
+          keyword: ["以后", "不要再", "必须", "约定"]
+```
+
+- **分工**：`write_decisions` 是准入（是否写/更新），`write_policy` 是写入后的审核（auto/review/reject）。两者可同时命中；需要“写入但人工审核”时用 write_policy 的 `review`。
+- **匹配**：固定优先级“不写入 > 更新 > 写入”，同组内按声明顺序；未命中用 `default_action`（write/skip）。`description/examples` 只注入 SessionStart，`match` 由服务端执行。
+- **action**：
+  - `write`：正常准入。
+  - `skip`：4xx 拒绝，不创建候选。
+  - `update`：找到相似度 ≥ 0.85 的正式记忆时返回 409，提示用 `memory_update` 更新目标；找不到目标则回退 `default_action`。
+- **注入与复核**：SessionStart 注入规则摘要；`memory_save` 时服务端复核。被 skip/update 拒绝的响应带 `write_decision` 结构（规则 id、动作、目标记忆），MCP 会原样回显。无 hook 的宿主只能获得服务端复核。
+- **审计**：write 候选带 `decision_rule_id` / `decision_action` / `decision_reason`；skip/update 不创建候选。
+- **边界**：`enabled=false` 完全无行为变化；`memory_update`、HTTP PATCH、ZIP 导入、文件 API 直接创建不走准入；旧 `agent_policy.must_save` 仅在未配置 `write_decisions` 时合成等价 write 规则。
+
+### 写入策略（write_policy）
+
+`config.yaml` 的 `memory.write_policy` 在候选创建阶段按规则决定处理方式，配置默认关闭：
+
+```yaml
+memory:
+  write_policy:
+    enabled: true
+    rules:
+      - id: pinned-auto
+        action: auto            # auto | review | reject
+        reason: 用户指定长期保留
+        match:
+          workspace: cwiki      # 工作区名称或 UUID；省略 = 不限
+          type: [decision, lesson]   # 字符串或列表
+          tags: ["pinned"]          # 必须全部存在
+          keyword: ["必须保留", "口径"]  # 标题/正文包含任一即可
+```
+
+- **匹配语义**：同一条规则内各字段是 AND；`type` / `workspace` / `keyword` 多值任一命中，`tags` 需全部存在。`keyword` 大小写不敏感，匹配标题 + 正文。规则按声明顺序匹配，命中第一条即停止。
+- **action**：
+  - `auto`：评分任务完成后自动生效，跳过价值分/置信度/质量门阈值；仍要求无 open 冲突，且已知重复概率 `< 0.95`。
+  - `review`：强制人工审核，即使 `auto_approve_enabled=true` 也不会自动生效。
+  - `reject`：创建候选前直接拒绝（HTTP 4xx），不落候选行；MCP outbox 标记为 rejected，不自动重试。
+- **审计**：命中的规则 id、动作与原因写入候选的 `policy_rule_id` / `policy_action` / `policy_reason`；策略自动生效的 Review 使用 `reviewer_id="write_policy"`，`reason` JSON 含 `policy_rule`。
+- **生效时机**：策略在 API 进程内执行，修改 `config.yaml` 后需重启后端（`python tasks.py restart`）；MCP 进程的配置热刷新不会更新 API 侧规则。
+- **边界**：策略只作用于候选创建路径（`memory_save`、`memory_checkpoint`、episode 候选与 API `POST /v1/candidates`）；ZIP 导入、文件 API 直接创建记忆、重建不经过策略。非法规则会告警并跳过，不影响其他规则与服务启动；没有任何匹配条件的规则会匹配全部候选，配置时需谨慎。
 
 ---
 

@@ -143,6 +143,19 @@ def build_tool_definitions() -> list[dict[str, Any]]:
                         "items": {"type": "string"},
                         "description": "标签列表，审批通过后保留到正式记忆",
                     },
+                    "is_permanent": {
+                        "type": "boolean",
+                        "description": (
+                            "标记为永久记忆：审批通过后不参与自动衰减与自动合并归档，"
+                            "仅在用户明确指定需要长期保留时使用"
+                        ),
+                        "default": False,
+                    },
+                    "permanent_reason": {
+                        "type": "string",
+                        "maxLength": 500,
+                        "description": "永久标记原因，仅 is_permanent=true 时生效",
+                    },
                     "workspace_name": {
                         "type": "string",
                         "description": "工作区名称或 UUID",

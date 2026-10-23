@@ -37,6 +37,109 @@ memory:
   auto_approve_confidence_threshold: 0.8
   auto_approve_gate_threshold: 0.75
   auto_approve_duplicate_threshold: 0.4
+  # 写入策略：按 workspace/type/tags/keyword 匹配候选，命中第一条规则即生效。
+  # 未命中时沿用 auto_approve_* 的全局行为。
+  #   action: auto   = 评分完成后自动生效（跳过价值分阈值，保留冲突与高重复保护）
+  #           review = 强制人工审核（阻止全局 auto_approve）
+  #           reject = 提交即拒绝（返回 4xx，不创建候选）
+  # 同一规则内多个字段是 AND；type/workspace/keyword 多值任一命中，tags 需全部存在。
+  write_policy:
+    enabled: false
+    rules: []
+    # - id: pinned-auto
+    #   action: auto
+    #   reason: 用户指定长期保留
+    #   match:
+    #     workspace: cwiki
+    #     type: [decision, lesson]
+    #     tags: ["pinned"]
+    #     keyword: ["必须保留", "口径"]
+    # - id: noisy-network-errors
+    #   action: reject
+    #   reason: 网络抖动无需入库
+    #   match:
+    #     type: issue
+    #     keyword: ["ECONNRESET", "timed out"]
+agent_policy:
+  # SessionStart 常驻注入：永久记忆 + 指定类型/标签，按预算压缩后每会话带入
+  always_inject:
+    enabled: true
+    types: [feedback, rule]
+    tags: [pinned]
+    include_permanent: true
+    max_items: 8
+    max_chars: 1200
+  # 写入决策：结构化规则决定是否写入/更新；不写入优先于更新，更新优先于写入。
+  # 未命中使用 default_action（write/skip）；“写入后如何审核”由 memory.write_policy 管理。
+  # match 与 memory.write_policy 相同；description/examples 会注入 SessionStart。
+  write_decisions:
+    enabled: true
+    default_action: write
+    rules:
+      - id: skip-credentials
+        action: skip
+        description: 凭据、密钥、令牌与未脱敏日志不写入
+        examples: ["api_key=sk-...", "Bearer eyJhbGci..."]
+        match:
+          keyword:
+            [
+              "password=",
+              "passwd=",
+              "api_key=",
+              "apikey=",
+              "api-key=",
+              "secret=",
+              "client_secret",
+              "-----BEGIN",
+              "Bearer ey",
+              "AKIA",
+              "ghp_",
+              "密码是",
+            ]
+      - id: skip-transient-status
+        action: skip
+        description: 一次性状态查询、纯确认与临时输出不写入
+        examples: ["现在几点？", "临时输出，稍后丢弃"]
+        match:
+          keyword: ["现在几点", "今天日期", "临时输出", "一次性状态", "会话临时"]
+      - id: update-existing-knowledge
+        action: update
+        description: 已有记忆需补充边界或纠偏时更新原记忆
+        examples: ["补充一下这个结论的边界", "原来不是 X，是 Y"]
+        match:
+          keyword:
+            ["补充一下", "原来不是", "已过时", "纠偏", "更正为", "修正为", "更新为"]
+      - id: must-save-signals
+        action: write
+        description: 用户纠正、明确偏好、强制规则必须记录
+        examples: ["不要这样做，改用 X", "以后都按这个约定"]
+        match:
+          type: [feedback, rule]
+          keyword: ["以后", "不要再", "必须", "约定", "不要", "偏好", "记住"]
+      - id: save-decisions
+        action: write
+        description: 技术决策、方案取舍与架构选择要保存
+        examples: ["选 A 不选 B，因为…", "决定改用 X"]
+        match:
+          type: [decision]
+      - id: save-findings
+        action: write
+        description: 调试根因、踩坑教训与非显然 workaround 要保存
+        examples: ["根因是…", "下次要先查…"]
+        match:
+          type: [issue, lesson]
+      - id: save-conventions
+        action: write
+        description: 项目约定、隐性规则、复用模式与环境约束要保存
+        examples: ["本项目统一用…", "该限制来自…"]
+        match:
+          type: [convention, pattern, constraint]
+      - id: save-knowledge
+        action: write
+        description: 知识梳理、学习笔记与操作步骤要保存（含通用知识）
+        examples: ["原理解析：…", "完整操作步骤…"]
+        match:
+          type: [fact, reference, procedure]
 parasitic_evolution:
   agent_profile_enabled: true
   auto_consolidate_enabled: true

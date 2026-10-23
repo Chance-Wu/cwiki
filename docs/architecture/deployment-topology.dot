@@ -1,0 +1,124 @@
+// cwiki Deployment Topology
+// Audience: operations, multi-device sync setup
+// Scope: processes, ports, data stores, Git repos, network boundaries
+// Evidence: tasks.py, start.py, serve_backend.py, config.yaml, cwiki-data/sync.py
+// Skill: deployment-topology-analyzer + graphviz
+
+digraph cwiki_deployment {
+    rankdir=TB
+    node [shape=box, style="rounded,filled", fontname="Segoe UI", fontsize=10]
+    edge [fontname="Segoe UI", fontsize=9, color="#555"]
+    graph [fontname="Segoe UI", fontsize=13, label="cwiki Deployment Topology (Single Machine)", labelloc=t, fontsize=16, pad=0.4]
+
+    // ===== Machine Boundary =====
+    subgraph cluster_machine {
+        label="Local Machine (Windows/macOS/Linux)"
+        style=bold
+        color="#37474F"
+        fontcolor="#37474F"
+
+        // ===== Processes =====
+        subgraph cluster_processes {
+            label="运行时进程"
+            style=dashed
+            color="#90A4AE"
+
+            api_proc [label="uvicorn apps.api.main:app\n:host 0.0.0.0 :port 5172\n(--reload in dev)", fillcolor="#C5E1A5", shape=component]
+            web_proc [label="vite dev server\n:port 5173\n(production: :4173)", fillcolor="#C5E1A5", shape=component]
+            worker_proc [label="In-process TaskQueue\n(2 async workers)\ninside API process", fillcolor="#E1BEE7", shape=component]
+            standalone_worker [label="run_worker.py\n(standalone batch)\noptional", fillcolor="#E1BEE7", shape=component, style="rounded,dashed"]
+            start_monitor [label="start.py\n(parent monitor)\nCtrl+C → kill children", fillcolor="#F5F5F5", shape=component, style=dashed]
+            daemon [label="serve_backend.py\n(auto-restart daemon)\nWindows Task Scheduler", fillcolor="#F5F5F5", shape=component]
+        }
+
+        // ===== Data Stores =====
+        subgraph cluster_data {
+            label="数据存储"
+            style=dashed
+            color="#90A4AE"
+
+            sqlite_db [label="cwiki-data/cwiki.db\nSQLite (WAL mode)\n主存储索引", fillcolor="#FFCCBC", shape=cylinder]
+            vectors_npz [label="cwiki-data/vectors.npz\nnumpy 向量矩阵\n(检索权威源)", fillcolor="#FFCCBC", shape=folder]
+            vectors_json [label="cwiki-data/vectors.json\n向量元数据", fillcolor="#FFCCBC", shape=folder]
+            index_db [label="cwiki-data/index.db\nBM25 倒排索引", fillcolor="#FFCCBC", shape=cylinder]
+            md_dir [label="cwiki-data/*.md\nMarkdown 记忆文件\n({workspace}/{type}/)", fillcolor="#FFCCBC", shape=folder]
+            meta_dir [label="cwiki-data/_meta/\nJSON sidecar\n(per-memory + _workspaces.json)", fillcolor="#FFCCBC", shape=folder]
+            model_cache [label="data/models/\nfastembed ONNX weights\n(bge-small-zh-v1.5, 90M)", fillcolor="#E0E0E0", shape=folder]
+            task_state [label="~/.cwiki/state/\ntask_queue.json\n(磁盘持久化队列)", fillcolor="#E0E0E0", shape=folder]
+            outbox_dir [label="~/.cwiki/outbox/\nWAL outbox entries\n(崩溃恢复)", fillcolor="#E0E0E0", shape=folder]
+            wal_files [label="cwiki.db-wal\ncwiki.db-shm\n(WAL 侧车, 不同步)", fillcolor="#E0E0E0", shape=folder, style=dashed]
+        }
+
+        // ===== Git Repos =====
+        subgraph cluster_git {
+            label="Git 双仓库"
+            style=dashed
+            color="#90A4AE"
+
+            code_repo [label="cwiki.git (代码仓库)\napps/ packages/ adapters/\nconfig.yaml docs/ migrations/", fillcolor="#B8D4E3", shape=note]
+            data_repo [label="cwiki-data.git (数据仓库)\ncwiki-data/ 目录自带 .git\n被根仓库 .gitignore 忽略", fillcolor="#B8D4E3", shape=note]
+        }
+    }
+
+    // ===== External Systems =====
+    github [label="GitHub Private Repos\n(多设备同步)", fillcolor="#F5F5F5", shape=cloud]
+    agent_host [label="Coding Agent Host\n(Qoder/Codex/Claude)", fillcolor="#E8D5B7", shape=box3d]
+    browser [label="Developer Browser\n(Chrome/Edge :5173)", fillcolor="#E8D5B7", shape=box3d]
+
+    // ===== Network Connections =====
+    agent_host -> api_proc [label="stdio (MCP JSON-RPC)\n或 HTTP :5172", color="#1565C0"]
+    browser -> web_proc [label="HTTP :5173", color="#1565C0"]
+    web_proc -> api_proc [label="HTTP :5172\n(CORS)", color="#1565C0"]
+
+    // ===== Process → Data =====
+    api_proc -> sqlite_db [label="SQLAlchemy async\naiosqlite"]
+    api_proc -> vectors_npz [label="numpy mmap"]
+    api_proc -> index_db [label="BM25 缓存"]
+    api_proc -> md_dir [label="FileStore I/O"]
+    api_proc -> meta_dir [label="MetaStore I/O"]
+    api_proc -> model_cache [label="fastembed lazy load"]
+    api_proc -> task_state [label="queue persist\n(every 2s)"]
+    api_proc -> outbox_dir [label="WAL entries"]
+    worker_proc -> sqlite_db [label="task processing"]
+    worker_proc -> vectors_npz [label="embedding dual-write"]
+
+    // ===== Git Sync =====
+    data_repo -> sync_script [label="python cwiki-data/sync.py"]
+    sync_script [label="sync.py\nWAL checkpoint → MD export\n→ commit → pull → push", fillcolor="#FFE0B2", shape=component]
+    sync_script -> sqlite_db [label="PRAGMA wal_checkpoint(TRUNCATE)"]
+    sync_script -> md_dir [label="导出 Markdown"]
+    sync_script -> data_repo [label="git commit + push"]
+    sync_script -> github [label="pull + push\n(数据仓库)"]
+
+    code_repo -> github [label="git pull\n(代码仓库)"]
+    start_monitor -> api_proc [label="spawn + monitor"]
+    start_monitor -> web_proc [label="spawn + monitor"]
+    daemon -> api_proc [label="auto-restart\n(exponential backoff)"]
+
+    // ===== Startup Sequence =====
+    subgraph cluster_startup {
+        label="启动顺序 (tasks.py start)"
+        style=dashed
+        color="#90A4AE"
+        fontsize=9
+
+        step1 [label="1. git pull (代码仓库)", fillcolor="#F5F5F5", shape=note]
+        step2 [label="2. 检测 DB/索引\n(DB 缺失→全量重建\n索引缺失→只建索引)", fillcolor="#F5F5F5", shape=note]
+        step3 [label="3. start.py 启动\nAPI + Frontend", fillcolor="#F5F5F5", shape=note]
+        step4 [label="4. lifespan():\ninit_db → task_queue_startup\n→ FileStore → MemoryIndexer\n→ warm-up → watchdog", fillcolor="#F5F5F5", shape=note]
+
+        step1 -> step2 -> step3 -> step4 [style=dashed, color="#999"]
+    }
+
+    // ===== Sync Exclusions =====
+    subgraph cluster_exclusions {
+        label="不同步内容"
+        style=dashed
+        color="#EF9A9A"
+        fontsize=9
+
+        exc1 [label="config.local.yaml\n(设备本地配置)", fillcolor="#FFCDD2", shape=note]
+        exc2 [label="*.db-wal / *.db-shm\n(WAL 临时侧车)", fillcolor="#FFCDD2", shape=note]
+        exc3 [label="node_modules/\n__pycache__/\n.venv/", fillcolor="#FFCDD2", shape=note]
+    }
+}

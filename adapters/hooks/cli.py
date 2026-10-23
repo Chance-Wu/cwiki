@@ -17,7 +17,7 @@ import os
 import sys
 from typing import NoReturn
 
-from . import capture, profiles, recall, workspace_inject
+from . import capture, decisions, profiles, recall, workspace_inject
 from .workspace_registry import refresh
 
 MAX_INPUT_BYTES = 1024 * 1024
@@ -30,7 +30,7 @@ EVENTS = {
     "session-end",
     "drain",
 }
-HOSTS = {"qoder", "claude", "cursor", "codex", "dsh", "generic"}
+HOSTS = profiles.HOST_NAMES
 REMINDER = (
     "cwiki: 会话开始或切换话题时用 memory_search 检索相关记忆；"
     "出现用户纠正、技术决策、踩坑、约定、可复用资源时，按 cwiki-save skill "
@@ -138,11 +138,18 @@ def main() -> int:
 
     if event == "session-start":
         capture.drain(host, max_batches=1)
-        _write_json(profiles.render_context(host, event, REMINDER))
+        parts = [REMINDER]
+        hint = decisions.build_hint(normalized.workspace)
+        if hint:
+            parts.append(hint)
+        head = recall.build_session_head(normalized.workspace)
+        if head:
+            parts.append(head)
+        _write_json(profiles.render_context(host, event, "\n\n".join(parts)))
         return 0
 
     if event == "user-prompt-submit":
-        if profiles.RECALL_MODE.get(host) != "per_prompt" or not normalized.prompt:
+        if profiles.recall_mode(host) != "per_prompt" or not normalized.prompt:
             return 0
         text = recall.build_context(normalized.prompt, normalized.workspace)
         _write_json(profiles.render_context(host, event, text))

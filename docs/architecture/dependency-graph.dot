@@ -1,0 +1,124 @@
+// cwiki Module Dependency Graph
+// Audience: developers assessing change impact and coupling
+// Scope: packages/, apps/, adapters/ internal dependencies
+// Evidence: imports across all Python modules, pyproject.toml
+// Skill: dependency-impact-analyzer + graphviz
+
+digraph cwiki_dependencies {
+    rankdir=TB
+    node [shape=box, style="rounded,filled", fontname="Segoe UI", fontsize=10]
+    edge [fontname="Segoe UI", fontsize=8, color="#666"]
+    graph [fontname="Segoe UI", fontsize=13, label="cwiki Module Dependency Graph", labelloc=t, fontsize=16, pad=0.4]
+
+    // ===== LAYER: Adapters (External Interface) =====
+    subgraph cluster_adapters {
+        label="adapters/ (外部接口层)"
+        style=dashed
+        color="#B8D4E3"
+
+        mcp_server [label="mcp/mcp_server.py\nMCPServer (19 tools)", fillcolor="#B8D4E3"]
+        mcp_client [label="mcp/client.py\nCwikiClient (HTTP)", fillcolor="#B8D4E3"]
+        mcp_outbox [label="mcp/outbox.py\nWriteAheadOutbox", fillcolor="#B8D4E3"]
+        mcp_signal [label="mcp/signal_engine.py\n事件分析/提取", fillcolor="#B8D4E3"]
+        hook_capture [label="hooks/capture.py\n事件捕获", fillcolor="#B8D4E3"]
+        hook_recall [label="hooks/recall.py\n记忆召回", fillcolor="#B8D4E3"]
+    }
+
+    // ===== LAYER: Apps (Application Processes) =====
+    subgraph cluster_apps {
+        label="apps/ (应用进程层)"
+        style=dashed
+        color="#C5E1A5"
+
+        api_main [label="api/main.py\nFastAPI create_app()", fillcolor="#C5E1A5"]
+        api_routes [label="api/routes/*\n28 个路由模块", fillcolor="#C5E1A5"]
+        worker_tasks [label="worker/tasks/*\n9 个后台任务", fillcolor="#E1BEE7"]
+        web_ui [label="web/src/*\nReact SPA", fillcolor="#C5E1A5"]
+    }
+
+    // ===== LAYER: Packages (Domain Libraries) =====
+    subgraph cluster_packages {
+        label="packages/ (领域库层)"
+        style=dashed
+        color="#FFE0B2"
+
+        pkg_domain [label="domain/\n模型/配置/DB/队列/调度", fillcolor="#FFE0B2"]
+        pkg_memory [label="memory/\n候选创建/去重/质量门控/\n生命周期/评分/进化", fillcolor="#FFE0B2"]
+        pkg_retrieval [label="retrieval/\nBM25/Embedding/RRF/\n重排/上下文组装", fillcolor="#B2DFDB"]
+        pkg_storage [label="storage/\nFileStore/Indexer/\nVectorIndex/MetaStore", fillcolor="#FFCCBC"]
+        pkg_protocol [label="protocol/\nEventEnvelope", fillcolor="#F5F5F5"]
+    }
+
+    // ===== LAYER: Infrastructure =====
+    subgraph cluster_infra {
+        label="基础设施"
+        style=dashed
+        color="#E0E0E0"
+
+        sqlite [label="SQLite cwiki.db\n(aiosqlite)", fillcolor="#E0E0E0", shape=cylinder]
+        npz [label="vectors.npz\n(numpy)", fillcolor="#E0E0E0", shape=folder]
+        md_files [label="cwiki-data/*.md\n(YAML frontmatter)", fillcolor="#E0E0E0", shape=folder]
+        meta_files [label="_meta/*.json\n(sidecar)", fillcolor="#E0E0E0", shape=folder]
+        fastembed [label="fastembed ONNX\n(bge-small-zh-v1.5)", fillcolor="#E0E0E0"]
+        config_yaml [label="config.yaml", fillcolor="#E0E0E0", shape=note]
+    }
+
+    // ===== Adapter Dependencies =====
+    mcp_server -> mcp_client [label="HTTP 调用"]
+    mcp_server -> mcp_outbox [label="WAL 预写"]
+    mcp_server -> mcp_signal [label="事件分析"]
+    mcp_server -> api_routes [label="转发到 REST"]
+    hook_capture -> api_routes [label="POST /v1/events"]
+    hook_recall -> mcp_server [label="memory_search"]
+
+    // ===== App Dependencies =====
+    api_main -> api_routes [label="挂载路由"]
+    api_main -> pkg_domain [label="config, DB, queue"]
+    api_routes -> pkg_memory [label="create_candidate,\nlifecycle, merge"]
+    api_routes -> pkg_retrieval [label="search_ranked,\nretrieve"]
+    api_routes -> pkg_storage [label="FileStore,\nMemoryIndexer"]
+    api_routes -> pkg_domain [label="ORM models,\nschemas"]
+    worker_tasks -> pkg_memory [label="scoring, dedup,\nconsolidate"]
+    worker_tasks -> pkg_retrieval [label="embedding,\nreindex"]
+    worker_tasks -> pkg_storage [label="dual-write,\nvector sync"]
+    worker_tasks -> pkg_domain [label="TaskQueue,\nmodels"]
+    web_ui -> api_routes [label="HTTP :5172"]
+
+    // ===== Package Dependencies =====
+    pkg_memory -> pkg_domain [label="models, config,\ntask_queue, errors"]
+    pkg_memory -> pkg_retrieval [label="embedding,\nsimilarity"]
+    pkg_memory -> pkg_storage [label="file sync,\nindexer"]
+    pkg_retrieval -> pkg_domain [label="models, config"]
+    pkg_retrieval -> pkg_storage [label="vector_index,\nBM25 cache"]
+    pkg_storage -> pkg_domain [label="models, config,\ndatabase"]
+
+    // ===== Infrastructure Dependencies =====
+    pkg_domain -> sqlite [label="SQLAlchemy async"]
+    pkg_domain -> config_yaml [label="Settings"]
+    pkg_storage -> sqlite [label="index DB"]
+    pkg_storage -> npz [label="向量读写"]
+    pkg_storage -> md_files [label="MD CRUD"]
+    pkg_storage -> meta_files [label="_meta JSON"]
+    pkg_retrieval -> fastembed [label="ONNX inference"]
+
+    // ===== Cross-cutting Concerns (dashed) =====
+    mcp_server -> pkg_protocol [label="EventEnvelope", style=dashed]
+    hook_capture -> pkg_protocol [label="HookEvent", style=dashed]
+    pkg_memory -> pkg_protocol [label="事件协议", style=dashed, color="#999"]
+
+    // ===== Legend =====
+    subgraph cluster_legend {
+        label="图例"
+        style=solid
+        color="#999"
+        fontsize=10
+
+        legend_adapter [label="Adapter 适配器", fillcolor="#B8D4E3"]
+        legend_app [label="App 应用", fillcolor="#C5E1A5"]
+        legend_worker [label="Worker 任务", fillcolor="#E1BEE7"]
+        legend_domain [label="Domain 领域", fillcolor="#FFE0B2"]
+        legend_retrieval [label="Retrieval 检索", fillcolor="#B2DFDB"]
+        legend_storage [label="Storage 存储", fillcolor="#FFCCBC"]
+        legend_infra [label="Infrastructure", fillcolor="#E0E0E0"]
+    }
+}

@@ -3,20 +3,24 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 import yaml
-from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from apps.api.auth import AgentIdentity
 from apps.api.deps import require_scope
 from packages.domain.config import (
     CONFIG_PATH,
+    LOCAL_CONFIG_PATH,
+    agent_policy_config,
     parasitic_evolution_config,
     reload_yaml_config,
     settings,
 )
+from packages.domain.write_decisions import build_agent_hint, parse_write_decisions
+from packages.domain.write_policy import parse_write_policy
 
 router = APIRouter(tags=["config"])
 
@@ -112,6 +116,101 @@ class ConfigPatchResult(BaseModel):
     changed_fields: list[str]
 
 
+class WriteRuleMatchModel(BaseModel):
+    """规则匹配条件；空列表表示该维度不限制。"""
+
+    workspace: list[str] = Field(default_factory=list, max_length=20)
+    type: list[str] = Field(default_factory=list, max_length=20)
+    tags: list[str] = Field(default_factory=list, max_length=20)
+    keyword: list[str] = Field(default_factory=list, max_length=20)
+
+    @field_validator("workspace", "type", "tags", "keyword")
+    @classmethod
+    def _clean_values(cls, values: list[str]) -> list[str]:
+        cleaned: list[str] = []
+        seen: set[str] = set()
+        for value in values:
+            text = value.strip()
+            if not text:
+                continue
+            if len(text) > 100:
+                raise ValueError("单个匹配值不能超过 100 字符")
+            key = text.casefold()
+            if key not in seen:
+                seen.add(key)
+                cleaned.append(text)
+        return cleaned
+
+
+class WriteRuleModel(BaseModel):
+    id: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9._-]+$")
+    action: Literal["auto", "review", "reject"]
+    reason: str | None = Field(default=None, max_length=500)
+    match: WriteRuleMatchModel = Field(default_factory=WriteRuleMatchModel)
+
+
+class WritePolicyModel(BaseModel):
+    enabled: bool = False
+    rules: list[WriteRuleModel] = Field(default_factory=list, max_length=50)
+
+    @model_validator(mode="after")
+    def _unique_rule_ids(self) -> WritePolicyModel:
+        seen: set[str] = set()
+        for rule in self.rules:
+            key = rule.id.casefold()
+            if key in seen:
+                raise ValueError(f"规则 id 重复：{rule.id}")
+            seen.add(key)
+        return self
+
+
+class WritePolicyData(WritePolicyModel):
+    storage_path: str
+
+
+class WriteDecisionRuleModel(BaseModel):
+    id: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9._-]+$")
+    action: Literal["write", "skip", "update"]
+    description: str = Field(default="", max_length=300)
+    examples: list[str] = Field(default_factory=list, max_length=5)
+    match: WriteRuleMatchModel = Field(default_factory=WriteRuleMatchModel)
+
+    @field_validator("examples")
+    @classmethod
+    def _clean_examples(cls, values: list[str]) -> list[str]:
+        cleaned: list[str] = []
+        for value in values:
+            text = value.strip()
+            if not text:
+                continue
+            if len(text) > 120:
+                raise ValueError("单条示例不能超过 120 字符")
+            if text not in cleaned:
+                cleaned.append(text)
+        return cleaned
+
+
+class WriteDecisionModel(BaseModel):
+    enabled: bool = False
+    default_action: Literal["write", "skip"] = "write"
+    rules: list[WriteDecisionRuleModel] = Field(default_factory=list, max_length=30)
+
+    @model_validator(mode="after")
+    def _unique_rule_ids(self) -> WriteDecisionModel:
+        seen: set[str] = set()
+        for rule in self.rules:
+            key = rule.id.casefold()
+            if key in seen:
+                raise ValueError(f"规则 id 重复：{rule.id}")
+            seen.add(key)
+        return self
+
+
+class WriteDecisionData(WriteDecisionModel):
+    storage_path: str
+    preview: str
+
+
 # 段名 → Pydantic 模型，兼作可写字段白名单
 _SECTION_MODELS: dict[str, type[BaseModel]] = {
     "app": AppConfig,
@@ -129,6 +228,182 @@ def _get_memory_dir() -> str:
             data = yaml.safe_load(f) or {}
         return str(data.get("storage", {}).get("memory_dir", "./cwiki-data"))
     return "./cwiki-data"
+
+
+def _effective_write_policy() -> WritePolicyData:
+    policy = settings.write_policy
+    return WritePolicyData(
+        enabled=policy.enabled,
+        rules=[
+            WriteRuleModel(
+                id=rule.id,
+                action=rule.action,
+                reason=rule.reason,
+                match=WriteRuleMatchModel(
+                    workspace=list(rule.workspaces),
+                    type=list(rule.types),
+                    tags=list(rule.tags),
+                    keyword=list(rule.keywords),
+                ),
+            )
+            for rule in policy.rules
+        ],
+        storage_path=str(LOCAL_CONFIG_PATH),
+    )
+
+
+def _read_local_config() -> dict[str, Any]:
+    if not LOCAL_CONFIG_PATH.exists():
+        return {}
+    with open(LOCAL_CONFIG_PATH, encoding="utf-8") as f:
+        data = yaml.safe_load(f) or {}
+    return data if isinstance(data, dict) else {}
+
+
+def _write_local_write_policy(body: WritePolicyModel) -> None:
+    """写入 config.local.yaml，保留该文件中的其他设备本地覆盖项。
+
+    不写 config.yaml：运行时策略属于本机操作偏好，且避免 PyYAML 重写
+    共享配置文件时丢失注释。
+    """
+    data = _read_local_config()
+    memory = data.get("memory")
+    if not isinstance(memory, dict):
+        memory = {}
+        data["memory"] = memory
+
+    rules: list[dict[str, Any]] = []
+    for rule in body.rules:
+        match = {
+            "workspace": rule.match.workspace,
+            "type": rule.match.type,
+            "tags": rule.match.tags,
+            "keyword": rule.match.keyword,
+        }
+        entry: dict[str, Any] = {
+            "id": rule.id,
+            "action": rule.action,
+            "match": {key: value for key, value in match.items() if value},
+        }
+        if rule.reason:
+            entry["reason"] = rule.reason
+        rules.append(entry)
+
+    memory["write_policy"] = {"enabled": body.enabled, "rules": rules}
+    with open(LOCAL_CONFIG_PATH, "w", encoding="utf-8") as f:
+        yaml.dump(data, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+
+
+def _effective_write_decisions() -> WriteDecisionData:
+    policy = agent_policy_config.write_decisions
+    return WriteDecisionData(
+        enabled=policy.enabled,
+        default_action=policy.default_action,
+        rules=[
+            WriteDecisionRuleModel(
+                id=rule.id,
+                action=rule.action,
+                description=rule.description,
+                examples=list(rule.examples),
+                match=WriteRuleMatchModel(
+                    workspace=list(rule.workspaces),
+                    type=list(rule.types),
+                    tags=list(rule.tags),
+                    keyword=list(rule.keywords),
+                ),
+            )
+            for rule in policy.rules
+        ],
+        storage_path=str(LOCAL_CONFIG_PATH),
+        preview=build_agent_hint(policy, ""),
+    )
+
+
+def _write_local_write_decisions(body: WriteDecisionModel) -> None:
+    data = _read_local_config()
+    agent_policy = data.get("agent_policy")
+    if not isinstance(agent_policy, dict):
+        agent_policy = {}
+        data["agent_policy"] = agent_policy
+
+    rules: list[dict[str, Any]] = []
+    for rule in body.rules:
+        entry: dict[str, Any] = {
+            "id": rule.id,
+            "action": rule.action,
+            "match": {
+                key: value
+                for key, value in {
+                    "workspace": rule.match.workspace,
+                    "type": rule.match.type,
+                    "tags": rule.match.tags,
+                    "keyword": rule.match.keyword,
+                }.items()
+                if value
+            },
+        }
+        if rule.description:
+            entry["description"] = rule.description
+        if rule.examples:
+            entry["examples"] = list(rule.examples)
+        rules.append(entry)
+
+    agent_policy["write_decisions"] = {
+        "enabled": body.enabled,
+        "default_action": body.default_action,
+        "rules": rules,
+    }
+    with open(LOCAL_CONFIG_PATH, "w", encoding="utf-8") as f:
+        yaml.dump(data, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+
+
+@router.get("/v1/config/write-decisions", response_model=WriteDecisionData)
+async def get_write_decisions() -> WriteDecisionData:
+    """获取当前生效的写入决策规则与注入预览。"""
+    return _effective_write_decisions()
+
+
+@router.put("/v1/config/write-decisions", response_model=WriteDecisionData)
+async def update_write_decisions(
+    body: WriteDecisionModel,
+    _identity: Annotated[AgentIdentity, Depends(require_scope("config:write"))],
+) -> WriteDecisionData:
+    """更新写入决策：写入 config.local.yaml 并即时重载。"""
+    parsed = parse_write_decisions(body.model_dump())
+    if (
+        parsed.enabled != body.enabled
+        or parsed.default_action != body.default_action
+        or len(parsed.rules) != len(body.rules)
+    ):
+        raise HTTPException(status_code=422, detail="写入决策校验失败：部分规则无法解析")
+
+    await asyncio.to_thread(_write_local_write_decisions, body)
+    reload_yaml_config()
+    settings.reload()
+    agent_policy_config.reload()
+    return _effective_write_decisions()
+
+
+@router.get("/v1/config/write-policy", response_model=WritePolicyData)
+async def get_write_policy() -> WritePolicyData:
+    """获取当前生效的写入策略。"""
+    return _effective_write_policy()
+
+
+@router.put("/v1/config/write-policy", response_model=WritePolicyData)
+async def update_write_policy(
+    body: WritePolicyModel,
+    _identity: Annotated[AgentIdentity, Depends(require_scope("config:write"))],
+) -> WritePolicyData:
+    """更新写入策略：写入 config.local.yaml 并即时重载运行时配置。"""
+    parsed = parse_write_policy(body.model_dump())
+    if parsed.enabled != body.enabled or len(parsed.rules) != len(body.rules):
+        raise HTTPException(status_code=422, detail="写入策略校验失败：部分规则无法解析")
+
+    await asyncio.to_thread(_write_local_write_policy, body)
+    reload_yaml_config()
+    settings.reload()
+    return _effective_write_policy()
 
 
 @router.get("/v1/config", response_model=ConfigData)

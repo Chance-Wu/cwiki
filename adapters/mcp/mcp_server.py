@@ -65,6 +65,7 @@ except ImportError:
 from adapters.hooks.profiles import clean_workspace_name
 from adapters.mcp.checkpoint_manager import CHECKPOINT_FETCH_LIMIT, CheckpointManager
 from adapters.mcp.client import CwikiClient, MemoryUpdateUncertainError
+from adapters.mcp.local_index import STRONG_COVERAGE, build_local_context, search_local
 from adapters.mcp.outbox import WriteAheadOutbox
 from adapters.mcp.outbox_manager import OutboxManager, ReplayRejected, WriteUnconfirmedError
 
@@ -296,6 +297,18 @@ def _safe_error(exc: Exception) -> str:
     return f"Operation failed ({type(exc).__name__})"
 
 
+def _write_decision_payload(exc: Exception) -> dict[str, Any] | None:
+    """从 API 4xx 响应中提取写入决策的结构化信息。"""
+    if not isinstance(exc, httpx.HTTPStatusError):
+        return None
+    try:
+        data = exc.response.json()
+    except ValueError:
+        return None
+    payload = data.get("write_decision") if isinstance(data, dict) else None
+    return payload if isinstance(payload, dict) else None
+
+
 def _is_client_rejection(exc: Exception) -> bool:
     """API 明确拒绝载荷（4xx 且非 429 限流）时为 True。"""
     return isinstance(exc, ReplayRejected) or (
@@ -303,6 +316,13 @@ def _is_client_rejection(exc: Exception) -> bool:
         and 400 <= exc.response.status_code < 500
         and exc.response.status_code != 429
     )
+
+
+def _api_unavailable(exc: httpx.HTTPError) -> bool:
+    """连接级失败或 5xx 才允许读路径降级；4xx 是请求错误，必须原样返回。"""
+    if isinstance(exc, httpx.RequestError):
+        return True
+    return isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code >= 500
 
 
 def _classify_memory_type(content: str) -> str:
@@ -590,6 +610,7 @@ class MCPServer:
             try:
                 domain_config.reload_yaml_config()
                 settings.reload()
+                domain_config.agent_policy_config.reload()
                 self._config_error = None
             except Exception as exc:
                 self._config_error = _safe_error(exc)
@@ -747,13 +768,29 @@ class MCPServer:
     async def _search_context(self, arguments: dict[str, Any]) -> dict[str, Any]:
         limit = arguments.get("limit", 10)
         max_tokens = arguments.get("max_tokens", 5000)
-        result = await self.client.get_context(
-            query=arguments["keyword"],
-            workspace_id=arguments["workspace_id"],
-            project=arguments.get("project"),
-            max_items=limit,
-            max_tokens=max_tokens,
-        )
+        local = self._local_context_lookup(arguments, limit, max_tokens)
+        result: dict[str, Any] | None = None
+        if local is not None and self._local_context_is_strong(local):
+            result = local
+        else:
+            try:
+                result = await self.client.get_context(
+                    query=arguments["keyword"],
+                    workspace_id=arguments["workspace_id"],
+                    project=arguments.get("project"),
+                    max_items=limit,
+                    max_tokens=max_tokens,
+                )
+            except httpx.HTTPError as exc:
+                if not _api_unavailable(exc):
+                    raise
+                if local is None:
+                    result = self._local_unavailable_error()
+                else:
+                    result = self._mark_degraded(local, type(exc).__name__)
+                    if arguments.get("project"):
+                        result["warnings"].append("project 过滤已忽略（本地降级不支持）")
+
         hints: list[str] = []
         items = result.get("items", [])
         if arguments.get("keyword"):
@@ -810,7 +847,7 @@ class MCPServer:
             arguments["workspace_name"] = fallback
             result = await self._search_context(arguments)
             if ignored:
-                result["warnings"] = [f"参数已忽略：{'；'.join(ignored)}"]
+                result.setdefault("warnings", []).append(f"参数已忽略：{'；'.join(ignored)}")
             return result
         mode = arguments.get("mode", "hybrid")
         filters = arguments.get("filters")
@@ -825,24 +862,121 @@ class MCPServer:
                 ignored.append("filters（semantic 模式不支持过滤，需要过滤请用 hybrid）")
             if tags:
                 ignored.append("filters.tags（semantic 模式不支持标签过滤）")
-            result = await self.client.recall(
-                query=arguments["keyword"],
-                workspace_id=workspace,
-                limit=arguments.get("limit", 10),
-            )
+            # semantic 是显式语义请求：仍 API 优先，失败才降级本地关键词
+            try:
+                result = await self.client.recall(
+                    query=arguments["keyword"],
+                    workspace_id=workspace,
+                    limit=arguments.get("limit", 10),
+                )
+            except httpx.HTTPError as exc:
+                if not _api_unavailable(exc):
+                    raise
+                local = self._local_search_lookup(arguments, workspace, tags)
+                if local is None:
+                    result = self._local_unavailable_error()
+                else:
+                    result = self._mark_degraded(local, type(exc).__name__, semantic=True)
         else:
-            search_kwargs: dict[str, Any] = {
-                "query": arguments["keyword"],
-                "workspace_id": workspace,
-                "filters": arguments.get("filters"),
-                "limit": arguments.get("limit", 10),
-            }
-            if tags is not None:
-                search_kwargs["tags"] = tags
-            result = await self.client.search(**search_kwargs)
+            # 本地优先：强命中直接返回（不依赖 API）；弱命中/空结果才请求 API 补语义
+            local = self._local_search_lookup(arguments, workspace, tags)
+            if local is not None and self._local_search_is_strong(local):
+                result = local
+            else:
+                search_kwargs: dict[str, Any] = {
+                    "query": arguments["keyword"],
+                    "workspace_id": workspace,
+                    "filters": arguments.get("filters"),
+                    "limit": arguments.get("limit", 10),
+                }
+                if tags is not None:
+                    search_kwargs["tags"] = tags
+                try:
+                    result = await self.client.search(**search_kwargs)
+                except httpx.HTTPError as exc:
+                    if not _api_unavailable(exc):
+                        raise
+                    if local is None:
+                        result = self._local_unavailable_error()
+                    else:
+                        result = self._mark_degraded(local, type(exc).__name__)
         if ignored:
-            result["warnings"] = [f"参数已忽略：{'；'.join(ignored)}"]
+            result.setdefault("warnings", []).append(f"参数已忽略：{'；'.join(ignored)}")
         return result
+
+    def _local_search_lookup(
+        self,
+        arguments: dict[str, Any],
+        workspace: str | None,
+        tags: list[str] | None,
+    ) -> dict[str, Any] | None:
+        """本地只读检索；DB 不可读时返回 None。"""
+        filters = arguments.get("filters")
+        memory_type = filters.get("type") if isinstance(filters, dict) else None
+        min_confidence = filters.get("min_confidence") if isinstance(filters, dict) else None
+        result = search_local(
+            arguments["keyword"],
+            workspace=workspace,
+            limit=arguments.get("limit", 10),
+            memory_type=memory_type if isinstance(memory_type, str) else None,
+            min_confidence=min_confidence if isinstance(min_confidence, (int, float)) else None,
+            tags=[str(tag) for tag in tags] if tags else None,
+        )
+        return result if result.get("available") else None
+
+    @staticmethod
+    def _local_search_is_strong(result: dict[str, Any]) -> bool:
+        results = result.get("results") or []
+        if not results:
+            return False
+        coverage = results[0].get("coverage")
+        return isinstance(coverage, (int, float)) and coverage >= STRONG_COVERAGE
+
+    def _local_context_lookup(
+        self,
+        arguments: dict[str, Any],
+        limit: int,
+        max_tokens: int,
+    ) -> dict[str, Any] | None:
+        result = build_local_context(
+            workspace=str(arguments["workspace_id"]),
+            query=arguments["keyword"],
+            max_items=limit,
+            max_tokens=max_tokens,
+        )
+        return result if result.get("available") else None
+
+    @staticmethod
+    def _local_context_is_strong(result: dict[str, Any]) -> bool:
+        items = result.get("items") or []
+        if not items:
+            return False
+        metadata = items[0].get("metadata") or {}
+        coverage = metadata.get("coverage")
+        return isinstance(coverage, (int, float)) and coverage >= STRONG_COVERAGE
+
+    @staticmethod
+    def _mark_degraded(
+        result: dict[str, Any], reason: str, *, semantic: bool = False
+    ) -> dict[str, Any]:
+        """标注「API 不可用 → 本地关键词」的降级结果。"""
+        result["degraded"] = True
+        warnings = result.setdefault("warnings", [])
+        warnings.append(
+            f"cwiki API 不可用（{reason}），已回落本地只读索引：仅关键词检索，无语义召回与重排。"
+        )
+        if semantic:
+            warnings.append("semantic 模式已降级为本地关键词检索。")
+        return result
+
+    @staticmethod
+    def _local_unavailable_error() -> dict[str, Any]:
+        return {
+            "error": "cwiki API 不可用，且本地只读索引不可用",
+            "hint": "确认 cwiki-data/cwiki.db 存在且未被加密/锁死；必要时启动 API。",
+            "degraded": True,
+            "source": "local",
+        }
 
     async def _handle_memory_save(self, arguments: dict[str, Any]) -> dict[str, Any]:
         title, content = arguments.get("title"), arguments.get("content")
@@ -883,7 +1017,7 @@ class MCPServer:
         ]
         if missing_tags:
             content = content + "\n\n" + " ".join(missing_tags)
-        frozen = {
+        frozen: dict[str, Any] = {
             "title": title,
             "content": content,
             "type": memory_type,
@@ -892,11 +1026,17 @@ class MCPServer:
         tags = arguments.get("tags")
         if tags:
             frozen["tags"] = tags
+        if arguments.get("is_permanent") is True:
+            frozen["is_permanent"] = True
+            permanent_reason = arguments.get("permanent_reason")
+            if isinstance(permanent_reason, str) and permanent_reason.strip():
+                frozen["permanent_reason"] = permanent_reason.strip()[:500]
         write_id = _make_write_id(content)
         response, entry, exc = await self._outbox_submit("memory_save", frozen, workspace, write_id)
         if exc is not None:
             rejected = _is_client_rejection(exc)
-            return {
+            decision_payload = _write_decision_payload(exc)
+            result = {
                 "error": _safe_error(exc),
                 "cached": entry is not None,
                 "delivery": "rejected" if rejected else "unconfirmed",
@@ -910,11 +1050,19 @@ class MCPServer:
                 "hint": "memory_retry_failed 可手动重试；rejected 不自动重试",
                 **self._outbox_summary(),
             }
+            if decision_payload:
+                result["write_decision"] = decision_payload
+                result["hint"] = (
+                    "命中写入决策规则：skip 表示不应写入；"
+                    "update 表示应使用 memory_update 更新 target_memory_id 指向的记忆。"
+                )
+            return result
         assert response is not None
         similar_items = response.get("similar_items", [])
+        candidate_payload = response.get("candidate", {})
         result = {
             "status": "created",
-            "candidate_id": response.get("candidate", {}).get("id"),
+            "candidate_id": candidate_payload.get("id"),
             "title": title,
             "inferred_type": memory_type,
             # 回显实际归属工作区：Agent/用户可校验"归到正确的区"，
@@ -923,6 +1071,28 @@ class MCPServer:
             "message": "已按原文提交，等待人工审核",
             "similar_memories": similar_items,
         }
+        if frozen.get("is_permanent"):
+            result["is_permanent"] = True
+        policy_action = candidate_payload.get("policy_action")
+        if policy_action:
+            result["policy"] = {
+                "rule": candidate_payload.get("policy_rule_id"),
+                "action": policy_action,
+                "reason": candidate_payload.get("policy_reason"),
+            }
+            if policy_action == "auto":
+                result["message"] = "已提交，评分完成后按写入策略自动生效"
+            elif policy_action == "review":
+                result["message"] = "已提交，写入策略要求人工审核"
+        decision_action = candidate_payload.get("decision_action")
+        if decision_action:
+            result["decision"] = {
+                "rule": candidate_payload.get("decision_rule_id"),
+                "action": decision_action,
+                "reason": candidate_payload.get("decision_reason"),
+            }
+            if decision_action == "review":
+                result["message"] = "已提交，写入决策规则要求人工审核"
         if similar_items:
             result["hint"] = (
                 response.get("hint")
@@ -952,6 +1122,15 @@ class MCPServer:
             "config_file": str(domain_config.CONFIG_PATH.resolve()),
             "config_mtime_ns": self._config_stamp[1],
             "max_message_bytes": MAX_MESSAGE_BYTES,
+            "write_policy_enabled": settings.write_policy.enabled,
+            "write_policy_rules": [rule.id for rule in settings.write_policy.rules],
+            "write_decisions_enabled": domain_config.agent_policy_config.write_decisions.enabled,
+            "write_decisions_default_action": (
+                domain_config.agent_policy_config.write_decisions.default_action
+            ),
+            "write_decisions_rules": [
+                rule.id for rule in domain_config.agent_policy_config.write_decisions.rules
+            ],
         }
         if self._config_error:
             result["config_error"] = self._config_error
@@ -1156,8 +1335,8 @@ class MCPServer:
         self,
         candidates: list[dict[str, Any]],
         workspace_id: str,
-    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-        """经 outbox 提交校验后的候选。返回 (submitted, errors)。"""
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+        """经 outbox 提交校验后的候选。返回 (submitted, rejected, errors)。"""
         return await self._checkpoint_manager.submit_candidates(candidates, workspace_id)
 
     def _checkpoint_validate_candidates(
@@ -1230,6 +1409,7 @@ class MCPServer:
         dry_run: bool,
         errors: list[dict[str, Any]],
         warnings: list[str],
+        rejected: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """记录水位、确定最终状态并附加 errors/warnings。"""
         return await self._checkpoint_manager.finalize(
@@ -1243,6 +1423,7 @@ class MCPServer:
             dry_run=dry_run,
             errors=errors,
             warnings=warnings,
+            rejected=rejected,
         )
 
     async def _handle_memory_checkpoint(self, arguments: dict[str, Any]) -> dict[str, Any]:
@@ -1294,8 +1475,9 @@ class MCPServer:
         candidates = self._checkpoint_validate_candidates(candidates, errors)
 
         submitted: list[dict[str, Any]] = []
+        rejected: list[dict[str, Any]] = []
         if not dry_run:
-            submitted, submit_errors = await self._checkpoint_submit_candidates(
+            submitted, rejected, submit_errors = await self._checkpoint_submit_candidates(
                 candidates, workspace_id
             )
             errors.extend(submit_errors)
@@ -1326,6 +1508,7 @@ class MCPServer:
             dry_run=dry_run,
             errors=errors,
             warnings=warnings,
+            rejected=rejected,
         )
 
     # 工具响应整体进入模型上下文：导出超过该体积（序列化后字节）时拒绝，

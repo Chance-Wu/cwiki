@@ -174,6 +174,29 @@ class TestSubmitWrite:
         await server._submit_write("memory_save", args, "write-1", entry)
         mock_outbox.update_entry.assert_called_once()
 
+    @pytest.mark.asyncio
+    async def test_forwards_permanent_flags_for_save(self, server, mock_client):
+        """_submit_write forwards permanent flags stored in the frozen payload."""
+        args = {
+            "content": "test",
+            "workspace_id": "ws-1",
+            "is_permanent": True,
+            "permanent_reason": "用户指定长期保留",
+        }
+        await server._submit_write("memory_save", args, "write-1")
+        call_kwargs = mock_client.submit_candidate.call_args[1]
+        assert call_kwargs["is_permanent"] is True
+        assert call_kwargs["permanent_reason"] == "用户指定长期保留"
+
+    @pytest.mark.asyncio
+    async def test_ignores_permanent_reason_without_flag(self, server, mock_client):
+        """未声明永久时，原因文本不应传给 API。"""
+        args = {"content": "test", "workspace_id": "ws-1", "permanent_reason": "误传"}
+        await server._submit_write("memory_save", args, "write-1")
+        call_kwargs = mock_client.submit_candidate.call_args[1]
+        assert "is_permanent" not in call_kwargs
+        assert "permanent_reason" not in call_kwargs
+
 
 class TestOutboxSubmit:
     @pytest.mark.asyncio

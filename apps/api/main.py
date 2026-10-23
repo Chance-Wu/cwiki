@@ -149,10 +149,10 @@ def create_app() -> FastAPI:
     async def app_error_handler(request: Any, exc: AppError) -> Any:
         from fastapi.responses import JSONResponse
 
-        return JSONResponse(
-            status_code=exc.status_code,
-            content={"detail": exc.message, "code": exc.code},
-        )
+        content: dict[str, Any] = {"detail": exc.message, "code": exc.code}
+        if exc.extra:
+            content.update(exc.extra)
+        return JSONResponse(status_code=exc.status_code, content=content)
 
     # 挂载全部路由（每个路由自带 /v1 前缀）
     from apps.api.routes.agent_capture import router as agent_capture_router

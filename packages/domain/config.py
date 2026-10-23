@@ -10,6 +10,13 @@ from typing import Any
 
 import yaml
 
+from packages.domain.write_decisions import (
+    WriteDecisionPolicy,
+    WriteDecisionRule,
+    parse_write_decisions,
+)
+from packages.domain.write_policy import WritePolicy, parse_write_policy
+
 logger = logging.getLogger(__name__)
 
 CONFIG_PATH = Path(__file__).parent.parent.parent / "config.yaml"
@@ -213,6 +220,8 @@ class Settings:
         self.auto_approve_duplicate_threshold: float = memory_cfg.get(
             "auto_approve_duplicate_threshold", 0.4
         )
+        # 写入策略：按规则决定候选自动生效 / 强制人工 / 拒绝；默认关闭
+        self.write_policy: WritePolicy = parse_write_policy(memory_cfg.get("write_policy"))
 
         # 相似度计算策略：jaccard | embedding | hybrid
         self.similarity_strategy: str = memory_cfg.get("similarity_strategy", "hybrid")
@@ -297,6 +306,89 @@ class ParasiticEvolutionConfig:
 
 
 parasitic_evolution_config = ParasiticEvolutionConfig()
+
+
+class AgentPolicyConfig:
+    """Agent 写入/注入策略（config.yaml 的 ``agent_policy``）。
+
+    - ``always_inject``：SessionStart 常驻注入的类型、标签与 token 预算；
+      始终包含 ``is_permanent`` 记忆。
+    - ``write_decisions``：结构化的写入/跳过/更新准入规则；SessionStart 注入，
+      保存时由服务端校验。
+    - 旧 ``must_save`` 仅在未配置 ``write_decisions`` 时合成等价规则，保持兼容。
+    - 写入后的 auto/review/reject 由 ``memory.write_policy`` 管理。
+    """
+
+    def __init__(self) -> None:
+        self.reload()
+
+    def reload(self) -> None:
+        cfg = _yaml_config.get("agent_policy", {})
+        if not isinstance(cfg, dict):
+            cfg = {}
+        always = cfg.get("always_inject", {})
+        if not isinstance(always, dict):
+            always = {}
+        self.always_inject_enabled: bool = always.get("enabled", False) is True
+        self.always_inject_types: tuple[str, ...] = _string_tuple(
+            always.get("types"), ("feedback", "rule")
+        )
+        self.always_inject_tags: tuple[str, ...] = _string_tuple(always.get("tags"), ())
+        self.always_inject_permanent: bool = always.get("include_permanent", True) is True
+        self.always_inject_max_items: int = _positive_int(always.get("max_items"), 8)
+        self.always_inject_max_chars: int = _positive_int(always.get("max_chars"), 1200)
+
+        must = cfg.get("must_save", {})
+        if not isinstance(must, dict):
+            must = {}
+        self.must_save_types: tuple[str, ...] = _string_tuple(must.get("types"), ())
+        self.must_save_keywords: tuple[str, ...] = _string_tuple(must.get("keywords"), ())
+
+        raw_decisions = cfg.get("write_decisions")
+        if isinstance(raw_decisions, dict):
+            self.write_decisions: WriteDecisionPolicy = parse_write_decisions(raw_decisions)
+        else:
+            self.write_decisions = _legacy_write_decisions(
+                self.must_save_types, self.must_save_keywords
+            )
+
+
+def _legacy_write_decisions(
+    types: tuple[str, ...], keywords: tuple[str, ...]
+) -> WriteDecisionPolicy:
+    """把旧的 agent_policy.must_save 合成为一条 write 规则（行为保持中性）。"""
+    if not types and not keywords:
+        return WriteDecisionPolicy()
+    return WriteDecisionPolicy(
+        enabled=True,
+        default_action="write",
+        rules=(
+            WriteDecisionRule(
+                id="must-save-signals",
+                action="write",
+                description="出现以下类型或关键词时必须提交记忆",
+                types=types,
+                keywords=keywords,
+            ),
+        ),
+    )
+
+
+def _string_tuple(value: object, default: tuple[str, ...]) -> tuple[str, ...]:
+    if not isinstance(value, (list, tuple)):
+        return default
+    result: list[str] = []
+    for item in value:
+        if isinstance(item, str) and item.strip():
+            result.append(item.strip())
+    return tuple(result)
+
+
+def _positive_int(value: object, default: int) -> int:
+    return value if isinstance(value, int) and value > 0 else default
+
+
+agent_policy_config = AgentPolicyConfig()
 
 
 class SchedulerConfig:

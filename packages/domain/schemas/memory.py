@@ -106,6 +106,8 @@ class CandidateMemoryCreate(BaseModel):
     content: MemoryContent
     type: str = Field(..., max_length=64)
     tags: list[str] = Field(default_factory=list)
+    is_permanent: bool = False
+    permanent_reason: str | None = Field(default=None, max_length=500)
     source: str = Field("mcp", max_length=32)
     client_write_id: str | None = Field(default=None, max_length=64)
     confidence: float | None = None
@@ -136,6 +138,14 @@ class CandidateMemoryRead(BaseModel):
     content: str
     type: str
     tags: list[str] = Field(default_factory=list)
+    is_permanent: bool = False
+    permanent_reason: str | None = None
+    policy_rule_id: str | None = None
+    policy_action: str | None = None
+    policy_reason: str | None = None
+    decision_rule_id: str | None = None
+    decision_action: str | None = None
+    decision_reason: str | None = None
     source: str
     client_write_id: str | None = None
     confidence: float | None

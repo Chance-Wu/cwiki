@@ -15,7 +15,9 @@ from adapters.mcp.outbox import WriteAheadOutbox
 
 
 @pytest.fixture
-def server(tmp_path):
+def server(tmp_path, monkeypatch):
+    # 这组测试只验证 API 的 workspace 路由：指向不存在的 DB，强制走 API 分支
+    monkeypatch.setenv("CWIKI_DB_PATH", str(tmp_path / "missing.db"))
     client = AsyncMock()
     instance = MCPServer(client)
     instance.outbox = WriteAheadOutbox(tmp_path / "outbox")

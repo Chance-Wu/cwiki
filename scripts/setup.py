@@ -223,43 +223,31 @@ def ensure_global_mcp_json() -> None:
 
 # ── 插件（hooks）─────────────────────────────────────────────────────
 
-HOOK_COMMAND = "-m adapters.hooks qoder session-start"
-
 
 def patch_plugin_hooks(agent_key: str) -> None:
-    """修补插件缓存目录中的 hooks/hooks.json，注入正确的 python 和 PYTHONPATH。
+    """由 HostProfile 生成插件缓存的 hooks/hooks.json，并注入解释器与 PYTHONPATH。
 
-    源码模板不含绝对路径（保证可移植），安装时在此处注入。
-    Qoder 通过 shell 执行 command 字符串，含空格的 python 路径需加引号。
+    源码模板不含绝对路径（保证可移植）；生成逻辑以 profile 为唯一事实源，
+    避免模板漏事件或与适配层漂移。Qoder 通过 shell 执行 command 字符串，
+    含空格的 python 路径需加引号，Windows 反斜杠统一转成正斜杠。
     """
-    hooks_json = plugin_cache_dir() / "hooks" / "hooks.json"
-    if not hooks_json.is_file():
-        warn(f"插件缓存 hooks.json 不存在，跳过修补: {hooks_json}")
+    if agent_key != "qoder":
         return
-    data = read_json(hooks_json)
-    # 宿主用 shell（Git Bash）执行 command 字符串：Windows 反斜杠会被吞掉，
-    # 统一转成正斜杠（Windows 与 POSIX 均可直接执行）。
+    hooks_json = plugin_cache_dir() / "hooks" / "hooks.json"
+    if not hooks_json.parent.is_dir():
+        warn(f"插件缓存 hooks 目录不存在，跳过生成: {hooks_json.parent}")
+        return
+    from adapters.hooks.profiles import render_hooks_config
+
     exe = sys.executable.replace("\\", "/")
     command_exe = f'"{exe}"' if " " in exe else exe
-    patched = 0
-    for matchers in data.get("hooks", {}).values():
-        for matcher in matchers:
-            for hook in matcher.get("hooks", []):
-                if hook.get("type") != "command":
-                    continue
-                # 保留模板里的模块与事件参数，只替换解释器前缀，
-                # 避免把 UserPromptSubmit/PostCompact 等事件全部改成 session-start
-                current = str(hook.get("command", ""))
-                marker = current.find(" -m ")
-                suffix = current[marker + 1 :] if marker >= 0 else HOOK_COMMAND
-                hook["command"] = f"{command_exe} {suffix}"
-                hook.setdefault("env", {})["PYTHONPATH"] = str(PROJECT_ROOT)
-                patched += 1
-    if not patched:
-        warn("hooks.json 中未找到 command 类型 hook，跳过修补")
-        return
+    data = render_hooks_config(
+        "qoder",
+        command_prefix=f"{command_exe} -m adapters.hooks",
+        env={"PYTHONPATH": str(PROJECT_ROOT)},
+    )
     write_json(hooks_json, data)
-    info(f"插件缓存 hooks.json 已修补 (python={exe}, PYTHONPATH={PROJECT_ROOT})")
+    info(f"插件缓存 hooks.json 已生成 (python={exe}, PYTHONPATH={PROJECT_ROOT})")
 
 
 def ensure_plugin_installed(agent_key: str) -> None:
@@ -817,6 +805,30 @@ def check_installation(agent_key: str) -> dict[str, Any]:
     except OSError:
         result["skill_current"] = False
         errors.append("无法读取项目或已安装的 cwiki-save skill")
+
+    cache = plugin_cache_dir()
+    diverged: list[str] = []
+    try:
+        if cache.is_dir():
+            for rel in PLUGIN_SYNC_CONTENT:
+                source_file = PLUGIN_SOURCE_DIR / rel
+                if not source_file.is_file():
+                    continue
+                target_file = cache / rel
+                if (
+                    not target_file.is_file()
+                    or source_file.read_bytes() != target_file.read_bytes()
+                ):
+                    diverged.append(rel)
+    except OSError:
+        diverged.append("(unreadable)")
+    result["plugin_cache_current"] = not diverged
+    if diverged:
+        warnings.append(
+            "插件缓存与源码不一致："
+            + "、".join(diverged)
+            + "；运行 setup.py --sync-instructions 刷新"
+        )
 
     settings_server: dict[str, Any] = {}
     try:

@@ -74,6 +74,7 @@ async def task_auto_consolidate_similar(ctx: dict[str, Any]) -> dict[str, Any]:
                 Memory.content,
                 Memory.confidence,
                 Memory.importance,
+                Memory.is_permanent,
                 Memory.embedding,
             )
             .where(Memory.status == "active")
@@ -132,6 +133,7 @@ async def task_auto_consolidate_similar(ctx: dict[str, Any]) -> dict[str, Any]:
             avg_sim = sum(pairwise_sims) / len(pairwise_sims) if pairwise_sims else 0.0
 
             best = max(group, key=lambda m: m.confidence * 0.6 + m.importance * 0.4)
+            has_permanent = any(m.is_permanent for m in group)
 
             suggestions.append(
                 {
@@ -139,6 +141,7 @@ async def task_auto_consolidate_similar(ctx: dict[str, Any]) -> dict[str, Any]:
                     "titles": [m.title for m in group],
                     "avg_similarity": round(avg_sim, 3),
                     "recommended_keeper": str(best.id),
+                    "has_permanent": has_permanent,
                     "suggestion": f"发现 {len(group)} 条高度相似记忆，建议合并为一条",
                 }
             )
@@ -165,12 +168,22 @@ async def task_auto_consolidate_similar(ctx: dict[str, Any]) -> dict[str, Any]:
 
         # 自动合并高相似分组
         auto_merged_count = 0
+        auto_merge_skipped_permanent = 0
         archived_sources: list[Memory] = []
         modified_keepers: dict[uuid.UUID, Memory] = {}
         if parasitic_evolution_config.auto_merge_enabled and suggestions:
             auto_merge_threshold = parasitic_evolution_config.auto_merge_threshold
             for suggestion in suggestions:
                 if suggestion["avg_similarity"] < auto_merge_threshold:
+                    continue
+                # 永久记忆是用户显式指定的长期知识，不能被自动改写或归档；
+                # 保留建议供人工决定是否合并。
+                if suggestion["has_permanent"]:
+                    auto_merge_skipped_permanent += 1
+                    logger.info(
+                        "Skipping auto-merge for group containing permanent memory: %s",
+                        suggestion["titles"],
+                    )
                     continue
                 keeper_id = uuid.UUID(suggestion["recommended_keeper"])
                 source_ids = [
@@ -280,6 +293,7 @@ async def task_auto_consolidate_similar(ctx: dict[str, Any]) -> dict[str, Any]:
             "total_memories": len(memories),
             "suggestions": suggestions,
             "auto_merged_count": auto_merged_count,
+            "auto_merge_skipped_permanent": auto_merge_skipped_permanent,
         }
 
 

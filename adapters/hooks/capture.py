@@ -23,6 +23,26 @@ _SECRET_PATTERNS = [
     re.compile(r"(?i)(token\s*[=:]\s*)[^\s,;]{8,}"),
 ]
 
+# 瞬时环境噪声：网络/DNS/代理/超时/网关错误，重复出现且不可复用
+_TRANSIENT_FAILURE_PATTERNS = [
+    re.compile(r"(?i)\b(ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN)\b"),
+    re.compile(r"(?i)(getaddrinfo|name or service not known|name resolution)"),
+    re.compile(r"(?i)(connection (refused|reset|timed out|aborted|closed))"),
+    re.compile(r"(?i)(network is unreachable|no route to host|proxy error)"),
+    re.compile(r"(?i)(certificate verify failed|certificate has expired|ssl error)"),
+    re.compile(r"(?i)(timed out|timeout after|operation timed out)"),
+    re.compile(r"(?i)(HTTP (502|503|504)|status[ =:]+(502|503|504))"),
+    re.compile(r"(?i)error during web fetch"),
+    re.compile(r"(?i)(NATIVE_BROWSER_VIEWPORT_UNAVAILABLE|in-app browser|page is blank)"),
+    re.compile(r"(?i)failed to terminate process tree"),
+]
+# 宿主/工具协议噪声：参数或 schema 用错、上下文过期，属于调用方式问题，
+# 不是可跨会话复用的知识；采集后只会变成 0 转化的收件箱垃圾
+_PROTOCOL_FAILURE_PATTERNS = [
+    re.compile(r"MCP_(AGENT_INPUT_INVALID|CONTEXT_STALE|SESSION_)"),
+    re.compile(r'(?i)("code"\s*:\s*"invalid"|invalid tool input|tool input validation)'),
+]
+
 
 def redact(text: str) -> str:
     for pattern in _SECRET_PATTERNS:
@@ -41,6 +61,17 @@ def _fit(text: str) -> str:
 def _record_id(event: HookEvent, content: str) -> str:
     raw = f"{event.host}|{event.event}|{event.session_id}|{content}"
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:32]
+
+
+def should_capture_failure(tool_name: str | None, error_type: str | None, error: str) -> bool:
+    """过滤不可复用的失败：瞬时网络问题与宿主/工具协议误用不写入收件箱。
+
+    保守策略：无法判定为噪声的一律保留（构建失败、测试失败、业务异常等）。
+    """
+    text = f"{tool_name or ''} {error_type or ''} {error}"
+    if any(pattern.search(text) for pattern in _PROTOCOL_FAILURE_PATTERNS):
+        return False
+    return not any(pattern.search(text) for pattern in _TRANSIENT_FAILURE_PATTERNS)
 
 
 def build_record(event: HookEvent) -> dict[str, Any] | None:
@@ -74,6 +105,8 @@ def build_record(event: HookEvent) -> dict[str, Any] | None:
             return None
         error = redact((event.error or "").strip())
         if not error:
+            return None
+        if not should_capture_failure(event.tool_name, event.error_type, error):
             return None
         content = f"工具失败：{event.tool_name or 'unknown'}\n{error}"
         return {

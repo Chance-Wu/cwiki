@@ -149,6 +149,10 @@ class OutboxManager:
         kwargs: dict[str, Any] = {"source": "memory_save"} if tool == "memory_save" else {}
         if tool == "memory_save" and args.get("tags"):
             kwargs["tags"] = args["tags"]
+        if tool == "memory_save" and args.get("is_permanent") is True:
+            kwargs["is_permanent"] = True
+            if isinstance(args.get("permanent_reason"), str):
+                kwargs["permanent_reason"] = args["permanent_reason"]
         response = await self.client.submit_candidate(
             title=args.get("title", ""),
             content=content,

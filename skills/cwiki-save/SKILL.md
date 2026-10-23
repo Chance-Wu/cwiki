@@ -5,7 +5,19 @@ description: 按需检索和保存知识。会话开始或话题切换时用 mem
 
 # cwiki 知识提取助手
 
-本 skill 是知识提取策略的唯一来源，工具能力以当前 MCP `tools/list` 为准。
+本 skill 是提取流程、查重、格式与检查点的来源；**当前会话注入的“cwiki 写入决策”规则优先于下方默认信号表**（规则决定是否写入/更新，本 skill 决定如何写）。工具能力以当前 MCP `tools/list` 为准。
+
+## 写入决策（会话注入）
+
+会话开始若注入了 `cwiki 写入决策`，按优先级执行（不写入 > 更新 > 写入）：
+
+- `[写入]`：正常提交 `memory_save`。
+- `[不写入]`：直接跳过，不要调用 `memory_save`。
+- `[更新已有]`：先搜索并确认目标记忆，用 `memory_update` 更新，不要新建。
+- 未命中规则时按注入的“未命中”默认动作执行（写入/不写入）；未注入时按本 skill 默认信号表判断。
+- “写入但需要人工审核”不在这里表达，由 `memory.write_policy` 决定。
+
+服务端会在 `memory_save` 时复核规则：被 skip 拒绝时不要原样重试；被 update 拒绝时按返回的 `target_memory_id` 改用 `memory_update`。没有 hook 的宿主只能获得服务端复核。
 
 ## 核心原则
 
@@ -24,7 +36,7 @@ description: 按需检索和保存知识。会话开始或话题切换时用 mem
 | 工具 | 必填 | 可选 | 接收 workspace_name |
 |------|------|------|:---:|
 | `memory_search` | `keyword` 或 `query`（二选一） | `limit`(非 curated 1–100，curated 1–50，默认 10)、`mode`(hybrid/semantic)、`curated`、`max_tokens`、`project`、`filters`(`type`/`min_confidence`) | ✓ |
-| `memory_save` | `title`(≤80 字符)、`content`(≥20 字符) | `type` | ✓ |
+| `memory_save` | `title`(≤80 字符)、`content`(≥20 字符) | `type`、`tags`、`is_permanent`、`permanent_reason` | ✓ |
 | `memory_update` | `memory_id` | `content`、`title`、`expected_version`、`confidence`、`importance`、`reason`、`is_permanent`、`permanent_reason` | ✗ |
 | `memory_feedback` | `memory_id`、`feedback_type` | `reason` | ✓ |
 | `memory_forget` | `memory_id` | `reason` | ✓ |
@@ -152,6 +164,14 @@ memory_update(memory_id="<id>", content="新正文…", reason="补充边界条�
 ## 保存与更新
 
 `memory_save(title=标题, content=完整正文, type=可选)`。**`title`（≤80 字符）与 `content` 均必填**；type 不传自动推断；**workspace_name 通常不传**——宿主 hook 会把工作区实时同步到当前项目。**返回结果回显 `workspace` 字段：每次保存后核对它是当前项目；若落到 `default` 或他区（hook 未激活、注册表过期、宿主刚切换项目），补传 `workspace_name=<项目目录名>` 重提一次；错误归属的 pending 候选不审批即可（人工拒绝或在 Web 控制台删除），绝不留到转正。**最低 `len(content.strip()) >= 20`，**有效最低 30 字符**（排除规则会拒绝 <30 或 >80% 代码的内容）。`#memory/{type}` 和 `#memory/{workspace}` 标签由服务端自动注入。新候选为 `pending_review`，需人工批准。
+
+**永久记忆**：仅在用户明确要求长期保留时传 `is_permanent=true`（可附 `permanent_reason`），审批通过后正式记忆带永久标记，不参与自动衰减与自动合并归档。不要替用户推测永久性；普通高价值记忆用标签即可。
+
+**显式记忆请求优先**：用户明确说"记住"时，即使查重命中已有记忆也不能直接跳过——已有条目已覆盖则用 `memory_update` 补充，仍需要独立条目则照常 `memory_save`，并在回复中说明是更新还是新增。
+
+**写入策略**：服务端可能配置了 `memory.write_policy`。`memory_save` 返回体若带 `policy` 字段，按其 `action` 汇报：`auto` 表示评分后将自动生效，`review` 表示强制人工审核。若内容被策略拒绝（4xx，提示规则 id），不要原样重试；按拒绝原因调整内容，或告知用户该规则拦截。
+
+**写入决策复核**：`memory_save` 返回体若带 `decision` 字段，按其 `action` 汇报（`review` = 强制人工审核）。若返回 4xx 且带 `write_decision`：`skip` 表示规则不允许写入，不要重试；`update` 表示应使用 `memory_update` 更新 `target_memory_id` 指向的记忆。
 
 ### 服务端处理链
 

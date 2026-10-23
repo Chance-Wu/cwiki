@@ -59,6 +59,22 @@ def _write_cache(key: str, text: str) -> None:
         pass
 
 
+def _local_search(prompt: str, workspace: str) -> dict[str, Any] | None:
+    """本地只读检索：DB 可读即返回结果（可能为空）；不可读返回 None。
+
+    只有 DB 不可读时才回落 HTTP API，避免 API 不可达时把 hook 拖到超时。
+    """
+    try:
+        from adapters.mcp.local_index import search_local
+
+        data = search_local(prompt, workspace=workspace, limit=MAX_ITEMS)
+    except Exception:
+        return None
+    if not data.get("available"):
+        return None
+    return data
+
+
 def _search(prompt: str, workspace: str) -> dict[str, Any]:
     body = json.dumps(
         {
@@ -78,6 +94,49 @@ def _search(prompt: str, workspace: str) -> dict[str, Any]:
         return cast("dict[str, Any]", json.loads(response.read().decode("utf-8")))
 
 
+def build_session_head(workspace: str) -> str:
+    """SessionStart 常驻注入：按 agent_policy.always_inject 读本地 DB。
+
+    永久记忆 + 配置的类型/标签，压缩到固定字符预算；任何异常都静默返回空。
+    """
+    try:
+        from packages.domain.config import agent_policy_config as policy
+
+        if not policy.always_inject_enabled:
+            return ""
+        from adapters.mcp.local_index import head
+
+        data = head(
+            workspace,
+            types=policy.always_inject_types,
+            tags=policy.always_inject_tags,
+            include_permanent=policy.always_inject_permanent,
+            max_items=policy.always_inject_max_items,
+            max_chars=policy.always_inject_max_chars,
+        )
+    except Exception:
+        return ""
+    if not data.get("available") or not data.get("text"):
+        return ""
+    return "cwiki 常驻记忆（always_inject，长期有效，请优先遵守）：\n" + str(data["text"])
+
+
+def must_save_hint() -> str:
+    """把 agent_policy.must_save 转成一句写入提示；未配置时返回空串。"""
+    try:
+        from packages.domain.config import agent_policy_config as policy
+    except Exception:
+        return ""
+    parts: list[str] = []
+    if policy.must_save_types:
+        parts.append("类型 " + "、".join(policy.must_save_types))
+    if policy.must_save_keywords:
+        parts.append("信号 " + "、".join(policy.must_save_keywords))
+    if not parts:
+        return ""
+    return "cwiki 写入策略：出现 " + "；".join(parts) + " 时必须提交 memory_save。"
+
+
 def build_context(prompt: str, workspace: str) -> str:
     """返回可直接放进 additionalContext 的文本；无命中返回空串。"""
     if len(prompt.strip()) < 8 or prompt.lstrip().startswith("/"):
@@ -86,10 +145,14 @@ def build_context(prompt: str, workspace: str) -> str:
     cached = _read_cache(key)
     if cached is not None:
         return cached
-    try:
-        data = _search(prompt, workspace)
-    except (urllib.error.URLError, TimeoutError, ValueError, OSError):
-        return ""
+    # 本地优先：DB 可读时只走进程内 BM25（不依赖 API、无 HTTP 延迟）；
+    # 仅当 DB 不可读时才尝试 API，再失败则静默。
+    data = _local_search(prompt, workspace)
+    if data is None:
+        try:
+            data = _search(prompt, workspace)
+        except (urllib.error.URLError, TimeoutError, ValueError, OSError):
+            return ""
 
     results = data.get("results") or []
     if data.get("insufficient") or not results:

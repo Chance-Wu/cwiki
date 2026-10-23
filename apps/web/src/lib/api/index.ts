@@ -26,6 +26,14 @@ export type {
   AgentStats,
   ConfigData,
   ConfigPatchResult,
+  WritePolicyAction,
+  WritePolicyRuleMatch,
+  WritePolicyRule,
+  WritePolicyData,
+  WriteDecisionAction,
+  WriteDecisionDefaultAction,
+  WriteDecisionRule,
+  WriteDecisionData,
   HealthResponse,
   TaskQueueCounts,
   TaskQueueRetryStats,
@@ -118,7 +126,15 @@ import {
   unpublishSkill,
   importSkill,
 } from './skills'
-import { getConfig, patchConfig, restartService } from './config'
+import {
+  getConfig,
+  getWriteDecisions,
+  getWritePolicy,
+  patchConfig,
+  restartService,
+  updateWriteDecisions,
+  updateWritePolicy,
+} from './config'
 import { getTaskQueueStatus, retryTaskQueueTask } from './taskQueue'
 import {
   getHealth,
@@ -212,6 +228,10 @@ export const api = {
   importSkill,
   getConfig,
   patchConfig,
+  getWritePolicy,
+  updateWritePolicy,
+  getWriteDecisions,
+  updateWriteDecisions,
   restartService,
   exportData,
   exportMarkdown,

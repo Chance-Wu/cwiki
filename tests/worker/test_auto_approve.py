@@ -68,6 +68,10 @@ async def _make_candidate(
     value_fields: dict | None = None,
     quality_gate_score: float | None = 0.9,
     duplicate_probability: float | None = 0.1,
+    policy_rule_id: str | None = None,
+    policy_action: str | None = None,
+    decision_rule_id: str | None = None,
+    decision_action: str | None = None,
 ) -> tuple[CandidateMemory, str]:
     """直接落一行候选，各分项由参数控制。"""
     ws = Workspace(id=uuid.uuid4(), name=f"ws-{uuid.uuid4().hex[:6]}")
@@ -98,6 +102,10 @@ async def _make_candidate(
         embedding=[0.1, 0.2, 0.3],
         quality_gate_score=quality_gate_score,
         duplicate_probability=duplicate_probability,
+        policy_rule_id=policy_rule_id,
+        policy_action=policy_action,
+        decision_rule_id=decision_rule_id,
+        decision_action=decision_action,
         **fields,
     )
     db.add(cand)
@@ -221,6 +229,182 @@ class TestAutoApprove:
         assert result["status"] == "completed"
         await db.refresh(cand)
         assert cand.status == "pending_review"
+
+
+class TestWritePolicyAutoApprove:
+    async def test_policy_auto_bypasses_value_threshold(
+        self,
+        db: AsyncSession,
+        ctx: dict,
+        engine,
+        mock_queue: AsyncMock,
+    ) -> None:
+        cand, cid = await _make_candidate(
+            db,
+            value_fields={"reusability": 0.1, "stability": 0.1, "importance": 0.1},
+            policy_rule_id="pinned-auto",
+            policy_action="auto",
+        )
+
+        result = await _run_score(ctx, engine, cid, str(cand.workspace_id))
+
+        assert result["status"] == "auto_approved"
+        assert result["policy_rule"] == "pinned-auto"
+        await db.refresh(cand)
+        assert cand.status == "approved"
+
+        memory = (
+            await db.execute(select(Memory).where(Memory.id == uuid.UUID(result["memory_id"])))
+        ).scalar_one()
+        assert memory.status == "active"
+
+        review = (
+            await db.execute(
+                select(Review).where(
+                    Review.candidate_id == cand.id, Review.action == "auto_approve"
+                )
+            )
+        ).scalar_one()
+        assert review.reviewer_id == "write_policy"
+        reason = json.loads(review.reason)
+        assert reason["policy_rule"] == "pinned-auto"
+        assert reason["forced"] is True
+        mock_queue.enqueue.assert_awaited_once_with("generate_embedding", str(memory.id))
+
+    async def test_policy_auto_blocked_by_high_duplicate(
+        self, db: AsyncSession, ctx: dict, engine
+    ) -> None:
+        cand, cid = await _make_candidate(
+            db,
+            duplicate_probability=0.99,
+            policy_rule_id="pinned-auto",
+            policy_action="auto",
+        )
+
+        result = await _run_score(ctx, engine, cid, str(cand.workspace_id))
+
+        assert result["status"] == "policy_auto_blocked"
+        await db.refresh(cand)
+        assert cand.status == "pending_review"
+
+    async def test_policy_auto_blocked_by_open_conflict(
+        self, db: AsyncSession, ctx: dict, engine
+    ) -> None:
+        cand, cid = await _make_candidate(
+            db,
+            policy_rule_id="pinned-auto",
+            policy_action="auto",
+        )
+        db.add(
+            MemoryConflict(
+                workspace_id=cand.workspace_id,
+                memory_id=uuid.uuid4(),
+                candidate_id=cand.id,
+                conflict_type="contradiction",
+                status="open",
+            )
+        )
+        await db.commit()
+
+        result = await _run_score(ctx, engine, cid, str(cand.workspace_id))
+
+        assert result["status"] == "policy_auto_blocked"
+        await db.refresh(cand)
+        assert cand.status == "pending_review"
+
+    async def test_policy_review_blocks_global_auto_approve(
+        self, db: AsyncSession, ctx: dict, engine, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _enable_auto_approve(monkeypatch)
+        cand, cid = await _make_candidate(
+            db,
+            policy_rule_id="sensitive-review",
+            policy_action="review",
+        )
+
+        result = await _run_score(ctx, engine, cid, str(cand.workspace_id))
+
+        assert result["status"] == "completed"
+        await db.refresh(cand)
+        assert cand.status == "pending_review"
+
+
+class TestWriteDecisionReview:
+    async def test_decision_review_blocks_policy_auto(
+        self, db: AsyncSession, ctx: dict, engine
+    ) -> None:
+        cand, cid = await _make_candidate(
+            db,
+            value_fields={"reusability": 0.1, "stability": 0.1, "importance": 0.1},
+            policy_rule_id="auto-rule",
+            policy_action="auto",
+            decision_rule_id="decision-review",
+            decision_action="review",
+        )
+
+        result = await _run_score(ctx, engine, cid, str(cand.workspace_id))
+
+        assert result["status"] == "completed"
+        assert result["decision_action"] == "review"
+        await db.refresh(cand)
+        assert cand.status == "pending_review"
+
+    async def test_decision_review_blocks_global_auto(
+        self, db: AsyncSession, ctx: dict, engine, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _enable_auto_approve(monkeypatch)
+        cand, cid = await _make_candidate(
+            db,
+            decision_rule_id="decision-review",
+            decision_action="review",
+        )
+
+        result = await _run_score(ctx, engine, cid, str(cand.workspace_id))
+
+        assert result["status"] == "completed"
+        await db.refresh(cand)
+        assert cand.status == "pending_review"
+
+    async def test_decision_review_bypasses_needs_enrichment(
+        self, db: AsyncSession, ctx: dict, engine
+    ) -> None:
+        cand, cid = await _make_candidate(
+            db,
+            value_fields={
+                "reusability": 0.1,
+                "stability": 0.1,
+                "confidence": 0.1,
+                "importance": 0.1,
+                "evidence_strength": 0.1,
+                "novelty": 0.1,
+            },
+            decision_rule_id="decision-review",
+            decision_action="review",
+        )
+
+        result = await _run_score(ctx, engine, cid, str(cand.workspace_id))
+
+        assert result["status"] == "completed"
+        await db.refresh(cand)
+        assert cand.status == "pending_review"
+
+    async def test_decision_write_allows_policy_auto(
+        self, db: AsyncSession, ctx: dict, engine
+    ) -> None:
+        cand, cid = await _make_candidate(
+            db,
+            value_fields={"reusability": 0.1, "stability": 0.1, "importance": 0.1},
+            policy_rule_id="auto-rule",
+            policy_action="auto",
+            decision_rule_id="decision-write",
+            decision_action="write",
+        )
+
+        result = await _run_score(ctx, engine, cid, str(cand.workspace_id))
+
+        assert result["status"] == "auto_approved"
+        await db.refresh(cand)
+        assert cand.status == "approved"
 
 
 class TestQuarantine:

@@ -205,6 +205,10 @@ async def capture_stats(
     cutoff = datetime.now(UTC) - timedelta(days=7)
     notes_last_7d = (await db.execute(note_count(SessionNote.created_at >= cutoff))).scalar() or 0
     pending_notes = (await db.execute(note_count(SessionNote.formalized.is_(False)))).scalar() or 0
+    notes_formalized = (
+        await db.execute(note_count(SessionNote.formalized.is_(True)))
+    ).scalar() or 0
+    formalization_rate = round(notes_formalized / notes_total, 4) if notes_total else 0.0
     last_capture_at = (
         await db.execute(
             select(func.max(SessionNote.created_at))
@@ -230,6 +234,8 @@ async def capture_stats(
         notes_total=notes_total,
         notes_last_7d=notes_last_7d,
         pending_notes=pending_notes,
+        notes_formalized=notes_formalized,
+        formalization_rate=formalization_rate,
         last_capture_at=last_capture_at,
         by_kind={signal: count for signal, count in kind_rows},
     )

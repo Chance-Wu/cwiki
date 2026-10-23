@@ -24,6 +24,8 @@ import { Button } from '../components/ui/Button'
 import { Card } from '../components/ui/Card'
 import { Input } from '../components/ui/Input'
 import { Switch } from '../components/ui/Switch'
+import WriteDecisionCard from '../components/config/WriteDecisionCard'
+import WritePolicyCard from '../components/config/WritePolicyCard'
 import { useConfig } from '../hooks/useSettings'
 
 // ── Schema types ────────────────────────────────────────────
@@ -430,7 +432,7 @@ export default function ConfigPage() {
           <PageTitle icon={<Sliders size={18} />} title={t.config.title} />
           <Button
             onClick={handleSaveConfig}
-            disabled={saveStatus === 'saving' || !localConfig || !patchConfig.isPending}
+            disabled={saveStatus === 'saving' || !localConfig || patchConfig.isPending}
             variant="secondary"
             className="flex items-center gap-1.5"
           >
@@ -479,6 +481,20 @@ export default function ConfigPage() {
         />
       ) : localConfig ? (
         <div className="space-y-8">
+          {/* ── 写入管理 ── */}
+          <SectionGroup
+            accentFrom="from-brand-400"
+            accentTo="to-brand-600"
+            title={tc.groupWriteDecision}
+          >
+            <WriteDecisionCard />
+          </SectionGroup>
+
+          {/* ── 写入后审核 ── */}
+          <SectionGroup accentFrom="from-info/60" accentTo="to-info" title={tc.groupWritePolicy}>
+            <WritePolicyCard />
+          </SectionGroup>
+
           {/* ── 功能开关 ── */}
           <SectionGroup
             accentFrom={featureTheme.accentFrom}

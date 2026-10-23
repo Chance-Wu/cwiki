@@ -96,6 +96,12 @@ async def test_export_writes_review_queue_and_new_meta_keys(tmp_path, monkeypatc
                 content="候选正文",
                 type="fact",
                 client_write_id="cw-1",
+                policy_rule_id="pinned-auto",
+                policy_action="auto",
+                policy_reason="用户指定长期保留",
+                decision_rule_id="must-save-signals",
+                decision_action="write",
+                decision_reason="用户纠正必须记录",
                 quality_score=0.82,
                 status="pending_review",
                 created_at=_DT_CAND,
@@ -153,6 +159,12 @@ async def test_export_writes_review_queue_and_new_meta_keys(tmp_path, monkeypatc
     assert cand["quality_score"] == 0.82
     assert cand["client_write_id"] == "cw-1"
     assert cand["type"] == "fact"
+    assert cand["policy_rule_id"] == "pinned-auto"
+    assert cand["policy_action"] == "auto"
+    assert cand["policy_reason"] == "用户指定长期保留"
+    assert cand["decision_rule_id"] == "must-save-signals"
+    assert cand["decision_action"] == "write"
+    assert cand["decision_reason"] == "用户纠正必须记录"
     assert "embedding" not in cand  # embedding 不进 Git 同步文件
     assert [r["action"] for r in cand["reviews"]] == ["request_changes", "approve"]
     assert all(r["candidate_id"] == str(cand_id) for r in cand["reviews"])

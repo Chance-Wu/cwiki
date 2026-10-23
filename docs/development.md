@@ -328,7 +328,7 @@ P0-P4 分级开关，控制各阶段功能启用。详见 `config.yaml`。
 
 ### MCP 适配器环境变量
 
-Qoder MCP 适配器另有独立环境变量：`CWIKI_API_URL`、`CWIKI_WORKSPACE`、`CWIKI_TIMEOUT`（见 `adapters/qoder/README.md`）。API 为单用户本地部署，不做 token 认证（见 `apps/api/auth.py`）。
+Qoder MCP 适配器另有独立环境变量：`CWIKI_API_URL`、`CWIKI_WORKSPACE`、`CWIKI_TIMEOUT`、`CWIKI_DB_PATH`（只读检索的 DB 路径，默认按 `config.yaml` 的 `database.url` 解析；见 `adapters/qoder/README.md`）。API 为单用户本地部署，不做 token 认证（见 `apps/api/auth.py`）。
 
 ### 版本号管理
 

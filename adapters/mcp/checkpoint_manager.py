@@ -11,6 +11,10 @@ import math
 from datetime import UTC, datetime
 from typing import Any
 
+import httpx
+
+from adapters.mcp.outbox_manager import ReplayRejected
+
 logger = logging.getLogger("cwiki.mcp.checkpoint")
 
 # Checkpoint 增量时间窗口参数
@@ -18,6 +22,15 @@ DEFAULT_SINCE_MINUTES = 60
 MIN_WINDOW_MINUTES = 5
 MAX_WINDOW_MINUTES = 120
 CHECKPOINT_FETCH_LIMIT = 200
+
+
+def _is_terminal_rejection(exc: Exception) -> bool:
+    """4xx（非 429）与本地重放拒绝是确定性失败，重试同一载荷不会改变结果。"""
+    return isinstance(exc, ReplayRejected) or (
+        isinstance(exc, httpx.HTTPStatusError)
+        and 400 <= exc.response.status_code < 500
+        and exc.response.status_code != 429
+    )
 
 
 class CheckpointManager:
@@ -104,9 +117,14 @@ class CheckpointManager:
         self,
         candidates: list[dict[str, Any]],
         workspace_id: str,
-    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-        """经 outbox 提交校验后的候选。返回 (submitted, errors)。"""
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+        """经 outbox 提交校验后的候选。返回 (submitted, rejected, errors)。
+
+        4xx（写入策略拒绝、校验失败等）是确定性结果，重试同一载荷不会成功：
+        记录到 rejected 并整理来源笔记，让检查点水位可以前进，避免反复重提。
+        """
         submitted: list[dict[str, Any]] = []
+        rejected: list[dict[str, Any]] = []
         errors: list[dict[str, Any]] = []
         for candidate in candidates:
             write_id = self._make_write_id(candidate["content"], prefix="cp")
@@ -120,6 +138,27 @@ class CheckpointManager:
                 "memory_checkpoint", frozen, workspace_id, write_id
             )
             if exc is not None:
+                if _is_terminal_rejection(exc):
+                    rejected.append(
+                        {
+                            "title": candidate["title"],
+                            "type": candidate["type"],
+                            "source": candidate.get("source", "unknown"),
+                            "reason": self._safe_error(exc),
+                        }
+                    )
+                    for note_id in candidate.get("note_ids", []):
+                        try:
+                            await self._client.formalize_session_note(str(note_id))
+                        except Exception as formalize_exc:
+                            errors.append(
+                                {
+                                    "stage": "formalize",
+                                    "error": self._safe_error(formalize_exc),
+                                    "note_id": str(note_id),
+                                }
+                            )
+                    continue
                 errors.append(
                     {
                         "stage": "submit",
@@ -156,7 +195,7 @@ class CheckpointManager:
                 warning = self._outbox_done(workspace_id, cp_outbox_entry["id"])
                 if warning:
                     logger.warning("Checkpoint outbox cleanup: %s", warning)
-        return submitted, errors
+        return submitted, rejected, errors
 
     def validate_candidates(
         self,
@@ -313,11 +352,13 @@ class CheckpointManager:
         dry_run: bool,
         errors: list[dict[str, Any]],
         warnings: list[str],
+        rejected: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """记录水位、确定最终状态并附加 errors/warnings。"""
+        rejected = rejected or []
         if (
             not errors
-            and submitted
+            and (submitted or rejected)
             and not dry_run
             and all(state in ("available", "empty") for state in input_status.values())
         ):
@@ -330,6 +371,8 @@ class CheckpointManager:
                 )
             except Exception as exc:
                 errors.append({"stage": "watermark", "error": self._safe_error(exc)})
+        if rejected:
+            result["rejected"] = rejected
         if errors:
             result["status"] = (
                 "error"

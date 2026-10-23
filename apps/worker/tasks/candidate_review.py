@@ -102,7 +102,23 @@ async def task_score_candidate(
             candidate.similar_memory_id = memory_ids[similar_index]
             candidate.similar_memory_source = "memory"
 
-        if scored["priority"] == "needs_enrichment":
+        decision_review = candidate.decision_action == "review"
+
+        if candidate.policy_action == "auto" and not decision_review:
+            # 写入策略显式指定自动生效：优先于 needs_enrichment 与全局阈值。
+            # 被冲突或高重复拦截时保留 pending_review，交给人工而不是降级留存。
+            auto_result = await _maybe_auto_approve(db_session, ctx, candidate, force=True)
+            if auto_result is not None:
+                return auto_result
+            await db_session.commit()
+            return {
+                "status": "policy_auto_blocked",
+                "value_score": scored["value_score"],
+                "priority": scored["priority"],
+                "policy_rule": candidate.policy_rule_id,
+            }
+
+        if scored["priority"] == "needs_enrichment" and not decision_review:
             # MQ-102 改造：低分/缺失维度候选标记为 needs_enrichment（可恢复），不再隔离丢弃
             logger.info(
                 "Marking candidate %s as needs_enrichment (score=%s)",
@@ -117,8 +133,12 @@ async def task_score_candidate(
                 "priority": scored["priority"],
             }
 
-        # 三档审核：高分候选自动生效（默认关）；其余留在人工审核队列
-        if settings.auto_approve_enabled:
+        # 三档审核：高分候选自动生效（默认关）；策略/决策命中 review 时强制人工审核
+        if (
+            settings.auto_approve_enabled
+            and candidate.policy_action != "review"
+            and not decision_review
+        ):
             auto_result = await _maybe_auto_approve(db_session, ctx, candidate)
             if auto_result is not None:
                 return auto_result
@@ -130,6 +150,7 @@ async def task_score_candidate(
             "value_score": scored["value_score"],
             "novelty": scored["novelty"],
             "priority": scored["priority"],
+            "decision_action": candidate.decision_action,
         }
 
 
@@ -137,29 +158,41 @@ def _auto_approve_reason(
     candidate: CandidateMemory,
     thresholds: dict[str, float],
     memory_id: str,
+    *,
+    forced: bool = False,
 ) -> str:
     """构造自动生效 Review 的决策明细 JSON（各分项 + 阈值 + 生成记忆 ID）。"""
-    return json.dumps(
-        {
-            "memory_id": memory_id,
-            "value_score": candidate.value_score,
-            "confidence": candidate.confidence,
-            "quality_gate_score": candidate.quality_gate_score,
-            "duplicate_probability": candidate.duplicate_probability,
-            "thresholds": thresholds,
-        },
-        ensure_ascii=False,
-    )
+    payload = {
+        "memory_id": memory_id,
+        "value_score": candidate.value_score,
+        "confidence": candidate.confidence,
+        "quality_gate_score": candidate.quality_gate_score,
+        "duplicate_probability": candidate.duplicate_probability,
+        "thresholds": thresholds,
+    }
+    if candidate.policy_rule_id:
+        payload["policy_rule"] = candidate.policy_rule_id
+        payload["policy_action"] = candidate.policy_action
+    if candidate.decision_rule_id:
+        payload["decision_rule"] = candidate.decision_rule_id
+        payload["decision_action"] = candidate.decision_action
+    if forced:
+        payload["forced"] = True
+    return json.dumps(payload, ensure_ascii=False)
 
 
 async def _maybe_auto_approve(
-    db_session: AsyncSession, ctx: dict[str, Any], candidate: CandidateMemory
+    db_session: AsyncSession,
+    ctx: dict[str, Any],
+    candidate: CandidateMemory,
+    *,
+    force: bool = False,
 ) -> dict[str, Any] | None:
     """满足全部保守条件的候选自动生效为正式记忆，否则返回 None 留待人工审核。
 
-    条件（须全部满足）：价值分、置信度、质量闸门分达阈值，
-    重复概率低于阈值（须已知——embedding 缺失时不自动生效），
-    且无指向该候选的 open 冲突。
+    ``force=True`` 用于写入策略的 ``auto`` 规则：跳过价值分/置信度/质量门阈值，
+    但仍要求无 open 冲突，且已知重复概率不得达到合并阈值（>=0.95），
+    避免策略规则把明显重复的内容直接转正。
     """
     thresholds = {
         "value": settings.auto_approve_value_threshold,
@@ -167,7 +200,7 @@ async def _maybe_auto_approve(
         "gate": settings.auto_approve_gate_threshold,
         "duplicate": settings.auto_approve_duplicate_threshold,
     }
-    if (
+    if not force and (
         candidate.value_score is None
         or candidate.value_score < thresholds["value"]
         or candidate.confidence is None
@@ -177,6 +210,18 @@ async def _maybe_auto_approve(
         or candidate.duplicate_probability is None
         or candidate.duplicate_probability >= thresholds["duplicate"]
     ):
+        return None
+
+    if (
+        force
+        and candidate.duplicate_probability is not None
+        and candidate.duplicate_probability >= settings.relation_merge_threshold
+    ):
+        logger.info(
+            "Policy auto-approve blocked for candidate %s: duplicate_probability %.2f",
+            candidate.id,
+            candidate.duplicate_probability,
+        )
         return None
 
     conflict_stmt = select(func.count(MemoryConflict.id)).where(
@@ -200,9 +245,9 @@ async def _maybe_auto_approve(
     review = Review(
         candidate_id=candidate.id,
         reviewer_type="system",
-        reviewer_id="auto_tier_v1",
+        reviewer_id="write_policy" if force else "auto_tier_v1",
         action="auto_approve",
-        reason=_auto_approve_reason(candidate, thresholds, str(memory.id)),
+        reason=_auto_approve_reason(candidate, thresholds, str(memory.id), forced=force),
     )
     db_session.add(review)
     await db_session.commit()
@@ -222,8 +267,11 @@ async def _maybe_auto_approve(
         memory.id,
         candidate.value_score or 0.0,
     )
-    return {
+    result = {
         "status": "auto_approved",
         "value_score": candidate.value_score,
         "memory_id": str(memory.id),
     }
+    if candidate.policy_rule_id:
+        result["policy_rule"] = candidate.policy_rule_id
+    return result

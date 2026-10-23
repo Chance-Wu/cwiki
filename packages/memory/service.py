@@ -11,9 +11,15 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import set_committed_value
 
-from packages.domain.config import settings
-from packages.domain.errors import AppError
-from packages.domain.models import CandidateMemory, Memory, MemoryLifecycleEvent, MemoryVersion
+from packages.domain.config import agent_policy_config, settings
+from packages.domain.errors import AppError, WriteDecisionRejected
+from packages.domain.models import (
+    CandidateMemory,
+    Memory,
+    MemoryLifecycleEvent,
+    MemoryVersion,
+    Workspace,
+)
 from packages.domain.text_utils import format_memory_for_embedding, normalize_memory_content
 from packages.domain.types import TYPE_DEFINITIONS, validate_memory_content, validate_memory_title
 from packages.memory.content_security import validate_safe_content
@@ -297,6 +303,11 @@ async def _find_similar_at_submit(
     return similar_items[:limit], max_similarity
 
 
+async def _workspace_name_for_policy(db: AsyncSession, workspace_id: uuid.UUID) -> str:
+    result = await db.execute(select(Workspace.name).where(Workspace.id == workspace_id))
+    return result.scalar_one_or_none() or ""
+
+
 async def create_candidate(
     db: AsyncSession,
     workspace_id: uuid.UUID,
@@ -309,6 +320,8 @@ async def create_candidate(
     project_id: uuid.UUID | None = None,
     client_write_id: str | None = None,
     tags: list[str] | None = None,
+    is_permanent: bool = False,
+    permanent_reason: str | None = None,
 ) -> tuple[CandidateMemory, list[SimilarItem], bool]:
     """创建候选记忆，等待人工复核。
 
@@ -344,7 +357,105 @@ async def create_candidate(
             "记忆应存储可复用的知识，不应存储可从代码/git/配置直接推导的信息。"
         )
 
+    normalized_tags = normalize_tags(tags)
+    need_workspace_name = (
+        settings.write_policy.enabled or agent_policy_config.write_decisions.enabled
+    )
+    workspace_name = (
+        await _workspace_name_for_policy(db, workspace_id) if need_workspace_name else ""
+    )
+
+    decision_action: str | None = None
+    decision_rule_id: str | None = None
+    decision_reason: str | None = None
+    if agent_policy_config.write_decisions.enabled:
+        decision = agent_policy_config.write_decisions.decide(
+            workspace_name=workspace_name,
+            workspace_id=str(workspace_id),
+            memory_type=type,
+            tags=normalized_tags,
+            title=title,
+            content=content,
+        )
+        decision_action = decision.action
+        decision_rule_id = decision.rule_id
+        decision_reason = decision.reason
+        if decision.action == "skip":
+            if decision.rule_id:
+                message = f"内容被写入决策规则拒绝（规则 {decision.rule_id}）"
+            else:
+                message = "未命中任何写入决策规则，默认动作 skip 拒绝写入"
+            if decision.reason:
+                message += f"：{decision.reason}"
+            raise WriteDecisionRejected(
+                action="skip",
+                rule_id=decision.rule_id,
+                message=message,
+                reason=decision.reason,
+            )
+
+    policy_decision = None
+    if settings.write_policy.enabled:
+        policy_decision = settings.write_policy.decide(
+            workspace_name=workspace_name,
+            workspace_id=str(workspace_id),
+            memory_type=type,
+            tags=normalized_tags,
+            title=title,
+            content=content,
+        )
+        if policy_decision is not None and policy_decision.action == "reject":
+            detail = f"内容被写入策略拒绝（规则 {policy_decision.rule_id}）"
+            if policy_decision.reason:
+                detail += f"：{policy_decision.reason}"
+            raise ContentFormatError(detail)
+
     similar_items, max_similarity = await _find_similar_at_submit(db, workspace_id, title, content)
+
+    if decision_action == "update":
+        target = next(
+            (
+                item
+                for item in similar_items
+                if item.source == "memory" and item.similarity >= settings.consolidate_threshold
+            ),
+            None,
+        )
+        if target is not None:
+            message = (
+                f"内容命中了更新规则（规则 {decision_rule_id}），"
+                f"已存在相似记忆「{target.title}」（相似度 {target.similarity:.0%}），"
+                "请使用 memory_update 更新该记忆，而不是新建。"
+            )
+            raise WriteDecisionRejected(
+                action="update",
+                rule_id=decision_rule_id,
+                message=message,
+                reason=decision_reason,
+                target_memory_id=str(target.id),
+                target_title=target.title,
+                similarity=target.similarity,
+            )
+        fallback = agent_policy_config.write_decisions.default_action
+        if fallback == "skip":
+            message = (
+                f"写入决策规则要求更新（规则 {decision_rule_id}），但未找到可更新的相似记忆；"
+                "默认动作 skip 拒绝写入。"
+            )
+            raise WriteDecisionRejected(
+                action="skip",
+                rule_id=decision_rule_id,
+                message=message,
+                reason=decision_reason,
+            )
+        decision_action = fallback
+        suffix = f"（未找到可更新目标，回退默认动作 {fallback}）"
+        decision_reason = (decision_reason or "") + suffix
+
+    # 永久声明由提交方显式给出；非永久候选不保留无意义的原因文本
+    permanent_reason = (permanent_reason or "").strip() or None
+    if not is_permanent:
+        permanent_reason = None
 
     candidate = CandidateMemory(
         workspace_id=workspace_id,
@@ -352,7 +463,15 @@ async def create_candidate(
         title=title,
         content=content,
         type=type,
-        tags=normalize_tags(tags),
+        tags=normalized_tags,
+        is_permanent=is_permanent,
+        permanent_reason=permanent_reason,
+        policy_rule_id=policy_decision.rule_id if policy_decision else None,
+        policy_action=policy_decision.action if policy_decision else None,
+        policy_reason=policy_decision.reason if policy_decision else None,
+        decision_rule_id=decision_rule_id,
+        decision_action=decision_action,
+        decision_reason=decision_reason,
         source=source,
         client_write_id=client_write_id,
         confidence=confidence,
@@ -431,6 +550,8 @@ async def approve_candidate(
         source=candidate.source,
         confidence=candidate.confidence or 0.5,
         importance=candidate.importance or 0.5,
+        is_permanent=candidate.is_permanent,
+        permanent_reason=candidate.permanent_reason if candidate.is_permanent else None,
         status="active",
         version=1,
     )
@@ -490,6 +611,11 @@ async def merge_candidate(
         reason=f"Merged from candidate {candidate.id}",
     )
     target_memory.content = normalize_memory_content(merged_content)
+    # 候选的永久声明不能因合并而丢失
+    if candidate.is_permanent:
+        target_memory.is_permanent = True
+        if candidate.permanent_reason:
+            target_memory.permanent_reason = candidate.permanent_reason
 
     await _maybe_extract_and_store_entities(
         db, target_memory, target_memory.title, target_memory.content

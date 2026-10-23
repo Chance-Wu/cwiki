@@ -148,6 +148,8 @@ async def test_session_end_updates_session_without_note(client):
     assert stats.status_code == 200
     assert stats.json()["sessions"] == 1
     assert stats.json()["notes_total"] == 1
+    assert stats.json()["notes_formalized"] == 0
+    assert stats.json()["formalization_rate"] == 0.0
 
 
 async def test_formalize_links_candidate_and_keeps_full_content(client):
@@ -175,3 +177,10 @@ async def test_formalize_links_candidate_and_keeps_full_content(client):
     assert data["formalized"] is True
     assert data["candidate_id"] == candidate_id
     assert data["content"] == "a complete note"
+
+    stats = await client.get(
+        "/v1/integrations/agent/stats",
+        params={"host": "qoder", "workspace_id": "formalize-test"},
+    )
+    assert stats.json()["notes_formalized"] == 1
+    assert stats.json()["formalization_rate"] == 1.0

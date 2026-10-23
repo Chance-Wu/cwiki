@@ -7,12 +7,10 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from packages.domain.config import settings
 from packages.domain.database import Base
 from packages.domain.models import Memory, MemoryRelation, Workspace
 from packages.retrieval.engine import RetrievalEngine

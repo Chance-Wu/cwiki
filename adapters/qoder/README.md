@@ -6,10 +6,10 @@ Qoder plugin for cwiki - persistent memory infrastructure for AI agents.
 
 cwiki-qoder integrates cwiki into the Qoder agent lifecycle:
 
-- **Auto recall** - `UserPromptSubmit` queries local cwiki and injects a small, bounded memory context
-- **Capture** - `PostCompact` stores the host summary, `PostToolUseFailure` stores redacted failures, and `SessionEnd` closes the agent session; captured content goes to the “待整理” inbox, not directly to verified memory
+- **Auto recall** - `UserPromptSubmit` reads the local SQLite index and injects a small, bounded memory context; it only calls the API when the local DB is unreadable
+- **Capture** - `PostCompact` stores the host summary, `PostToolUseFailure` stores redacted failures, and `SessionEnd` closes the agent session; transient network/DNS/timeout errors and tool-protocol misuse are dropped before entering the inbox, while build/test/business failures are kept
 - **Human review** - Captured notes are organized into candidates and go through approval before becoming verified knowledge
-- **MCP recall** - Verified memories can be retrieved when the API and MCP connection are available
+- **Local-first reads** - `memory_search` returns a strong local BM25 hit without calling the API; weak/empty local hits fall through to hybrid retrieval, and connection failures or 5xx degrade back to local. `semantic` stays API-first. Only writes always require the API
 
 ## Installation
 
@@ -23,7 +23,7 @@ This installs the local plugin via `qodercli plugins install` (auto-run when the
 
 The plugin workflow requires the Qoder CLI (`brew install qoderai/qoder/qodercli` or `npm install -g @qoder-ai/qodercli`). Without it, setup warns and the plugin MCP/hooks stay inactive, while the global `mcp.json` fallback still provides MCP. Restart Qoder after installation: plugin configs (MCP servers and hooks) are only read at host startup, and failed state is cached until restart.
 
-Alternatively, manually load `adapters/qoder` using Qoder's plugin workflow. `hooks/hooks.json` is the repository's plugin distribution configuration, not an installed global setting. Install/load `cwiki-save` separately and verify the host actually loaded the current skill, plugin and MCP tool schemas; reload/reconnect or start a new session as needed.
+Alternatively, manually load `adapters/qoder` using Qoder's plugin workflow. `hooks/hooks.json` is generated from the `qoder` HostProfile (checked by tests), not an installed global setting; `setup.py` regenerates the cache copy with absolute interpreter paths. Install/load `cwiki-save` separately and verify the host actually loaded the current skill, plugin and MCP tool schemas; reload/reconnect or start a new session as needed.
 
 2. For MCP tools, start the API in a separate terminal from the repository root:
 
@@ -31,16 +31,16 @@ Alternatively, manually load `adapters/qoder` using Qoder's plugin workflow. `ho
 python tasks.py serve
 ```
 
-Hooks are fail-open: when the API is unavailable, capture records are written to a local spool and delivered on the next session-start/session-end/drain.
+Hooks are fail-open: when the API is unavailable, capture records are written to a local spool and delivered on the next session-start/session-end/drain. Reads do not depend on the API: search and recall use a read-only SQLite index at `cwiki-data/cwiki.db` (`CWIKI_DB_PATH` overrides the path). A strong local BM25 hit is returned directly; weak hits fall through to hybrid retrieval, and API connection failures degrade to keyword-only ranking.
 
 ## Hook protocol
 
-Hooks use the host-neutral runtime in `adapters/hooks` and follow the [Qoder CLI hooks protocol](https://docs.qoder.com/cli/hooks). Each command reads one UTF-8 JSON object from stdin (≤1 MiB), validates the native `hook_event_name`, and exits 0 even on invalid input.
+Hooks use the host-neutral runtime in `adapters/hooks` and follow the [Qoder CLI hooks protocol](https://docs.qoder.com/cli/hooks). Each command reads one UTF-8 JSON object from stdin (≤1 MiB), validates the native `hook_event_name`, and exits 0 even on invalid input. Host differences (native event names, project env vars, recall mode, capture set, context shape) are declared in one `HostProfile` per host in `adapters/hooks/profiles.py`; adding a host means registering a single profile.
 
 | Command | Event | Behavior |
 |---|---|---|
-| `python -m adapters.hooks qoder session-start` | `SessionStart` | Short reminder + spool drain |
-| `python -m adapters.hooks qoder user-prompt-submit` | `UserPromptSubmit` | Local recall (≤3 memories, ≤1200 chars, no trace) |
+| `python -m adapters.hooks qoder session-start` | `SessionStart` | Reminder + must-save hint + always_inject head (local SQLite) + spool drain |
+| `python -m adapters.hooks qoder user-prompt-submit` | `UserPromptSubmit` | Local recall (≤3 memories, ≤1200 chars, no trace): SQLite BM25 first, API semantic fallback |
 | `python -m adapters.hooks qoder pre-tool-use` | `PreToolUse` (matcher `mcp_call\|mcp__.*`) | Deterministic workspace attribution: inject `workspace_name` from the call's session `cwd` via `updatedInput` (never overrides explicit params; not applied to `memory_search`) |
 | `python -m adapters.hooks qoder post-compact` | `PostCompact` | Store `compact_summary` as a full capture note |
 | `python -m adapters.hooks qoder post-tool-failure` | `PostToolUseFailure` | Store redacted failure (skip user interrupts) |
@@ -50,6 +50,32 @@ Hooks use the host-neutral runtime in `adapters/hooks` and follow the [Qoder CLI
 No transcript is read by default; prompts are used only for local retrieval and are not written to logs or retrieval traces. `adapters/qoder/hooks.py` remains as a compatibility shim for older installed configs; new installs use `adapters/hooks`.
 
 ## Configuration
+
+`config.yaml` 的 `agent_policy` 控制 Agent 侧策略：
+
+```yaml
+agent_policy:
+  always_inject:   # SessionStart 常驻注入（本地 DB，不依赖 API）
+    enabled: true
+    types: [feedback, rule]
+    tags: [pinned]
+    include_permanent: true
+    max_items: 8
+    max_chars: 1200
+  write_decisions: # 结构化写入决策：SessionStart 注入 + memory_save 服务端复核
+    enabled: true
+    default_action: write
+    rules:
+      - id: must-save-signals
+        action: write
+        description: 用户纠正、明确偏好、强制规则必须记录
+        examples: ["不要这样做，改用 X"]
+        match:
+          type: [feedback, rule]
+          keyword: ["以后", "不要再", "必须", "约定"]
+```
+
+写入决策（`write/skip/update`，优先级 skip > update > write）决定“是否写入/更新”；写入后的自动生效/人工审核/拒绝由 `memory.write_policy` 管理；命中结果随候选持久化，并在 `memory_save` 响应中以 `policy` / `decision` 字段回显。把一条记忆设为常驻：`memory_update(memory_id=..., is_permanent=true, permanent_reason="...")`。
 
 Environment variables:
 
@@ -67,6 +93,7 @@ Environment variables:
 | `/memory-status` | Show cwiki integration status and stats |
 | `/memory-search <query>` | Search for relevant memories |
 | `/memory-review` | Review pending candidate memories |
+| `/memory-pin` | Mark a memory as permanent so it is injected at session start |
 
 ## MCP tools
 
@@ -115,12 +142,14 @@ Qoder Agent
   |-- hooks (SessionStart only)
   |     |
   |     v
-  |   python -m adapters.qoder.hooks -> static additionalContext -> Qoder Agent
+  |   python -m adapters.hooks -> static additionalContext -> Qoder Agent
   |                                      (no collection or API calls)
   |
   |-- MCP (stdio)
         |
         v
-      python -m adapters.qoder.mcp_server -> cwiki API (port 5172)
-                                              /v1/context, /v1/search, /v1/candidates
+      python -m adapters.qoder.mcp_server
+        |-- read:  local_index -> cwiki-data/cwiki.db (mode=ro, BM25)
+        |          strong hit -> return; weak hit -> API hybrid
+        |-- write: cwiki API (port 5172) /v1/candidates
 ```

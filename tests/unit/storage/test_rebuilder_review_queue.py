@@ -159,6 +159,12 @@ def _review_queue() -> dict[str, Any]:
                 "content": "候选正文",
                 "type": "fact",
                 "client_write_id": "cw-1",
+                "policy_rule_id": "pinned-auto",
+                "policy_action": "auto",
+                "policy_reason": "用户指定长期保留",
+                "decision_rule_id": "must-save-signals",
+                "decision_action": "write",
+                "decision_reason": "用户纠正必须记录",
                 "confidence": 0.7,
                 "quality_score": 0.82,
                 "value_score": 0.75,
@@ -316,6 +322,12 @@ async def test_rebuild_restores_candidates_and_reviews(tmp_path):
             assert pending.content == "候选正文"
             assert pending.type == "fact"
             assert pending.client_write_id == "cw-1"
+            assert pending.policy_rule_id == "pinned-auto"
+            assert pending.policy_action == "auto"
+            assert pending.policy_reason == "用户指定长期保留"
+            assert pending.decision_rule_id == "must-save-signals"
+            assert pending.decision_action == "write"
+            assert pending.decision_reason == "用户纠正必须记录"
             assert pending.quality_score == 0.82
             assert pending.review_priority == 0.9
             assert pending.duplicate_probability == 0.1

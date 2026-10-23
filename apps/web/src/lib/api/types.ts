@@ -81,6 +81,11 @@ export interface Candidate {
   similar_memory_content_preview: string | null
   similar_memory_type: string | null
   similar_memory_relation: string | null
+  is_permanent?: boolean
+  permanent_reason?: string | null
+  policy_rule_id?: string | null
+  policy_action?: string | null
+  policy_reason?: string | null
   status: string
   content_contract: Record<string, unknown> | null
   quality_report: Record<string, unknown> | null
@@ -365,6 +370,47 @@ export interface ConfigData {
 export interface ConfigPatchResult {
   applied: boolean
   changed_fields: string[]
+}
+
+export type WritePolicyAction = 'auto' | 'review' | 'reject'
+
+export interface WritePolicyRuleMatch {
+  workspace: string[]
+  type: string[]
+  tags: string[]
+  keyword: string[]
+}
+
+export interface WritePolicyRule {
+  id: string
+  action: WritePolicyAction
+  reason: string | null
+  match: WritePolicyRuleMatch
+}
+
+export interface WritePolicyData {
+  enabled: boolean
+  rules: WritePolicyRule[]
+  storage_path: string
+}
+
+export type WriteDecisionAction = 'write' | 'skip' | 'update'
+export type WriteDecisionDefaultAction = 'write' | 'skip'
+
+export interface WriteDecisionRule {
+  id: string
+  action: WriteDecisionAction
+  description: string
+  examples: string[]
+  match: WritePolicyRuleMatch
+}
+
+export interface WriteDecisionData {
+  enabled: boolean
+  default_action: WriteDecisionDefaultAction
+  rules: WriteDecisionRule[]
+  storage_path: string
+  preview: string
 }
 
 export interface HealthResponse {

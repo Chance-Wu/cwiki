@@ -130,6 +130,17 @@ class CandidateMemory(Base):
     content: Mapped[str] = mapped_column(Text, nullable=False)
     type: Mapped[str] = mapped_column(String(64), nullable=False)
     tags: Mapped[list[str] | None] = mapped_column(JSONBType(), nullable=True)
+    # 提交时声明的永久标记：审批时写入正式记忆，自动合并不得归档该记忆
+    is_permanent: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    permanent_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 写入策略命中记录：规则 id 与动作，便于追溯候选为何自动生效或强制审核
+    policy_rule_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    policy_action: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    policy_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 写入决策命中记录：仅 write/review 会落到候选；skip/update 在创建前拒绝
+    decision_rule_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    decision_action: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    decision_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     # (workspace_id, client_write_id) 唯一：客户端重试不会产生重复候选（幂等写入）
     client_write_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
