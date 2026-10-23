@@ -290,7 +290,9 @@ def patch_plugin_hooks(agent_key: str) -> None:
         warn(f"插件缓存 hooks.json 不存在，跳过修补: {hooks_json}")
         return
     data = read_json(hooks_json)
-    exe = sys.executable
+    # 宿主用 shell（Git Bash）执行 command 字符串：Windows 反斜杠会被吞掉，
+    # 统一转成正斜杠（Windows 与 POSIX 均可直接执行）。
+    exe = sys.executable.replace("\\", "/")
     command_exe = f'"{exe}"' if " " in exe else exe
     patched = 0
     for matchers in data.get("hooks", {}).values():

@@ -197,7 +197,11 @@ def test_patch_plugin_hooks_injects_python_and_pythonpath(
     hook = json.loads(hooks_json.read_text(encoding="utf-8"))["hooks"]["SessionStart"][0]["hooks"][
         0
     ]
-    assert hook["command"] == (f"{setup.sys.executable} -m adapters.qoder.hooks session-start")
+    expected_exe = setup.sys.executable.replace("\\", "/")
+    expected_command = f"{expected_exe} -m adapters.qoder.hooks session-start"
+    if " " in expected_exe:
+        expected_command = f'"{expected_exe}" -m adapters.qoder.hooks session-start'
+    assert hook["command"] == expected_command
     assert hook["env"]["PYTHONPATH"] == str(root)
 
 
@@ -429,7 +433,9 @@ def test_sync_plugin_cache_refreshes_stale_hooks_snapshot(
     setup.patch_plugin_hooks("qoder")
     final = json.loads((cache / "hooks" / "hooks.json").read_text(encoding="utf-8"))
     cmd = final["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"]
-    assert cmd.startswith(setup.sys.executable)
+    # 宿主用 shell 执行，注入路径必须是正斜杠（Windows 反斜杠会被吞）
+    assert cmd.startswith(setup.sys.executable.replace("\\", "/"))
+    assert "\\" not in cmd
     assert "-m adapters.hooks qoder user-prompt-submit" in cmd
     assert final["hooks"]["UserPromptSubmit"][0]["hooks"][0]["env"]["PYTHONPATH"] == str(
         setup.PROJECT_ROOT
