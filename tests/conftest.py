@@ -2,6 +2,7 @@
 
 from collections.abc import AsyncGenerator
 
+import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
@@ -12,6 +13,20 @@ from apps.api.deps import get_current_agent, get_db
 from packages.domain.database import Base
 
 TEST_DB_URL = "sqlite+aiosqlite:///:memory:"
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _isolate_global_task_queue(tmp_path_factory):
+    """全局任务队列落盘到临时目录，避免测试任务写进真机 ~/.cwiki/state。"""
+    from packages.domain import task_queue as task_queue_module
+
+    queue = task_queue_module.queue
+    queue._persist_path = tmp_path_factory.mktemp("task-queue") / "task_queue.json"
+    queue._tasks.clear()
+    queue._pending_keys.clear()
+    yield
+    queue._tasks.clear()
+    queue._pending_keys.clear()
 
 
 @pytest_asyncio.fixture(scope="session", loop_scope="session")

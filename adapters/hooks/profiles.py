@@ -164,8 +164,8 @@ def derive_workspace_from_dir(candidate: str) -> str:
         path = Path(candidate)
     except (OSError, ValueError):
         return "default"
-    # cwiki 仓库自身 / 用户 home：宿主未传项目目录，不是用户项目
-    if path == Path(__file__).resolve().parents[2] or path == Path.home():
+    # 只有 home 说明宿主未带项目目录；cwiki 仓库自身也是合法项目（cwiki）。
+    if path == Path.home():
         return "default"
     return clean_workspace_name(candidate) or "default"
 

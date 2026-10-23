@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from adapters.mcp import mcp_server as mcp_server_module
 from adapters.mcp.mcp_server import MCPServer
 from adapters.mcp.outbox import WriteAheadOutbox
 
@@ -121,3 +122,53 @@ async def test_save_valid_type_still_respected(server):
     )
     assert result["inferred_type"] == "decision"
     assert client.submit_candidate.call_args.kwargs["memory_type"] == "decision"
+
+
+@pytest.mark.parametrize(
+    "arguments,live,snapshot,expected",
+    [
+        ({"workspace_name": "msp-caa"}, "cwiki", "session-ws", "msp-caa"),
+        ({"workspace_id": "msp-caa"}, "cwiki", "session-ws", "msp-caa"),
+        # 实时归属优先于会话快照（会话在 cwiki，写入必须进 cwiki）
+        ({}, "cwiki", "session-ws", "cwiki"),
+        ({}, "cwiki", "default", "cwiki"),
+        ({}, "cwiki", None, "cwiki"),
+        # 实时归属未知时才使用会话快照
+        ({}, "default", "session-ws", "session-ws"),
+        ({}, "default", "default", "default"),
+        ({}, "default", None, "default"),
+    ],
+)
+def test_resolved_workspace_precedence(server, monkeypatch, arguments, live, snapshot, expected):
+    instance, _ = server
+    monkeypatch.setattr(mcp_server_module, "current_workspace_for", lambda _srv: live)
+    instance.session_workspace = snapshot
+    assert instance._resolved_workspace(arguments) == expected
+
+
+def test_session_snapshot_follows_live_workspace(server, monkeypatch):
+    """会话快照为 default（归属未知）时跟随实时归属，避免长驻进程钉死。"""
+    instance, _ = server
+    monkeypatch.setattr(mcp_server_module, "current_workspace_for", lambda _srv: "cwiki")
+    instance.session_workspace = "default"
+    assert instance._resolved_workspace({}) == "cwiki"
+    assert instance.session_workspace == "cwiki"
+
+
+def test_explicit_workspace_does_not_change_session_snapshot(server, monkeypatch):
+    instance, _ = server
+    monkeypatch.setattr(mcp_server_module, "current_workspace_for", lambda _srv: "cwiki")
+    instance.session_workspace = "cwiki"
+    assert instance._resolved_workspace({"workspace_name": "msp-caa"}) == "msp-caa"
+    assert instance.session_workspace == "cwiki"
+
+
+async def test_save_uses_live_workspace_over_stale_snapshot(server, monkeypatch):
+    """归属回归：会话快照为 default 时，memory_save 仍写入实时归属 cwiki。"""
+    instance, client = server
+    monkeypatch.setattr(mcp_server_module, "current_workspace_for", lambda _srv: "cwiki")
+    instance.session_workspace = "default"
+    client.submit_candidate.return_value = {"candidate": {"id": "c1"}, "similar_items": []}
+    result = await instance._handle_tool("memory_save", {"title": TITLE, "content": CONTENT})
+    assert client.submit_candidate.call_args.kwargs["workspace_id"] == "cwiki"
+    assert result["workspace"] == "cwiki"

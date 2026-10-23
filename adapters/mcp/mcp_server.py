@@ -513,10 +513,13 @@ class MCPServer:
         self.client = client
         self.tools = build_tool_definitions()
         self.outbox = WriteAheadOutbox()
+        self.session_workspace: str | None = None
+        # 宿主经 roots/list 声明的项目工作区（与 hook 注册表互补）
+        self.roots_workspace: str | None = None
         self._outbox_manager = OutboxManager(
             client=client,
             outbox=self.outbox,
-            workspace_resolver=lambda: self.session_workspace or current_workspace_for(self),
+            workspace_resolver=lambda: self._resolved_workspace({}),
             classify_memory_type=_classify_memory_type,
             is_client_rejection=_is_client_rejection,
             safe_error=_safe_error,
@@ -534,10 +537,28 @@ class MCPServer:
         )
         self._config_stamp = self._config_disk_stamp()
         self._config_error: str | None = None
-        self.session_workspace: str | None = None
-        # 宿主经 roots/list 声明的项目工作区（与 hook 注册表互补）
-        self.roots_workspace: str | None = None
         self._drain_task: asyncio.Task[None] | None = None
+
+    def _resolved_workspace(self, arguments: dict[str, Any]) -> str:
+        """本次调用的目标工作区：显式参数 > 实时归属 > 会话快照 > default。
+
+        ``default`` 表示“归属未知”，不能覆盖实时归属或已记录的会话工作区；
+        实时归属非 default 时同步会话快照，避免长驻进程沿用首次解析结果。
+        """
+        explicit = arguments.get("workspace_name") or arguments.get("workspace_id")
+        if isinstance(explicit, str) and explicit:
+            return explicit
+        live = current_workspace_for(self)
+        if live and live != DEFAULT_WORKSPACE:
+            if self.session_workspace != live:
+                logger.debug(
+                    "Workspace attribution updated: %s -> %s", self.session_workspace, live
+                )
+                self.session_workspace = live
+            return live
+        if self.session_workspace and self.session_workspace != DEFAULT_WORKSPACE:
+            return self.session_workspace
+        return DEFAULT_WORKSPACE
 
     @property
     def outbox(self) -> WriteAheadOutbox:
@@ -852,14 +873,10 @@ class MCPServer:
         memory_type = specified_type or _classify_memory_type(content)
         if memory_type not in TYPE_DEFINITIONS:
             memory_type = "fact"
-        workspace = (
-            arguments.get("workspace_name")
-            or arguments.get("workspace_id")
-            or self.session_workspace
-            or current_workspace_for(self)
-        )
-        if not isinstance(workspace, str):
+        explicit_workspace = arguments.get("workspace_name") or arguments.get("workspace_id")
+        if explicit_workspace is not None and not isinstance(explicit_workspace, str):
             return {"error": "workspace_id 必须是字符串"}
+        workspace = self._resolved_workspace(arguments)
         # 自动补齐缺失的 #memory/ 标签；type 与 workspace 的校验相互独立
         missing_tags = [
             tag for tag in (f"#memory/{memory_type}", f"#memory/{workspace}") if tag not in content
@@ -1405,13 +1422,8 @@ class MCPServer:
                 # 统一解析 workspace：文档与 tool schema 统一使用 workspace_name；
                 # 同时接受 workspace_id 作兜底（未经 schema 校验的调用可能沿旧键名），
                 # 双键都写入，使各 handler 无论读取哪个键都能拿到值；
-                # 缺失时回落会话工作区（与 memory_save 一致），再回落默认工作区
-                workspace_arg = (
-                    arguments.get("workspace_name")
-                    or arguments.get("workspace_id")
-                    or self.session_workspace
-                    or current_workspace_for(self)
-                )
+                # 缺失时按“实时归属 > 会话快照 > default”回落（与 memory_save 一致）
+                workspace_arg = self._resolved_workspace(arguments)
                 arguments["workspace_id"] = workspace_arg
                 arguments["workspace_name"] = workspace_arg
 

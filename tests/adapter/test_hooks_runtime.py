@@ -16,6 +16,8 @@ def _run(args: list[str], payload: dict | None, tmp_path: Path, extra_env: dict 
         **os.environ,
         "PYTHONPATH": str(ROOT),
         "CWIKI_HOOK_STATE_DIR": str(tmp_path / "state"),
+        # 注册表也必须隔离：refresh() 对所有事件生效，否则测试 cwd 会写入真实状态目录
+        "CWIKI_STATE_DIR": str(tmp_path / "workspace-state"),
         "CWIKI_API_URL": "http://127.0.0.1:9",
         **(extra_env or {}),
     }

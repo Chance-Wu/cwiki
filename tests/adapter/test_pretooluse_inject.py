@@ -2,7 +2,8 @@
 
 覆盖两种宿主形态：Qoder app 的 mcp_call 包装（toolName+arguments 嵌套）与
 CLI 直连的 mcp__server__tool 全名；显式传参不覆盖；memory_search 不注入
-（省略=跨全部工作区是设计语义）；cwiki 仓库自身/home 会话不注入（default）。
+（省略=跨全部工作区是设计语义）；home 会话不注入（default），cwiki 仓库
+自身按项目 cwiki 注入。
 """
 
 from __future__ import annotations
@@ -88,9 +89,16 @@ class TestUpdatedInput:
         workspace_inject.updated_input(payload)
 
     def test_default_derivation_no_injection(self):
-        for cwd in (str(ROOT), str(Path.home()), ""):
+        for cwd in (str(Path.home()), ""):
             payload = _payload_qoder("memory_save", {"title": "t", "content": "c"}, cwd)
             assert workspace_inject.updated_input(payload) is None, cwd
+
+    def test_repo_root_injects_cwiki(self):
+        """cwiki 仓库自身也是合法项目：归属 cwiki，而不是 default。"""
+        payload = _payload_qoder("memory_save", {"title": "t", "content": "c"}, str(ROOT))
+        updated = workspace_inject.updated_input(payload)
+        assert updated is not None
+        assert updated["arguments"]["workspace_name"] == "cwiki"
 
     def test_dirty_dir_names_fall_back(self):
         for cwd in ("/x/C--Users-admin", "/x/179cf7e8", "/x/.."):

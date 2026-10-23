@@ -189,9 +189,9 @@ def test_stale_registry_falls_back_to_static(tmp_path):
     assert r.stdout.strip() == "default"
 
 
-def test_default_workspace_not_written_by_hook(tmp_path):
+def test_repo_root_binds_cwiki_workspace(tmp_path):
+    """cwiki 仓库自身也是合法项目：hook cwd=仓库根 → 注册表写 cwiki。"""
     state = tmp_path / "state"
-    # cwd 指向 cwiki 仓库自身 → 推导为 default → hook 不应写注册表
     _run(
         ["qoder", "user-prompt-submit"],
         {
@@ -199,6 +199,23 @@ def test_default_workspace_not_written_by_hook(tmp_path):
             "session_id": "s2",
             "prompt": "x" * 20,
             "cwd": str(ROOT),
+        },
+        state,
+    )
+    registry = json.loads((state / "current-workspace-qoder.json").read_text())
+    assert registry["workspace"] == "cwiki"
+
+
+def test_home_workspace_not_written_by_hook(tmp_path):
+    """home 目录不是项目：hook 不应写注册表。"""
+    state = tmp_path / "state"
+    _run(
+        ["qoder", "user-prompt-submit"],
+        {
+            "hook_event_name": "UserPromptSubmit",
+            "session_id": "s3",
+            "prompt": "x" * 20,
+            "cwd": str(Path.home()),
         },
         state,
     )

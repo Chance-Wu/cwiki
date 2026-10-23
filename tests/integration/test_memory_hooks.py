@@ -4,6 +4,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 import tomllib
 from pathlib import Path
 
@@ -13,12 +14,15 @@ from adapters.qoder.hooks import MAX_INPUT_BYTES, REMINDERS
 
 ROOT = Path(__file__).resolve().parents[2]
 MODULE = "adapters.qoder.hooks"
+_STATE_DIR = tempfile.mkdtemp(prefix="cwiki-integ-state-")
 
 
 def _env() -> dict[str, str]:
     return {
         **os.environ,
         "PYTHONPATH": str(ROOT),
+        # 隔离真实注册表：hook 对所有事件都会 refresh 当前工作区
+        "CWIKI_STATE_DIR": _STATE_DIR,
         "PYTHONDONTWRITEBYTECODE": "1",
         "PYTHONIOENCODING": "ascii:strict",
         "PYTHONUTF8": "0",
