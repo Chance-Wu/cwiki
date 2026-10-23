@@ -10,7 +10,8 @@
       "env": {
         "PYTHONPATH": ".",
         "CWIKI_HOST": "qoder"
-      }
+      },
+      "description": "cwiki 个人知识工作台 — 记忆的存储、检索、去重、合并与进化。提供 memory_search（语义检索）、memory_save（写入记忆）、memory_update/forget（管理记忆）、memory_relations（关联网络）、memory_review_*（审核流程）、memory_tags/types（分类体系）、memory_checkpoint/history（版本与历史）、memory_export/import（数据迁移）、memory_feedback（效果反馈）、memory_retry_failed（失败重试）、memory_status（系统状态）等工具，让 Agent 具备跨会话的持久记忆能力。"
     }
   }
 }
