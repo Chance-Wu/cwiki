@@ -25,7 +25,7 @@ description: 按需检索和保存知识。会话开始或话题切换时用 mem
 
 先写清值得保留的信息，再选类型。篇幅和条数不是目标。满足任一即可保存：(1) 帮助未来 agent 建立在已有知识之上；(2) 帮助用户学习、回顾或检索技术知识。
 
-**工具概览**（16 个，均 `memory_` 前缀）：核心 `search`/`save`/`update`/`feedback`/`forget`；状态 `status`/`types`；检查点 `checkpoint`；恢复 `retry_failed`；辅助 `relations`/`history`（拆分前查 relations，更新前查 history）；复习 `review_due`/`review_submit`/`review_stats`；运维 `export`/`import`。
+**工具概览**（19 个，均 `memory_` 前缀）：检索 `search`；写入 `save`/`update`/`feedback`/`forget`；状态 `status`/`types`/`tags`；检查点 `checkpoint`；恢复 `retry_failed`；关系 `relations`/`relation_create`/`relation_delete`；历史 `history`（更新前查 history）；复习 `review_due`/`review_submit`/`review_stats`；运维 `export`/`import`。完整参数见下表。
 
 首次使用：确认 `save`/`search` 可用，调 `status` 核对工作区和限制。
 
@@ -35,16 +35,19 @@ description: 按需检索和保存知识。会话开始或话题切换时用 mem
 
 | 工具 | 必填 | 可选 | 接收 workspace_name |
 |------|------|------|:---:|
-| `memory_search` | `keyword` 或 `query`（二选一） | `limit`(非 curated 1–100，curated 1–50，默认 10)、`mode`(hybrid/semantic)、`curated`、`max_tokens`、`project`、`filters`(`type`/`min_confidence`) | ✓ |
+| `memory_search` | `keyword` 或 `query`（二选一） | `limit`(非 curated 1–100，curated 1–50，默认 10)、`mode`(hybrid/semantic)、`curated`、`max_tokens`(100–20000)、`project`、`filters`(`type`/`min_confidence`/`tags`，tags 为 AND) | ✓ |
 | `memory_save` | `title`(≤80 字符)、`content`(≥20 字符) | `type`、`tags`、`is_permanent`、`permanent_reason` | ✓ |
-| `memory_update` | `memory_id` | `content`、`title`、`expected_version`、`confidence`、`importance`、`reason`、`is_permanent`、`permanent_reason` | ✗ |
+| `memory_update` | `memory_id` | `content`、`title`、`tags`、`expected_version`、`confidence`、`importance`、`reason`、`is_permanent`、`permanent_reason` | ✗ |
 | `memory_feedback` | `memory_id`、`feedback_type` | `reason` | ✓ |
 | `memory_forget` | `memory_id` | `reason` | ✓ |
-| `memory_history` | `memory_id` | `view`(lifecycle/content)、`limit`(仅 content 视图) | ✗ |
-| `memory_relations` | `memory_id` | `depth`(默认 1) | ✗ |
+| `memory_history` | `memory_id` | `view`(lifecycle/content)、`limit`(1–50，仅 content 视图) | ✗ |
+| `memory_relations` | `memory_id` | `depth`(1–3，默认 1) | ✗ |
+| `memory_relation_create` | `memory_id`、`target_memory_id`、`relation_type` | `confidence`(0–1，默认 1.0) | ✗ |
+| `memory_relation_delete` | `memory_id`、`relation_id` | — | ✗ |
 | `memory_checkpoint` | `trigger_reason` | `dry_run`、`event_session_id` | ✓ |
 | `memory_status` | — | — | ✓ |
 | `memory_types` | — | `type`(过滤) | ✗ |
+| `memory_tags` | — | `tags`(过滤，AND)、`limit`(1–100，默认 20) | ✓ |
 | `memory_retry_failed` | —（无任何参数） | — | ✗ |
 | `memory_review_due` | — | `limit`(1-100，默认 20) | ✓ |
 | `memory_review_submit` | `memory_id`、`quality`(0-5) | — | ✓ |
@@ -90,14 +93,6 @@ memory_update(memory_id="<id>", content="新正文…", reason="补充边界条�
 **跳过**：一次性状态查询、纯确认、可从代码/git 直接读取的细节、未加工的原样搬运。技术性知识经整理就有价值——记忆价值在于可检索，不在于独创。凭据和未脱敏日志不写入。
 
 **可检索性检验**：写完后问"未来什么场景会检索到它"——答不上来 = 不够具体，需补充关键词、场景或结论。
-
-**提交前自检清单**：
-- [ ] 能回答"未来什么场景会检索到它"
-- [ ] 首句即结论
-- [ ] 含具体证据或数据（代码块、错误信息、配置值）
-- [ ] 限定条件/边界保留
-- [ ] 有行动指导（下次该怎么做）
-- [ ] Markdown 格式（`##` 分段、关键结论加粗）
 
 ## 查重与决策
 
@@ -163,7 +158,7 @@ memory_update(memory_id="<id>", content="新正文…", reason="补充边界条�
 
 ## 保存与更新
 
-`memory_save(title=标题, content=完整正文, type=可选)`。**`title`（≤80 字符）与 `content` 均必填**；type 不传自动推断；**workspace_name 通常不传**——宿主 hook 会把工作区实时同步到当前项目。**返回结果回显 `workspace` 字段：每次保存后核对它是当前项目；若落到 `default` 或他区（hook 未激活、注册表过期、宿主刚切换项目），补传 `workspace_name=<项目目录名>` 重提一次；错误归属的 pending 候选不审批即可（人工拒绝或在 Web 控制台删除），绝不留到转正。**最低 `len(content.strip()) >= 20`，**有效最低 30 字符**（排除规则会拒绝 <30 或 >80% 代码的内容）。`#memory/{type}` 和 `#memory/{workspace}` 标签由服务端自动注入。新候选为 `pending_review`，需人工批准。
+`memory_save(title=标题, content=完整正文, type=可选)`。**`title`（≤80 字符）与 `content` 均必填**；type 不传自动推断；**workspace_name 通常不传**——宿主 hook 会把工作区实时同步到当前项目。**返回结果回显 `workspace` 字段：每次保存后核对它是当前项目；若落到 `default` 或他区（hook 未激活、注册表过期、宿主刚切换项目），补传 `workspace_name=<项目目录名>` 重提一次；错误归属的 pending 候选不审批即可（人工拒绝或在 Web 控制台删除），绝不留到转正。**最低 `len(content.strip()) >= 20`，**有效最低 30 字符**（排除规则会拒绝 <30 或 >80% 代码的内容）。`#memory/{type}` 与 `#memory/{workspace}` 标签由 **MCP 适配器**自动补齐，服务端只做校验。新候选为 `pending_review`，需人工批准。
 
 **永久记忆**：仅在用户明确要求长期保留时传 `is_permanent=true`（可附 `permanent_reason`），审批通过后正式记忆带永久标记，不参与自动衰减与自动合并归档。不要替用户推测永久性；普通高价值记忆用标签即可。
 
@@ -184,9 +179,9 @@ memory_update(memory_id="<id>", content="新正文…", reason="补充边界条�
 5. **质量门控**：5 维评分（stable/reusable/actionable/scoped/evidence_backed）决定审核优先级。
 6. **幂等保护**：`client_write_id = ms:{sha256(content)[:16]}`，重试时相同内容不会重复创建。
 
-### 类型最低完整性要求（MQ-201 结构化契约）
+### 内容结构建议（非强制校验）
 
-正文应包含该类型的关键要素，缺失会降低质量分但不会阻止提交：
+下列要素有助于质量门打分，但**当前不做类型级校验**：`content_contract` 字段尚未写入，质量门按通用启发式（长度、结构、证据密度）评分。缺要素只降低质量分与审核优先级，不阻止提交：
 
 | 类型 | 至少应包含 |
 |------|-----------|
@@ -228,7 +223,7 @@ memory_update(memory_id="<id>", content="新正文…", reason="补充边界条�
 
 ## 检查点与结束前回顾
 
-实时处理优先，检查点只兜底。关键节点调用 `memory_checkpoint`，trigger_reason：`user_correction`（用户纠正）、`problem_solved`（完成排查）、`technical_decision`（确定取舍）、`convention_discovered`（发现约定）、`session_long`（深入学习）、`session_ending`（会话结束）。
+实时处理优先，检查点只兜底。关键节点调用 `memory_checkpoint`，trigger_reason：`user_correction`（用户纠正）、`problem_solved`（完成排查）、`technical_decision`（确定取舍）、`convention_discovered`（发现约定）、`session_long`（深入学习）、`session_ending`（会话结束）、`manual`（手动触发）。
 
 逐个评估候选（`dry_run=true`）→ 无问题提交、有遗漏补充、输入不完整标注"部分检查"。会话结束补齐未采集信号，输出 `新增 N / 更新 M / 跳过 K（原因）`。
 
