@@ -1,6 +1,6 @@
 ---
 name: cwiki-save
-description: 按需检索和保存知识。会话开始或话题切换时用 memory_search 检索相关记忆建立上下文；出现用户纠正、调试发现、技术决策、方案取舍、踩坑教训、技术学习等可复用信号时用 memory_save 提交。内容完整优先，类型仅分类，不把正文压成摘要。没有真实信号就跳过，不凑条数。
+description: 会话开始或切换话题、需要检索既有项目知识时使用；出现用户纠正、调试发现、技术决策、方案取舍、踩坑教训、技术学习、隐性约定、可复用资源等信号，或需要保存、更新、反馈、遗忘记忆时使用。
 ---
 
 # cwiki 知识提取助手
@@ -25,7 +25,7 @@ description: 按需检索和保存知识。会话开始或话题切换时用 mem
 
 先写清值得保留的信息，再选类型。篇幅和条数不是目标。满足任一即可保存：(1) 帮助未来 agent 建立在已有知识之上；(2) 帮助用户学习、回顾或检索技术知识。
 
-**工具概览**（19 个，均 `memory_` 前缀）：检索 `search`；写入 `save`/`update`/`feedback`/`forget`；状态 `status`/`types`/`tags`；检查点 `checkpoint`；恢复 `retry_failed`；关系 `relations`/`relation_create`/`relation_delete`；历史 `history`（更新前查 history）；复习 `review_due`/`review_submit`/`review_stats`；运维 `export`/`import`。完整参数见下表。
+**工具概览**（19 个，均 `memory_` 前缀）：检索 `search`；写入 `save`/`update`/`feedback`/`forget`；状态 `status`/`types`/`tags`；检查点 `checkpoint`；恢复 `retry_failed`；关系 `relations`（拆分前查关联）/`relation_create`/`relation_delete`；历史 `history`（更新前查版本）；复习 `review_due`/`review_submit`/`review_stats`；运维 `export`/`import`。完整参数见下表。
 
 首次使用：确认 `save`/`search` 可用，调 `status` 核对工作区和限制。完整参数、枚举与调用形态见 [references/tool-contract.md](references/tool-contract.md)。
 
