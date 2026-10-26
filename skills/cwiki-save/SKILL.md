@@ -5,7 +5,7 @@ description: 会话开始或切换话题、需要检索既有项目知识时使�
 
 # cwiki 知识提取助手
 
-本 skill 是提取流程、查重、格式与检查点的来源；**当前会话注入的“cwiki 写入决策”规则优先于下方默认信号表**（规则决定是否写入/更新，本 skill 决定如何写）。工具能力以当前 MCP `tools/list` 为准。
+本 skill 定义提取流程、查重、格式与检查点。**会话注入的”cwiki 写入决策”规则优先**（规则决定是否写入，本 skill 决定如何写）。工具能力以当前 MCP `tools/list` 为准。
 
 ## 写入决策（会话注入）
 
@@ -16,8 +16,6 @@ description: 会话开始或切换话题、需要检索既有项目知识时使�
 - `[更新已有]`：先搜索并确认目标记忆，用 `memory_update` 更新，不要新建。
 - 未命中规则时按注入的“未命中”默认动作执行（写入/不写入）；未注入时按本 skill 默认信号表判断。
 - “写入但需要人工审核”不在这里表达，由 `memory.write_policy` 决定。
-
-服务端会在 `memory_save` 时复核规则：被 skip 拒绝时不要原样重试；被 update 拒绝时按返回的 `target_memory_id` 改用 `memory_update`。没有 hook 的宿主只能获得服务端复核。
 
 ## 核心原则
 
@@ -37,18 +35,15 @@ description: 会话开始或切换话题、需要检索既有项目知识时使�
 |----------|----------|
 | 用户纠正、明确偏好、被认可的建议 | feedback |
 | 决策取舍、需求变化、暂缓/搁置决定 | decision |
-| 调试发现、排查转折、失败尝试与边界 | issue / lesson |
-| 重复踩坑、非显然 workaround、性能经验 | lesson / constraint |
+| 调试发现、排查转折、重复踩坑、非显然 workaround | issue / lesson |
 | 隐性规则、安全红线、强制要求 | rule |
 | 版本兼容、环境限制、工具配置陷阱 | constraint / lesson |
 | 代码中反复出现的写法、项目特有约定 | convention / pattern |
 | 操作/迁移/部署中的非显然步骤 | procedure |
 | 架构认知、设计取舍、系统级 tradeoff | decision / convention |
 | 认知纠偏——"原来不是 X，是 Y" | lesson / fact |
-| 技术原理系统性讲解（含教科书级） | fact / lesson |
-| 技术选型对比——A vs B 的优劣、适用场景 | decision |
-| 知识梳理——整理某领域知识图谱或学习路径 | fact / reference |
-| 外部资源入口、文档链接、API 地址、工具/库推荐 | reference |
+| 技术原理讲解、技术选型对比 | fact / lesson / decision |
+| 知识梳理、外部资源入口、文档链接 | fact / reference |
 | 跨会话重复提问、显式记忆请求 | 先 `memory_search` 找已有记忆：有 → `memory_update` 补充新信息；无 → `memory_save` 新建 |
 
 交互信号：工作流偏好（feedback）、显式记忆请求（优先级最高）。无法准确分类时省略 `type`，`fact` 是兜底标签。仅从行为推测的偏好必须标明推测。
@@ -118,11 +113,6 @@ description: 会话开始或切换话题、需要检索既有项目知识时使�
 提交后自动经过：内容规范化（去空白、合并空行）→ 排除规则（<30 字符或 >80% 代码拒绝）→ 注入检测（13 种模式）→ 相似检测（≥0.70 返回提示）→ 质量门控（5 维评分）→ 幂等保护（相同内容不重复创建）。
 
 了解这些可避免意外拒绝；agent 无需手动执行任何步骤。
-
-### 两层去重
-
-- **Agent 端**（提交前）：`memory_search(keyword=..., limit=5)` 主动查重，决定新建/跳过/更新/合并。
-- **Server 端**（提交时）：自动检测相似记忆并返回 `similar_memories`，仅作提示不阻止提交。
 
 ### 失败与恢复
 
