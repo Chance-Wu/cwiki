@@ -40,8 +40,7 @@
 ## 常见调用形态
 
 ```text
-memory_search(keyword="业务关键词", limit=5)                                  # 工作区自动绑定当前项目
-memory_search(keyword="关键词", limit=5)                                        # 通用召回 / 查重：跨全部工作区
+memory_search(keyword="业务关键词", limit=5)                                  # 跨全部工作区搜索
 memory_save(title="主题", content="完整正文…", type="lesson")                  # 自动写入当前项目
 memory_update(memory_id="<id>", content="新正文…", reason="补充边界条件")
 ```
