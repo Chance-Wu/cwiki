@@ -524,7 +524,10 @@ def ensure_agents_md(agent_key: str) -> None:
             or existing.count(CWIKI_AGENTS_END) != 1
             or existing.index(CWIKI_AGENTS_START) > existing.index(CWIKI_AGENTS_END)
         ):
-            fail(f"cwiki 区块标记不完整或重复，未修改文件：{agents_md}")
+            fail(
+                f"cwiki 区块标记不完整或重复，未修改文件：{agents_md}"
+                "（请删除多余或颠倒的 cwiki:begin / cwiki:end 标记后重试）"
+            )
         start = existing.index(CWIKI_AGENTS_START)
         end = existing.index(CWIKI_AGENTS_END) + len(CWIKI_AGENTS_END)
         updated = existing[:start] + block + existing[end:]
@@ -541,7 +544,12 @@ def ensure_agents_md(agent_key: str) -> None:
             info(f"旧版 cwiki 指引已备份：{backup}")
             updated = existing[: legacy.start()] + block + "\n\n" + existing[end:]
         else:
-            separator = "" if not existing or existing.endswith("\n\n") else "\n\n"
+            if not existing or existing.endswith("\n\n"):
+                separator = ""
+            elif existing.endswith("\n"):
+                separator = "\n"
+            else:
+                separator = "\n\n"
             updated = existing + separator + block + "\n"
 
     if updated == existing:

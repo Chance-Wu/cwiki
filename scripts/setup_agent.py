@@ -24,7 +24,8 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parent.parent
-TEMPLATE = Path(__file__).resolve().parent / "templates" / "agent-instructions.md"
+# 与 Qoder 共用同一份受管区块正文，避免两块模板各自漂移
+TEMPLATE = Path(__file__).resolve().parent / "templates" / "cwiki-agents-block.md"
 BEGIN = "<!-- cwiki:begin -->"
 END = "<!-- cwiki:end -->"
 
@@ -90,7 +91,10 @@ def _merge_instructions(path: Path, body: str, dry_run: bool) -> None:
     existing = path.read_text(encoding="utf-8") if path.exists() else ""
     if BEGIN in existing or END in existing:
         if existing.count(BEGIN) != 1 or existing.count(END) != 1:
-            raise SystemExit(f"broken cwiki markers in {path}")
+            raise SystemExit(
+                f"broken cwiki markers in {path}; "
+                "remove duplicate or reversed cwiki:begin / cwiki:end markers and retry"
+            )
         start = existing.index(BEGIN)
         end = existing.index(END) + len(END)
         updated = existing[:start] + block + existing[end:]
@@ -203,7 +207,10 @@ env = {{ PYTHONPATH = {json.dumps(str(ROOT))}, CWIKI_HOST = "codex" }}
     existing = config.read_text(encoding="utf-8") if config.exists() else ""
     if "# cwiki:begin" in existing or "# cwiki:end" in existing:
         if existing.count("# cwiki:begin") != 1 or existing.count("# cwiki:end") != 1:
-            raise SystemExit(f"broken cwiki markers in {config}")
+            raise SystemExit(
+                f"broken cwiki markers in {config}; "
+                "remove duplicate or reversed cwiki:begin / cwiki:end markers and retry"
+            )
         start = existing.index("# cwiki:begin")
         end = existing.index("# cwiki:end") + len("# cwiki:end")
         updated = existing[:start] + block.rstrip() + existing[end:]
