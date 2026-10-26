@@ -954,13 +954,11 @@ const en = {
     debugModeDesc: 'Enable verbose logging and diagnostic output',
     featureFlags: 'Parasitic Evolution Features',
     featureFlagsSubtitle: 'Toggle individual memory evolution capabilities',
-    flagDescTypeAwareFreshnessEnabled: 'Type-Aware Freshness',
     flagDescMemoryGapDetectionEnabled: 'Memory Gap Detection',
     flagDescProactivePushEnabled: 'Proactive Push',
     flagDescMemoryRelationsEnabled: 'Memory Relations',
     flagDescAgentProfileEnabled: 'Agent Profile',
     flagDescMemoryVersionTrackingEnabled: 'Version Tracking',
-    flagDescAutoArchiveEnabled: 'Auto Archive',
     flagDescAutoConsolidateEnabled: 'Auto Consolidation',
     flagDescReviewRemindersEnabled: 'Review Reminders',
     flagDescMasteryCoupledDecayEnabled: 'Mastery-Coupled Decay',
@@ -969,8 +967,6 @@ const en = {
     flagDescAutoMergeEnabled: 'Auto Merge Execution',
     flagDescEpisodicRetrievalEnabled: 'Episodic Retrieval',
     flagDescAutoMergeThreshold: 'Auto Merge Threshold',
-    flagDetailTypeAwareFreshnessEnabled:
-      'Use different freshness thresholds per memory type instead of a single default',
     flagDetailMemoryGapDetectionEnabled:
       'Detect knowledge gaps when no matching memory is found and prompt the agent to fill them',
     flagDetailProactivePushEnabled:
@@ -981,8 +977,6 @@ const en = {
       'Track agent preferences and tailor memory retrieval to each agent',
     flagDetailMemoryVersionTrackingEnabled:
       'Record a version history entry every time a memory is edited',
-    flagDetailAutoArchiveEnabled:
-      'Auto-archive memories unused for 180 days during scheduled tasks',
     flagDetailAutoConsolidateEnabled:
       'Detect highly similar memories and generate merge suggestions during scheduled tasks',
     flagDetailReviewRemindersEnabled:
@@ -1029,10 +1023,6 @@ const en = {
     perfContextTokenBudgetDesc: 'Maximum tokens per retrieval response',
     perfDedupTopK: 'Dedup Candidates',
     perfDedupTopKDesc: 'Number of candidates retrieved for dedup tasks',
-    perfMergeSuggestionsLimit: 'Merge Scan Limit',
-    perfMergeSuggestionsLimitDesc: 'Maximum memories scanned for merge suggestions',
-    perfMergeSuggestionsTopK: 'Merge Candidates',
-    perfMergeSuggestionsTopKDesc: 'Candidates retrieved per memory for merge',
     perfMergeSuggestionsThreshold: 'Merge Similarity Threshold',
     perfMergeSuggestionsThresholdDesc: 'Minimum similarity to trigger merge suggestion',
     perfAutoConsolidateLimit: 'Auto-merge Scan Limit',

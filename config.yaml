@@ -234,8 +234,6 @@ performance:
   context_cache_max_size: 128
   context_token_budget: 2000
   dedup_top_k: 20
-  merge_suggestions_limit: 50
-  merge_suggestions_top_k: 10
   merge_suggestions_threshold: 0.5
   auto_consolidate_limit: 200
   auto_consolidate_top_k: 20

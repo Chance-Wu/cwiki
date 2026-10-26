@@ -73,8 +73,6 @@ class PerformanceConfigModel(BaseModel):
     context_cache_max_size: int
     context_token_budget: int
     dedup_top_k: int
-    merge_suggestions_limit: int
-    merge_suggestions_top_k: int
     merge_suggestions_threshold: float
     auto_consolidate_limit: int
     auto_consolidate_top_k: int
@@ -522,8 +520,6 @@ async def get_config() -> ConfigData:
             context_cache_max_size=settings.context_cache_max_size,
             context_token_budget=settings.context_token_budget,
             dedup_top_k=settings.dedup_top_k,
-            merge_suggestions_limit=settings.merge_suggestions_limit,
-            merge_suggestions_top_k=settings.merge_suggestions_top_k,
             merge_suggestions_threshold=settings.merge_suggestions_threshold,
             auto_consolidate_limit=settings.auto_consolidate_limit,
             auto_consolidate_top_k=settings.auto_consolidate_top_k,

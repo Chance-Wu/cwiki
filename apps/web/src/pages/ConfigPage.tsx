@@ -71,13 +71,11 @@ function toPascalCase(s: string): string {
 // ── Field schemas ───────────────────────────────────────────
 
 const featureFlagFields: EditableField[] = [
-  'type_aware_freshness_enabled',
   'memory_gap_detection_enabled',
   'proactive_push_enabled',
   'memory_relations_enabled',
   'agent_profile_enabled',
   'memory_version_tracking_enabled',
-  'auto_archive_enabled',
   'auto_consolidate_enabled',
   'review_reminders_enabled',
   'mastery_coupled_decay_enabled',
@@ -122,8 +120,6 @@ const performanceFields: EditableField[] = [
   'context_cache_max_size',
   'context_token_budget',
   'dedup_top_k',
-  'merge_suggestions_limit',
-  'merge_suggestions_top_k',
   'merge_suggestions_threshold',
   'auto_consolidate_limit',
   'auto_consolidate_top_k',

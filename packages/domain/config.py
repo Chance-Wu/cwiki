@@ -239,8 +239,6 @@ class Settings:
         self.context_cache_max_size: int = perf_cfg.get("context_cache_max_size", 256)
         self.context_token_budget: int = perf_cfg.get("context_token_budget", 2000)
         self.dedup_top_k: int = perf_cfg.get("dedup_top_k", 20)
-        self.merge_suggestions_limit: int = perf_cfg.get("merge_suggestions_limit", 100)
-        self.merge_suggestions_top_k: int = perf_cfg.get("merge_suggestions_top_k", 10)
         self.merge_suggestions_threshold: float = perf_cfg.get("merge_suggestions_threshold", 0.5)
         self.auto_consolidate_limit: int = perf_cfg.get("auto_consolidate_limit", 500)
         self.auto_consolidate_top_k: int = perf_cfg.get("auto_consolidate_top_k", 20)

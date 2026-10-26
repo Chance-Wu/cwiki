@@ -338,8 +338,6 @@ export interface ConfigData {
     context_cache_max_size: number
     context_token_budget: number
     dedup_top_k: number
-    merge_suggestions_limit: number
-    merge_suggestions_top_k: number
     merge_suggestions_threshold: number
     auto_consolidate_limit: number
     auto_consolidate_top_k: number
