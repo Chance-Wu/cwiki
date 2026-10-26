@@ -441,7 +441,7 @@ async def update_write_decisions(
     body: WriteDecisionModel,
     _identity: Annotated[AgentIdentity, Depends(require_scope("config:write"))],
 ) -> WriteDecisionData:
-    """更新写入决策：写入 config.local.yaml 并即时重载。"""
+    """更新写入决策：写入 config.yaml 并即时重载。"""
     parsed = parse_write_decisions(body.model_dump())
     if (
         parsed.enabled != body.enabled
