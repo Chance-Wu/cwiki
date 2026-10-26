@@ -1,6 +1,12 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/api'
-import type { ConfigData, HealthResponse, WriteDecisionData, WritePolicyData } from '../lib/api'
+import type {
+  ConfigData,
+  HealthResponse,
+  WriteDecisionData,
+  WriteDecisionPreviewRequest,
+  WritePolicyData,
+} from '../lib/api'
 
 export function useHealth() {
   return useQuery({
@@ -68,4 +74,11 @@ export function useWriteDecision() {
     },
   })
   return { ...query, update: mutation }
+}
+
+// 预览是纯计算，不写缓存；按草稿实时调用即可
+export function useWriteDecisionPreview() {
+  return useMutation({
+    mutationFn: (body: WriteDecisionPreviewRequest) => api.previewWriteDecisions(body),
+  })
 }

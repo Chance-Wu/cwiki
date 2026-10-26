@@ -76,6 +76,16 @@ async def test_get_default_write_decisions(
     assert data["rules"] == []
     assert data["preview"] == ""
     assert data["storage_path"] == str(isolated_local_config)
+    assert data["limits"] == {
+        "max_rules": 30,
+        "max_description": 300,
+        "max_examples": 5,
+        "max_example_chars": 120,
+        "max_match_values": 20,
+        "max_keyword_values": 30,
+        "max_match_value_chars": 100,
+        "max_hint_chars": 800,
+    }
 
 
 async def test_put_persists_and_reloads(client: httpx.AsyncClient, isolated_local_config) -> None:
@@ -156,3 +166,51 @@ async def test_invalid_payload_rejected(
     response = await client.put("/v1/config/write-decisions", json=payload)
 
     assert response.status_code == 422
+
+
+async def test_preview_returns_budget_for_draft(
+    client: httpx.AsyncClient, isolated_local_config
+) -> None:
+    response = await client.post("/v1/config/write-decisions/preview", json=_payload())
+
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert "一次性状态查询不写入" in data["preview"]
+    assert data["length"] == len(data["preview"]) <= data["max_chars"] == 800
+    assert data["total_rules"] == 2
+    assert data["shown_rules"] == 2
+    assert data["truncated"] is False
+    assert data["skipped_rules"] == 0
+
+
+async def test_preview_filters_by_simulated_workspace(
+    client: httpx.AsyncClient, isolated_local_config
+) -> None:
+    payload = _payload()
+    payload["rules"][0]["match"]["workspace"] = ["cwiki"]
+    payload["rules"][1]["match"]["workspace"] = ["other"]
+
+    response = await client.post(
+        "/v1/config/write-decisions/preview",
+        json={**payload, "workspace": "cwiki"},
+    )
+
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert "一次性状态查询不写入" in data["preview"]
+    assert "已有记忆需要补充时更新" not in data["preview"]
+    assert data["total_rules"] == 1
+
+
+async def test_preview_skips_invalid_draft_rules(
+    client: httpx.AsyncClient, isolated_local_config
+) -> None:
+    payload = _payload()
+    payload["rules"].append({"id": "", "action": "write", "match": {}})
+
+    response = await client.post("/v1/config/write-decisions/preview", json=payload)
+
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["total_rules"] == 2
+    assert data["skipped_rules"] == 1

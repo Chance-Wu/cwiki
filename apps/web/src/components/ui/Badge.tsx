@@ -11,6 +11,7 @@ interface BadgeProps extends HTMLMotionProps<'span'> {
   children: ReactNode
   removable?: boolean
   onRemove?: () => void
+  removeLabel?: string
   dot?: boolean
 }
 
@@ -39,6 +40,7 @@ export function Badge({
   children,
   removable,
   onRemove,
+  removeLabel,
   dot,
   ...props
 }: BadgeProps) {
@@ -63,7 +65,9 @@ export function Badge({
           type="button"
           onClick={onRemove}
           className="ml-0.5 -mr-0.5 p-0.5 rounded-full hover:bg-surface-card-hover hover:text-[var(--text-secondary)] active:scale-95 transition-all duration-150 ease-out"
-          aria-label={typeof children === 'string' ? `Remove ${children}` : 'Remove'}
+          aria-label={
+            removeLabel ?? (typeof children === 'string' ? `Remove ${children}` : 'Remove')
+          }
         >
           <X size={10} />
         </button>

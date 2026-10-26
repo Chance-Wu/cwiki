@@ -1,10 +1,13 @@
 import { useEffect, useId, useRef, useState } from 'react'
+import { AnimatePresence } from 'framer-motion'
+import { twMerge } from 'tailwind-merge'
 import { AlertTriangle } from 'lucide-react'
 import type { WritePolicyRuleMatch } from '../../lib/api'
 import { Badge } from '../ui/Badge'
-import { Input } from '../ui/Input'
 import { Textarea } from '../ui/Textarea'
 import { isEmptyMatch } from './writeRuleUtils'
+
+const CHIP_PREVIEW_LIMIT = 3
 
 function parseListInput(raw: string): string[] {
   const seen = new Set<string>()
@@ -20,80 +23,134 @@ function parseListInput(raw: string): string[] {
     })
 }
 
+export interface MatchFieldLimits {
+  workspace: number
+  type: number
+  tags: number
+  keyword: number
+  valueChars: number
+}
+
 export function ListInput({
   label,
   value,
   onChange,
   placeholder,
   hint,
+  max,
+  maxValueLength = 100,
+  invalid = false,
+  removeLabel,
 }: {
   label: string
   value: string[]
   onChange: (values: string[]) => void
   placeholder: string
   hint: string
+  max?: number
+  maxValueLength?: number
+  invalid?: boolean
+  removeLabel?: string
 }) {
   const inputId = useId()
-  const [text, setText] = useState(value.join(', '))
-  const lastEmitted = useRef(value)
+  const hintId = useId()
+  const inputRef = useRef<HTMLInputElement>(null)
+  const [query, setQuery] = useState('')
 
-  useEffect(() => {
-    // 只在外部值变化（例如重置草稿）时同步，避免覆盖输入中的逗号与空格
-    if (value !== lastEmitted.current) {
-      lastEmitted.current = value
-      setText(value.join(', '))
+  const commit = (raw: string) => {
+    const next = [...value]
+    const seen = new Set(next.map((item) => item.toLowerCase()))
+    for (const part of parseListInput(raw)) {
+      const text = part.slice(0, maxValueLength)
+      const key = text.toLowerCase()
+      if (seen.has(key)) continue
+      if (max !== undefined && next.length >= max) break
+      seen.add(key)
+      next.push(text)
     }
-  }, [value])
-
-  const emit = (raw: string) => {
-    const next = parseListInput(raw)
-    lastEmitted.current = next
-    onChange(next)
+    if (next.length !== value.length) onChange(next)
   }
+
+  const atLimit = max !== undefined && value.length >= max
 
   return (
     <div className="min-w-0">
-      <label htmlFor={inputId} className="block text-xs font-medium text-[var(--text-secondary)]">
-        {label}
-      </label>
-      <Input
-        id={inputId}
-        value={text}
-        onChange={(event) => {
-          setText(event.target.value)
-          emit(event.target.value)
-        }}
-        onBlur={() => {
-          const normalized = parseListInput(text)
-          emit(text)
-          setText(normalized.join(', '))
-        }}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter') {
-            event.preventDefault()
-            emit(text)
-            setText(parseListInput(text).join(', '))
-            event.currentTarget.blur()
-          }
-        }}
-        placeholder={placeholder}
-        className="mt-1.5"
-      />
-      <p className="mt-1 text-xs text-[var(--text-tertiary)]">{hint}</p>
-      {value.length > 0 && (
-        <div className="mt-2 flex flex-wrap gap-1.5">
+      <div className="flex items-baseline justify-between gap-2">
+        <label htmlFor={inputId} className="block text-xs font-medium text-[var(--text-secondary)]">
+          {label}
+        </label>
+        {max !== undefined && (
+          <span
+            className={twMerge(
+              'shrink-0 text-xs tabular-nums',
+              atLimit ? 'font-medium text-warning-fg' : 'text-[var(--text-tertiary)]',
+            )}
+          >
+            {value.length}/{max}
+          </span>
+        )}
+      </div>
+
+      <div
+        className={twMerge(
+          'mt-1.5 flex min-h-10 flex-wrap items-center gap-1.5 rounded-lg border px-2 py-1.5',
+          'bg-surface-card shadow-warm-xs backdrop-blur-[var(--glass-blur)]',
+          'transition-[border-color,box-shadow] duration-200 ease-out',
+          invalid
+            ? 'border-danger/60 focus-within:ring-2 focus-within:ring-danger/20'
+            : 'border-[var(--glass-border)] focus-within:border-brand-400 focus-within:ring-2 focus-within:ring-brand-200/30',
+        )}
+        onClick={() => inputRef.current?.focus()}
+      >
+        <AnimatePresence initial={false}>
           {value.map((item) => (
             <Badge
               key={item}
               variant="default"
               removable
               onRemove={() => onChange(value.filter((entry) => entry !== item))}
+              removeLabel={removeLabel ? `${removeLabel}: ${item}` : undefined}
+              className="max-w-full"
             >
-              {item}
+              <span className="truncate" title={item}>
+                {item}
+              </span>
             </Badge>
           ))}
-        </div>
-      )}
+        </AnimatePresence>
+        <input
+          id={inputId}
+          ref={inputRef}
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ',' || event.key === '，') {
+              event.preventDefault()
+              commit(query)
+              setQuery('')
+            } else if (event.key === 'Backspace' && query === '' && value.length > 0) {
+              onChange(value.slice(0, -1))
+            }
+          }}
+          onPaste={(event) => {
+            const text = event.clipboardData.getData('text')
+            if (!/[,，\n]/.test(text)) return
+            event.preventDefault()
+            commit(query + text)
+            setQuery('')
+          }}
+          onBlur={() => {
+            commit(query)
+            setQuery('')
+          }}
+          placeholder={value.length === 0 ? placeholder : ''}
+          aria-describedby={hintId}
+          className="min-w-[6rem] flex-1 bg-transparent px-1 py-0.5 text-sm text-[var(--text-primary)] outline-none placeholder:text-[var(--text-tertiary)]"
+        />
+      </div>
+      <p id={hintId} className="mt-1 text-xs text-[var(--text-tertiary)]">
+        {hint}
+      </p>
     </div>
   )
 }
@@ -104,18 +161,26 @@ export function LinesInput({
   onChange,
   placeholder,
   hint,
+  max = 5,
+  maxLength = 120,
+  overLimitMessage,
 }: {
   label: string
   value: string[]
   onChange: (values: string[]) => void
   placeholder: string
   hint: string
+  max?: number
+  maxLength?: number
+  overLimitMessage?: string
 }) {
   const inputId = useId()
   const [text, setText] = useState(value.join('\n'))
   const lastEmitted = useRef(value)
+  const overLimit = value.some((item) => item.length > maxLength)
 
   useEffect(() => {
+    // 只在外部值变化（撤销草稿）时同步，避免覆盖输入中的换行
     if (value !== lastEmitted.current) {
       lastEmitted.current = value
       setText(value.join('\n'))
@@ -127,16 +192,21 @@ export function LinesInput({
       .split('\n')
       .map((line) => line.trim())
       .filter(Boolean)
-      .slice(0, 5)
+      .slice(0, max)
     lastEmitted.current = next
     onChange(next)
   }
 
   return (
     <div className="min-w-0">
-      <label htmlFor={inputId} className="block text-xs font-medium text-[var(--text-secondary)]">
-        {label}
-      </label>
+      <div className="flex items-baseline justify-between gap-2">
+        <label htmlFor={inputId} className="block text-xs font-medium text-[var(--text-secondary)]">
+          {label}
+        </label>
+        <span className="shrink-0 text-xs tabular-nums text-[var(--text-tertiary)]">
+          {value.length}/{max}
+        </span>
+      </div>
       <Textarea
         id={inputId}
         value={text}
@@ -151,7 +221,7 @@ export function LinesInput({
               .split('\n')
               .map((line) => line.trim())
               .filter(Boolean)
-              .slice(0, 5)
+              .slice(0, max)
               .join('\n'),
           )
         }}
@@ -160,6 +230,12 @@ export function LinesInput({
         className="mt-1.5"
       />
       <p className="mt-1 text-xs text-[var(--text-tertiary)]">{hint}</p>
+      {overLimit && overLimitMessage && (
+        <p className="mt-1 flex items-center gap-1 text-xs font-medium text-danger-fg">
+          <AlertTriangle size={12} aria-hidden="true" />
+          {overLimitMessage}
+        </p>
+      )}
     </div>
   )
 }
@@ -184,12 +260,19 @@ export function MatchChips({
 
   return (
     <>
-      {chips.map((chip) => (
-        <Badge key={chip.label} variant="default" className="max-w-full">
-          <span className="text-[var(--text-tertiary)]">{chip.label}</span>
-          <span className="truncate">{chip.values.join(', ')}</span>
-        </Badge>
-      ))}
+      {chips.map((chip) => {
+        const shown = chip.values.slice(0, CHIP_PREVIEW_LIMIT)
+        const hidden = chip.values.length - shown.length
+        return (
+          <Badge key={chip.label} variant="default" className="max-w-full">
+            <span className="text-[var(--text-tertiary)]">{chip.label}</span>
+            <span className="truncate">
+              {shown.join(', ')}
+              {hidden > 0 ? ` +${hidden}` : ''}
+            </span>
+          </Badge>
+        )
+      })}
     </>
   )
 }
@@ -200,13 +283,23 @@ export function MatchEditor({
   hint,
   warning,
   copy,
+  limits,
 }: {
   match: WritePolicyRuleMatch
   onMatchChange: (key: keyof WritePolicyRuleMatch, values: string[]) => void
   hint: string
   warning: string
   copy: Record<string, string>
+  limits?: MatchFieldLimits
 }) {
+  const fieldLimits = limits ?? {
+    workspace: 20,
+    type: 20,
+    tags: 20,
+    keyword: 30,
+    valueChars: 100,
+  }
+
   return (
     <div>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -220,6 +313,9 @@ export function MatchEditor({
           onChange={(values) => onMatchChange('workspace', values)}
           placeholder="cwiki"
           hint={copy.writePolicyWorkspaceHint}
+          removeLabel={copy.writePolicyRemoveValue}
+          max={fieldLimits.workspace}
+          maxValueLength={fieldLimits.valueChars}
         />
         <ListInput
           label={copy.writePolicyType}
@@ -227,6 +323,9 @@ export function MatchEditor({
           onChange={(values) => onMatchChange('type', values)}
           placeholder="decision, lesson"
           hint={copy.writePolicyTypeHint}
+          removeLabel={copy.writePolicyRemoveValue}
+          max={fieldLimits.type}
+          maxValueLength={fieldLimits.valueChars}
         />
         <ListInput
           label={copy.writePolicyTags}
@@ -234,6 +333,9 @@ export function MatchEditor({
           onChange={(values) => onMatchChange('tags', values)}
           placeholder="pinned"
           hint={copy.writePolicyTagsHint}
+          removeLabel={copy.writePolicyRemoveValue}
+          max={fieldLimits.tags}
+          maxValueLength={fieldLimits.valueChars}
         />
         <ListInput
           label={copy.writePolicyKeyword}
@@ -241,6 +343,9 @@ export function MatchEditor({
           onChange={(values) => onMatchChange('keyword', values)}
           placeholder="必须保留, ECONNRESET"
           hint={copy.writePolicyKeywordHint}
+          removeLabel={copy.writePolicyRemoveValue}
+          max={fieldLimits.keyword}
+          maxValueLength={fieldLimits.valueChars}
         />
       </div>
       {isEmptyMatch(match) && (

@@ -1,5 +1,12 @@
 import { request } from './base'
-import type { ConfigData, ConfigPatchResult, WriteDecisionData, WritePolicyData } from './types'
+import type {
+  ConfigData,
+  ConfigPatchResult,
+  WriteDecisionData,
+  WriteDecisionPreview,
+  WriteDecisionPreviewRequest,
+  WritePolicyData,
+} from './types'
 
 export const getConfig = () => request<ConfigData>('/config')
 
@@ -21,6 +28,12 @@ export const updateWriteDecisions = (
 ) =>
   request<WriteDecisionData>('/config/write-decisions', {
     method: 'PUT',
+    body: JSON.stringify(body),
+  })
+
+export const previewWriteDecisions = (body: WriteDecisionPreviewRequest) =>
+  request<WriteDecisionPreview>('/config/write-decisions/preview', {
+    method: 'POST',
     body: JSON.stringify(body),
   })
 

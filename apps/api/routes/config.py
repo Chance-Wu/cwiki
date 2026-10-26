@@ -19,7 +19,18 @@ from packages.domain.config import (
     reload_yaml_config,
     settings,
 )
-from packages.domain.write_decisions import build_agent_hint, parse_write_decisions
+from packages.domain.write_decisions import (
+    DEFAULT_MAX_HINT_CHARS,
+    MAX_DESCRIPTION_CHARS,
+    MAX_EXAMPLE_CHARS,
+    MAX_EXAMPLES,
+    MAX_KEYWORD_VALUES,
+    MAX_MATCH_VALUE_CHARS,
+    MAX_MATCH_VALUES,
+    MAX_RULES,
+    build_agent_hint_details,
+    parse_write_decisions,
+)
 from packages.domain.write_policy import parse_write_policy
 
 router = APIRouter(tags=["config"])
@@ -119,10 +130,10 @@ class ConfigPatchResult(BaseModel):
 class WriteRuleMatchModel(BaseModel):
     """规则匹配条件；空列表表示该维度不限制。"""
 
-    workspace: list[str] = Field(default_factory=list, max_length=20)
-    type: list[str] = Field(default_factory=list, max_length=20)
-    tags: list[str] = Field(default_factory=list, max_length=20)
-    keyword: list[str] = Field(default_factory=list, max_length=20)
+    workspace: list[str] = Field(default_factory=list, max_length=MAX_MATCH_VALUES)
+    type: list[str] = Field(default_factory=list, max_length=MAX_MATCH_VALUES)
+    tags: list[str] = Field(default_factory=list, max_length=MAX_MATCH_VALUES)
+    keyword: list[str] = Field(default_factory=list, max_length=MAX_KEYWORD_VALUES)
 
     @field_validator("workspace", "type", "tags", "keyword")
     @classmethod
@@ -133,8 +144,8 @@ class WriteRuleMatchModel(BaseModel):
             text = value.strip()
             if not text:
                 continue
-            if len(text) > 100:
-                raise ValueError("单个匹配值不能超过 100 字符")
+            if len(text) > MAX_MATCH_VALUE_CHARS:
+                raise ValueError(f"单个匹配值不能超过 {MAX_MATCH_VALUE_CHARS} 字符")
             key = text.casefold()
             if key not in seen:
                 seen.add(key)
@@ -171,8 +182,8 @@ class WritePolicyData(WritePolicyModel):
 class WriteDecisionRuleModel(BaseModel):
     id: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9._-]+$")
     action: Literal["write", "skip", "update"]
-    description: str = Field(default="", max_length=300)
-    examples: list[str] = Field(default_factory=list, max_length=5)
+    description: str = Field(default="", max_length=MAX_DESCRIPTION_CHARS)
+    examples: list[str] = Field(default_factory=list, max_length=MAX_EXAMPLES)
     match: WriteRuleMatchModel = Field(default_factory=WriteRuleMatchModel)
 
     @field_validator("examples")
@@ -183,8 +194,8 @@ class WriteDecisionRuleModel(BaseModel):
             text = value.strip()
             if not text:
                 continue
-            if len(text) > 120:
-                raise ValueError("单条示例不能超过 120 字符")
+            if len(text) > MAX_EXAMPLE_CHARS:
+                raise ValueError(f"单条示例不能超过 {MAX_EXAMPLE_CHARS} 字符")
             if text not in cleaned:
                 cleaned.append(text)
         return cleaned
@@ -193,7 +204,7 @@ class WriteDecisionRuleModel(BaseModel):
 class WriteDecisionModel(BaseModel):
     enabled: bool = False
     default_action: Literal["write", "skip"] = "write"
-    rules: list[WriteDecisionRuleModel] = Field(default_factory=list, max_length=30)
+    rules: list[WriteDecisionRuleModel] = Field(default_factory=list, max_length=MAX_RULES)
 
     @model_validator(mode="after")
     def _unique_rule_ids(self) -> WriteDecisionModel:
@@ -206,9 +217,55 @@ class WriteDecisionModel(BaseModel):
         return self
 
 
+class WriteDecisionLimits(BaseModel):
+    """前端计数器与预校验使用的硬限制，与服务端校验同源。"""
+
+    max_rules: int
+    max_description: int
+    max_examples: int
+    max_example_chars: int
+    max_match_values: int
+    max_keyword_values: int
+    max_match_value_chars: int
+    max_hint_chars: int
+
+
+def _write_decision_limits() -> WriteDecisionLimits:
+    return WriteDecisionLimits(
+        max_rules=MAX_RULES,
+        max_description=MAX_DESCRIPTION_CHARS,
+        max_examples=MAX_EXAMPLES,
+        max_example_chars=MAX_EXAMPLE_CHARS,
+        max_match_values=MAX_MATCH_VALUES,
+        max_keyword_values=MAX_KEYWORD_VALUES,
+        max_match_value_chars=MAX_MATCH_VALUE_CHARS,
+        max_hint_chars=DEFAULT_MAX_HINT_CHARS,
+    )
+
+
 class WriteDecisionData(WriteDecisionModel):
     storage_path: str
     preview: str
+    limits: WriteDecisionLimits
+
+
+class WriteDecisionPreviewRequest(BaseModel):
+    """草稿预览请求；规则按原始字典接收，允许编辑中的无效规则被跳过。"""
+
+    enabled: bool = True
+    default_action: str = "write"
+    rules: list[dict[str, Any]] = Field(default_factory=list, max_length=MAX_RULES)
+    workspace: str = Field(default="", max_length=100)
+
+
+class WriteDecisionPreview(BaseModel):
+    preview: str
+    length: int
+    max_chars: int
+    shown_rules: int
+    total_rules: int
+    truncated: bool
+    skipped_rules: int
 
 
 # 段名 → Pydantic 模型，兼作可写字段白名单
@@ -315,7 +372,8 @@ def _effective_write_decisions() -> WriteDecisionData:
             for rule in policy.rules
         ],
         storage_path=str(LOCAL_CONFIG_PATH),
-        preview=build_agent_hint(policy, ""),
+        preview=build_agent_hint_details(policy, "").text,
+        limits=_write_decision_limits(),
     )
 
 
@@ -375,13 +433,35 @@ async def update_write_decisions(
         or parsed.default_action != body.default_action
         or len(parsed.rules) != len(body.rules)
     ):
-        raise HTTPException(status_code=422, detail="写入决策校验失败：部分规则无法解析")
+        parsed_ids = {rule.id.casefold() for rule in parsed.rules}
+        failed = [rule.id for rule in body.rules if rule.id.casefold() not in parsed_ids]
+        detail = "写入决策校验失败：部分规则无法解析"
+        if failed:
+            detail += f"（{', '.join(failed)}）"
+        raise HTTPException(status_code=422, detail=detail)
 
     await asyncio.to_thread(_write_local_write_decisions, body)
     reload_yaml_config()
     settings.reload()
     agent_policy_config.reload()
     return _effective_write_decisions()
+
+
+@router.post("/v1/config/write-decisions/preview", response_model=WriteDecisionPreview)
+async def preview_write_decisions(body: WriteDecisionPreviewRequest) -> WriteDecisionPreview:
+    """按草稿内容生成会话注入预览，支持模拟工作区过滤。"""
+    raw = body.model_dump(exclude={"workspace"})
+    policy = parse_write_decisions(raw, quiet=True)
+    details = build_agent_hint_details(policy, body.workspace.strip())
+    return WriteDecisionPreview(
+        preview=details.text,
+        length=details.length,
+        max_chars=details.max_chars,
+        shown_rules=details.shown_rules,
+        total_rules=details.total_rules,
+        truncated=details.truncated,
+        skipped_rules=max(0, len(body.rules) - len(policy.rules)),
+    )
 
 
 @router.get("/v1/config/write-policy", response_model=WritePolicyData)

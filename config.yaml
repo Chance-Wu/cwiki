@@ -79,7 +79,7 @@ agent_policy:
       - id: skip-credentials
         action: skip
         description: 凭据、密钥、令牌与未脱敏日志不写入
-        examples: ["api_key=sk-...", "Bearer eyJhbGci..."]
+        examples: ["api_key=sk-...", "Bearer eyJhbGci...", "-----BEGIN RSA PRIVATE KEY-----"]
         match:
           keyword:
             [
@@ -101,43 +101,76 @@ agent_policy:
         description: 一次性状态查询、纯确认与临时输出不写入
         examples: ["现在几点？", "临时输出，稍后丢弃"]
         match:
-          keyword: ["现在几点", "今天日期", "临时输出", "一次性状态", "会话临时"]
+          keyword:
+            [
+              "现在几点",
+              "今天日期",
+              "临时输出",
+              "一次性状态",
+              "会话临时",
+              "明白了",
+              "谢谢",
+              "感谢",
+              "没问题",
+            ]
       - id: update-existing-knowledge
         action: update
         description: 已有记忆需补充边界或纠偏时更新原记忆
-        examples: ["补充一下这个结论的边界", "原来不是 X，是 Y"]
+        examples: ["补充一下这个结论的边界", "原来不是 X，是 Y", "之前记的已过时，新版本行为变了"]
         match:
           keyword:
-            ["补充一下", "原来不是", "已过时", "纠偏", "更正为", "修正为", "更新为"]
+            [
+              "补充一下",
+              "原来不是",
+              "已过时",
+              "纠偏",
+              "更正为",
+              "修正为",
+              "更新为",
+              "之前说的不对",
+              "之前记的",
+              "行为变了",
+              "结论有变",
+              "实际上不是",
+              "正确的是",
+              "与之前不符",
+              "与记录不符",
+              "与文档不符",
+              "与预期不符",
+              "改一下这里",
+              "之前漏了",
+              "补充说明",
+              "终于明白",
+              "搞清楚了",
+            ]
       - id: must-save-signals
         action: write
         description: 用户纠正、明确偏好、强制规则必须记录
-        examples: ["不要这样做，改用 X", "以后都按这个约定"]
+        examples: ["不要这样做，改用 X", "以后都按这个约定", "记住：这个接口必须传 token"]
         match:
           type: [feedback, rule]
-          keyword: ["以后", "不要再", "必须", "约定", "不要", "偏好", "记住"]
       - id: save-decisions
         action: write
         description: 技术决策、方案取舍与架构选择要保存
-        examples: ["选 A 不选 B，因为…", "决定改用 X"]
+        examples: ["选 A 不选 B，因为…", "决定改用 X", "对比 A vs B：性能/复杂度/生态权衡"]
         match:
           type: [decision]
       - id: save-findings
         action: write
-        description: 调试根因、踩坑教训与非显然 workaround 要保存
-        examples: ["根因是…", "下次要先查…"]
+        description: 调试根因、踩坑教训、理解突破与非显然 workaround 要保存
+        examples: ["根因是…", "下次要先查…", "反复踩的坑：端口释放需要等 30s", "终于搞懂了 X 的底层原理"]
         match:
           type: [issue, lesson]
       - id: save-conventions
         action: write
         description: 项目约定、隐性规则、复用模式与环境约束要保存
-        examples: ["本项目统一用…", "该限制来自…"]
+        examples: ["本项目统一用…", "该限制来自…", "工具 X 的隐藏约束：版本 Y 起行为变化"]
         match:
           type: [convention, pattern, constraint]
       - id: save-knowledge
         action: write
-        description: 知识梳理、学习笔记与操作步骤要保存（含通用知识）
-        examples: ["原理解析：…", "完整操作步骤…"]
+        description: 知识梳理、原理解析、学习笔记与操作步骤要保存（含通用知识，侧重"为什么"）
+        examples: ["原理解析：…", "完整操作步骤…", "X 与 Y 的核心区别及选型理由"]
         match:
           type: [fact, reference, procedure]
 parasitic_evolution:

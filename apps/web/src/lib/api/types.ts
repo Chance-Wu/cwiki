@@ -405,12 +405,41 @@ export interface WriteDecisionRule {
   match: WritePolicyRuleMatch
 }
 
+export interface WriteDecisionLimits {
+  max_rules: number
+  max_description: number
+  max_examples: number
+  max_example_chars: number
+  max_match_values: number
+  max_keyword_values: number
+  max_match_value_chars: number
+  max_hint_chars: number
+}
+
 export interface WriteDecisionData {
   enabled: boolean
   default_action: WriteDecisionDefaultAction
   rules: WriteDecisionRule[]
   storage_path: string
   preview: string
+  limits: WriteDecisionLimits
+}
+
+export interface WriteDecisionPreviewRequest {
+  enabled: boolean
+  default_action: WriteDecisionDefaultAction
+  rules: WriteDecisionRule[]
+  workspace: string
+}
+
+export interface WriteDecisionPreview {
+  preview: string
+  length: number
+  max_chars: number
+  shown_rules: number
+  total_rules: number
+  truncated: boolean
+  skipped_rules: number
 }
 
 export interface HealthResponse {

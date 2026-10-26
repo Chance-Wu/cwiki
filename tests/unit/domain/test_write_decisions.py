@@ -9,6 +9,7 @@ from packages.domain.write_decisions import (
     WriteDecisionPolicy,
     WriteDecisionRule,
     build_agent_hint,
+    build_agent_hint_details,
     parse_write_decisions,
 )
 from packages.domain.write_policy import WriteRule
@@ -210,8 +211,67 @@ def test_build_hint_respects_small_budget() -> None:
     assert len(hint) <= 200
 
 
+def test_parse_quiet_suppresses_draft_warnings(caplog) -> None:
+    raw = {
+        "enabled": True,
+        "default_action": "write",
+        "rules": [
+            {"id": "", "action": "write", "match": {}},
+            {"id": "ok", "action": "write", "match": {}},
+        ],
+    }
+
+    with caplog.at_level(logging.WARNING):
+        policy = parse_write_decisions(raw, quiet=True)
+    assert [rule.id for rule in policy.rules] == ["ok"]
+    assert not [record for record in caplog.records if record.levelno >= logging.WARNING]
+
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        parse_write_decisions(raw)
+    assert any(record.levelno >= logging.WARNING for record in caplog.records)
+
+
 def test_build_hint_disabled_returns_empty() -> None:
     assert build_agent_hint(WriteDecisionPolicy(enabled=False), "cwiki") == ""
+
+
+def test_build_hint_details_reports_budget_and_truncation() -> None:
+    policy = WriteDecisionPolicy(
+        enabled=True,
+        rules=tuple(
+            WriteDecisionRule(id=f"r{i}", action="write", description="说明" * 40)
+            for i in range(10)
+        ),
+    )
+    details = build_agent_hint_details(policy, "", max_chars=200)
+
+    assert details.length == len(details.text) <= 200
+    assert details.total_rules == 10
+    assert details.shown_rules < details.total_rules
+    assert details.truncated is True
+    assert "另有" in details.text and "条规则未展示" in details.text
+
+
+def test_build_hint_details_marks_untruncated_when_budget_fits() -> None:
+    policy = WriteDecisionPolicy(
+        enabled=True,
+        rules=(WriteDecisionRule(id="r1", action="write", description="短说明"),),
+    )
+    details = build_agent_hint_details(policy, "cwiki")
+
+    assert details.shown_rules == details.total_rules == 1
+    assert details.truncated is False
+    assert details.max_chars == 800
+
+
+def test_build_hint_details_disabled_has_no_rules() -> None:
+    details = build_agent_hint_details(WriteDecisionPolicy(enabled=False), "cwiki")
+
+    assert details.text == ""
+    assert details.length == 0
+    assert details.shown_rules == details.total_rules == 0
+    assert details.truncated is False
 
 
 def test_decision_and_write_policy_share_match_semantics() -> None:

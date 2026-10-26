@@ -90,22 +90,33 @@ sequenceDiagram
 
 ### 写入决策（write_decisions）
 
-`config.yaml` 的 `agent_policy.write_decisions` 决定“是否写入/更新/强制审核/拒绝”，在候选创建前执行；下面的 `memory.write_policy` 只决定候选创建后的审核方式。配置默认启用一条等价旧 `must_save` 的 write 规则：
+`config.yaml` 的 `agent_policy.write_decisions` 决定“是否写入/更新/强制审核/拒绝”，在候选创建前执行；下面的 `memory.write_policy` 只决定候选创建后的审核方式。默认配置按“先拦截、再准入、按类型归类”拆成 8 条规则，覆盖全部 11 种记忆类型：
 
 ```yaml
 agent_policy:
   write_decisions:
     enabled: true
-    default_action: write   # write | review | skip
+    default_action: write   # write | skip
     rules:
+      - id: skip-credentials
+        action: skip         # write | skip | update
+        description: 凭据、密钥、令牌与未脱敏日志不写入
+        examples: ["api_key=sk-...", "Bearer eyJhbGci..."]
+        match:
+          keyword: ["password=", "api_key=", "-----BEGIN"]
       - id: must-save-signals
-        action: write        # write | review | skip | update
+        action: write
         description: 用户纠正、明确偏好、强制规则必须记录
         examples: ["不要这样做，改用 X", "以后都按这个约定"]
         match:
           type: [feedback, rule]
-          keyword: ["以后", "不要再", "必须", "约定"]
+      # …其余规则按 decision / issue+lesson / convention+pattern+constraint /
+      #   fact+reference+procedure 分类，均为 type 匹配
 ```
+
+- **管理界面**：配置页「写入管理 → 写入规则」支持分组编辑、组内排序、标签式匹配值输入与草稿预校验；改动先保存在浏览器草稿，点击“保存规则”才写入 `config.local.yaml` 并即时重载。
+- **注入预览**：`POST /v1/config/write-decisions/preview` 按草稿生成真实的 SessionStart 摘要，支持传入 `workspace` 模拟工作区过滤，并返回字符预算（`length/max_chars`）、已展示/总规则数与截断标记；界面据此显示预算进度条与“未展示规则”提示。
+- **硬限制**：规则 ≤ 30 条，说明 ≤ 300 字符，示例 ≤ 5 条且单条 ≤ 120 字符，匹配值每个维度按类型 ≤ 20/30 个且单值 ≤ 100 字符，注入摘要 ≤ 800 字符。服务端在 `GET/PUT /v1/config/write-decisions` 的 `limits` 字段中返回同一组数值，供前端计数与保存前校验。
 
 - **分工**：`write_decisions` 是准入（是否写/更新），`write_policy` 是写入后的审核（auto/review/reject）。两者可同时命中；需要“写入但人工审核”时用 write_policy 的 `review`。
 - **匹配**：固定优先级“不写入 > 更新 > 写入”，同组内按声明顺序；未命中用 `default_action`（write/skip）。`description/examples` 只注入 SessionStart，`match` 由服务端执行。

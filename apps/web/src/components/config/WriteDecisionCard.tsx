@@ -1,15 +1,29 @@
-import { useEffect, useId, useMemo, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { ChevronDown, ListChecks, Loader2, Plus, RotateCcw, Save, Trash2 } from 'lucide-react'
+import {
+  AlertTriangle,
+  ArrowDown,
+  ArrowUp,
+  ChevronDown,
+  Copy,
+  ListChecks,
+  Loader2,
+  Plus,
+  RotateCcw,
+  Save,
+  Trash2,
+} from 'lucide-react'
 import { duration, ease } from '../../lib/motion'
 import { translate, useTranslation } from '../../i18n/I18nProvider'
 import type {
   WriteDecisionAction,
   WriteDecisionData,
+  WriteDecisionLimits,
+  WriteDecisionPreview,
   WriteDecisionRule,
   WritePolicyRuleMatch,
 } from '../../lib/api'
-import { useWriteDecision } from '../../hooks/useSettings'
+import { useWriteDecision, useWriteDecisionPreview } from '../../hooks/useSettings'
 import ErrorAlert from '../ErrorAlert'
 import { useToast } from '../Toast'
 import { Badge } from '../ui/Badge'
@@ -20,7 +34,12 @@ import { SegmentedControl } from '../ui/SegmentedControl'
 import { Switch } from '../ui/Switch'
 import { Textarea } from '../ui/Textarea'
 import { LinesInput, MatchChips, MatchEditor } from './writeRuleShared'
-import { isEmptyMatch, validateRuleIds } from './writeRuleUtils'
+import {
+  DEFAULT_WRITE_DECISION_LIMITS,
+  collectLimitIssues,
+  isEmptyMatch,
+  validateRuleIds,
+} from './writeRuleUtils'
 
 interface GroupMeta {
   action: WriteDecisionAction
@@ -65,51 +84,33 @@ const GROUPS: Record<WriteDecisionAction, GroupMeta> = {
 // 服务端按“不写入 > 更新 > 写入”固定优先级匹配；配置也按此顺序落盘
 const PRIORITY_ORDER: WriteDecisionAction[] = ['skip', 'update', 'write']
 
-const ACTION_LABEL_KEYS: Record<WriteDecisionAction, string> = {
-  write: 'writeDecisionActionWrite',
-  skip: 'writeDecisionActionSkip',
-  update: 'writeDecisionActionUpdate',
-}
-
-function buildPreview(policy: WriteDecisionData, copy: Record<string, string>): string {
-  if (!policy.enabled) return ''
-  const defaultLabel =
-    policy.default_action === 'skip'
-      ? copy.writeDecisionDefaultSkip
-      : copy.writeDecisionDefaultWrite
-  const header = `cwiki 写入决策（优先级：不写入 > 更新 > 写入；未命中：${defaultLabel}）：`
-  const rules = [...policy.rules].sort(
-    (a, b) => PRIORITY_ORDER.indexOf(a.action) - PRIORITY_ORDER.indexOf(b.action),
-  )
-  const lines = rules.map((rule) => {
-    const actionLabel = copy[ACTION_LABEL_KEYS[rule.action]]
-    const description = (rule.description.trim() || rule.id).slice(0, 120)
-    const examples = rule.examples.slice(0, 2).map((item) => item.slice(0, 80))
-    return `- [${actionLabel}] ${description}${examples.length ? `｜例：${examples.join('；')}` : ''}`
-  })
-  if (lines.length === 0) {
-    lines.push('（未配置规则，按 cwiki-save skill 判断）')
-  }
-  const footer =
-    '\n规则只决定是否写入/更新；写入后的审核在 write_policy 中配置，查重与格式仍遵循 cwiki-save skill。'
-  return (header + '\n' + lines.join('\n') + footer).slice(0, 800)
+function normalizeRules(rules: WriteDecisionRule[]): WriteDecisionRule[] {
+  return rules.map((rule) => ({
+    ...rule,
+    id: rule.id.trim(),
+    description: rule.description.trim(),
+    examples: rule.examples.map((item) => item.trim()).filter(Boolean),
+  }))
 }
 
 function RuleEditor({
   rule,
   error,
   copy,
+  limits,
   onChange,
   onMatchChange,
 }: {
   rule: WriteDecisionRule
   error: string | null
   copy: Record<string, string>
+  limits: WriteDecisionLimits
   onChange: (patch: Partial<WriteDecisionRule>) => void
   onMatchChange: (key: keyof WritePolicyRuleMatch, values: string[]) => void
 }) {
   const idInputId = useId()
   const descriptionId = useId()
+  const descriptionOver = rule.description.length > limits.max_description
 
   return (
     <div className="space-y-4">
@@ -132,12 +133,21 @@ function RuleEditor({
       </div>
 
       <div>
-        <label
-          htmlFor={descriptionId}
-          className="block text-xs font-medium text-[var(--text-secondary)]"
-        >
-          {copy.writeDecisionDescription}
-        </label>
+        <div className="flex items-baseline justify-between gap-2">
+          <label
+            htmlFor={descriptionId}
+            className="block text-xs font-medium text-[var(--text-secondary)]"
+          >
+            {copy.writeDecisionDescription}
+          </label>
+          <span
+            className={`shrink-0 text-xs tabular-nums ${
+              descriptionOver ? 'font-medium text-danger-fg' : 'text-[var(--text-tertiary)]'
+            }`}
+          >
+            {rule.description.length}/{limits.max_description}
+          </span>
+        </div>
         <Textarea
           id={descriptionId}
           value={rule.description}
@@ -145,6 +155,7 @@ function RuleEditor({
           placeholder={copy.writeDecisionDescriptionPlaceholder}
           rows={2}
           className="mt-1.5"
+          aria-invalid={descriptionOver}
         />
       </div>
 
@@ -153,7 +164,12 @@ function RuleEditor({
         value={rule.examples}
         onChange={(values) => onChange({ examples: values })}
         placeholder={copy.writeDecisionExamplesPlaceholder}
-        hint={copy.writeDecisionExamplesHint}
+        hint={translate(copy.writeDecisionExamplesHint, { max: limits.max_examples })}
+        max={limits.max_examples}
+        maxLength={limits.max_example_chars}
+        overLimitMessage={translate(copy.writeDecisionIssueExampleLength, {
+          max: limits.max_example_chars,
+        })}
       />
 
       <MatchEditor
@@ -162,6 +178,13 @@ function RuleEditor({
         hint={copy.writePolicyMatchHint}
         warning={copy.writeDecisionCatchAllWarning}
         copy={copy}
+        limits={{
+          workspace: limits.max_match_values,
+          type: limits.max_match_values,
+          tags: limits.max_match_values,
+          keyword: limits.max_keyword_values,
+          valueChars: limits.max_match_value_chars,
+        }}
       />
     </div>
   )
@@ -172,17 +195,48 @@ export default function WriteDecisionCard() {
   const copy = t.config as Record<string, string>
   const { toast } = useToast()
   const { data, isLoading, error, refetch, update } = useWriteDecision()
+  const { mutate: runPreview, isPending: previewPending } = useWriteDecisionPreview()
 
   const [draft, setDraft] = useState<WriteDecisionData | null>(null)
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [showPreview, setShowPreview] = useState(false)
+  const [previewWorkspace, setPreviewWorkspace] = useState('')
+  const [previewResult, setPreviewResult] = useState<WriteDecisionPreview | null>(null)
+  const [previewError, setPreviewError] = useState<string | null>(null)
+  const previewSeq = useRef(0)
 
   useEffect(() => {
     if (data && draft === null) setDraft(structuredClone(data))
   }, [data, draft])
 
+  const limits = data?.limits ?? DEFAULT_WRITE_DECISION_LIMITS
   const ruleErrors = useMemo(() => (draft ? validateRuleIds(draft.rules, copy) : []), [draft, copy])
-  const hasErrors = ruleErrors.some(Boolean)
+  const limitIssues = useMemo(
+    () => (draft ? collectLimitIssues(draft.rules, copy, limits) : []),
+    [draft, copy, limits],
+  )
+
+  const summaryIssues = useMemo(() => {
+    if (!draft) return []
+    return draft.rules
+      .map((rule, index) => {
+        const messages: string[] = []
+        if (ruleErrors[index]) messages.push(ruleErrors[index] as string)
+        const limit = limitIssues.find((issue) => issue.index === index)
+        if (limit) messages.push(...limit.messages)
+        if (messages.length === 0) return null
+        return {
+          index,
+          ruleId: rule.id.trim() || copy.writePolicyUntitled,
+          messages,
+        }
+      })
+      .filter((entry): entry is { index: number; ruleId: string; messages: string[] } =>
+        Boolean(entry),
+      )
+  }, [draft, ruleErrors, limitIssues, copy.writePolicyUntitled])
+
+  const hasErrors = summaryIssues.length > 0
 
   const dirty = useMemo(() => {
     if (!data || !draft) return false
@@ -194,6 +248,48 @@ export default function WriteDecisionCard() {
       })
     return snapshot(draft) !== snapshot(data)
   }, [data, draft])
+
+  const counts = useMemo(() => {
+    const total: Record<WriteDecisionAction, number> = { write: 0, skip: 0, update: 0 }
+    draft?.rules.forEach((rule) => {
+      total[rule.action] += 1
+    })
+    return total
+  }, [draft])
+
+  // 打开预览后按草稿实时生成；输入停顿 350ms 再请求，避免每个按键都打服务端
+  useEffect(() => {
+    if (!showPreview || !draft) return
+    const seq = previewSeq.current + 1
+    previewSeq.current = seq
+    const timer = setTimeout(() => {
+      runPreview(
+        {
+          enabled: draft.enabled,
+          default_action: draft.default_action,
+          rules: normalizeRules(draft.rules),
+          workspace: previewWorkspace.trim(),
+        },
+        {
+          onSuccess: (result) => {
+            if (seq !== previewSeq.current) return
+            setPreviewResult(result)
+            setPreviewError(null)
+          },
+          onError: (err) => {
+            if (seq !== previewSeq.current) return
+            setPreviewError(err instanceof Error ? err.message : copy.writeDecisionPreviewError)
+          },
+        },
+      )
+    }, 350)
+    return () => {
+      clearTimeout(timer)
+      // 草稿继续变化时让在途响应失效，避免旧预览覆盖新结果
+      previewSeq.current += 1
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showPreview, draft, previewWorkspace, runPreview])
 
   if (isLoading || (!draft && !error)) {
     return (
@@ -242,6 +338,23 @@ export default function WriteDecisionCard() {
     if (previousId && expandedId === previousId) setExpandedId(id)
   }
 
+  const moveRuleWithinGroup = (index: number, delta: number) => {
+    setDraft((current) => {
+      if (!current) return current
+      const action = current.rules[index]?.action
+      if (!action) return current
+      const groupIndices = current.rules
+        .map((rule, ruleIndex) => (rule.action === action ? ruleIndex : -1))
+        .filter((ruleIndex) => ruleIndex >= 0)
+      const position = groupIndices.indexOf(index)
+      const target = groupIndices[position + delta]
+      if (position < 0 || target === undefined) return current
+      const rules = [...current.rules]
+      ;[rules[index], rules[target]] = [rules[target], rules[index]]
+      return { ...current, rules }
+    })
+  }
+
   const removeRule = (index: number) => {
     const removedId = draft.rules[index]?.id
     setDraft((current) =>
@@ -252,11 +365,13 @@ export default function WriteDecisionCard() {
     if (removedId && expandedId === removedId) setExpandedId(null)
   }
 
+  const atRuleLimit = draft.rules.length >= limits.max_rules
+
   const addRule = (action: WriteDecisionAction) => {
-    const prefix = action
+    if (atRuleLimit) return
     let suffix = 1
-    while (draft.rules.some((rule) => rule.id === `${prefix}-${suffix}`)) suffix += 1
-    const id = `${prefix}-${suffix}`
+    while (draft.rules.some((rule) => rule.id === `${action}-${suffix}`)) suffix += 1
+    const id = `${action}-${suffix}`
     setDraft({
       ...draft,
       rules: [
@@ -273,20 +388,40 @@ export default function WriteDecisionCard() {
     setExpandedId(id)
   }
 
+  const duplicateRule = (index: number) => {
+    if (atRuleLimit) {
+      toast(translate(copy.writeDecisionRuleLimit, { max: limits.max_rules }), 'warning')
+      return
+    }
+    const original = draft.rules[index]
+    if (!original) return
+    const seed = (original.id.trim() || original.action).replace(/[^A-Za-z0-9._-]+/g, '-')
+    const base = `${seed}-copy`
+    let id = base
+    let suffix = 1
+    while (draft.rules.some((rule) => rule.id === id)) {
+      suffix += 1
+      id = `${base}-${suffix}`
+    }
+    const copyRule = structuredClone({ ...original, id })
+    const rules = [...draft.rules]
+    rules.splice(index + 1, 0, copyRule)
+    setDraft({ ...draft, rules })
+    setExpandedId(id)
+  }
+
   const handleReset = () => {
-    if (data) setDraft(structuredClone(data))
+    if (data) {
+      setDraft(structuredClone(data))
+      setPreviewError(null)
+    }
   }
 
   const handleSave = () => {
     if (!draft) return
     const rules = [...draft.rules]
       .sort((a, b) => PRIORITY_ORDER.indexOf(a.action) - PRIORITY_ORDER.indexOf(b.action))
-      .map((rule) => ({
-        ...rule,
-        id: rule.id.trim(),
-        description: rule.description.trim(),
-        examples: rule.examples.map((item) => item.trim()).filter(Boolean),
-      }))
+      .map((rule) => normalizeRules([rule])[0])
     update.mutate(
       { enabled: draft.enabled, default_action: draft.default_action, rules },
       {
@@ -302,13 +437,18 @@ export default function WriteDecisionCard() {
   }
 
   const canSave = dirty && !hasErrors && !update.isPending
-  const preview = buildPreview(draft, copy)
   const defaultDescription =
     draft.default_action === 'skip'
       ? copy.writeDecisionDefaultSkipDesc
       : copy.writeDecisionDefaultWriteDesc
 
-  const renderGroup = (action: WriteDecisionAction) => {
+  const previewBudget = previewResult
+    ? Math.min(100, Math.round((previewResult.length / Math.max(1, previewResult.max_chars)) * 100))
+    : 0
+  const budgetBarClass =
+    previewBudget >= 90 ? 'bg-danger' : previewBudget >= 75 ? 'bg-warning' : 'bg-brand-500'
+
+  const renderGroup = (action: WriteDecisionAction, priority: number) => {
     const meta = GROUPS[action]
     const entries = draft.rules
       .map((rule, index) => ({ rule, index }))
@@ -317,9 +457,17 @@ export default function WriteDecisionCard() {
     return (
       <div className={`rounded-xl border p-3 ${meta.panelClass}`}>
         <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0">
-            <h4 className={`text-sm font-semibold ${meta.titleClass}`}>{copy[meta.titleKey]}</h4>
-            <p className="mt-0.5 text-xs text-[var(--text-tertiary)]">{copy[meta.descKey]}</p>
+          <div className="flex min-w-0 items-start gap-2">
+            <span
+              title={translate(copy.writeDecisionGroupPriority, { n: priority })}
+              className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border border-current/25 text-[11px] font-semibold tabular-nums opacity-80 ${meta.titleClass}`}
+            >
+              {priority}
+            </span>
+            <div className="min-w-0">
+              <h4 className={`text-sm font-semibold ${meta.titleClass}`}>{copy[meta.titleKey]}</h4>
+              <p className="mt-0.5 text-xs text-[var(--text-tertiary)]">{copy[meta.descKey]}</p>
+            </div>
           </div>
           <Badge variant={meta.badgeVariant}>{entries.length}</Badge>
         </div>
@@ -330,7 +478,7 @@ export default function WriteDecisionCard() {
               {copy.writeDecisionEmptyGroup}
             </p>
           )}
-          {entries.map(({ rule, index }) => {
+          {entries.map(({ rule, index }, position) => {
             const expanded = expandedId === rule.id
             return (
               <div
@@ -360,7 +508,37 @@ export default function WriteDecisionCard() {
                   </button>
 
                   <div className="flex shrink-0 items-center gap-0.5">
-                    <div className="transition-opacity duration-150 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
+                    <div className="flex items-center gap-0.5 transition-opacity duration-150 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
+                      <Button
+                        variant="icon"
+                        size="sm"
+                        onClick={() => moveRuleWithinGroup(index, -1)}
+                        disabled={position === 0}
+                        aria-label={copy.writePolicyMoveUp}
+                        title={copy.writePolicyMoveUp}
+                      >
+                        <ArrowUp size={13} aria-hidden="true" />
+                      </Button>
+                      <Button
+                        variant="icon"
+                        size="sm"
+                        onClick={() => moveRuleWithinGroup(index, 1)}
+                        disabled={position === entries.length - 1}
+                        aria-label={copy.writePolicyMoveDown}
+                        title={copy.writePolicyMoveDown}
+                      >
+                        <ArrowDown size={13} aria-hidden="true" />
+                      </Button>
+                      <Button
+                        variant="icon"
+                        size="sm"
+                        onClick={() => duplicateRule(index)}
+                        disabled={atRuleLimit}
+                        aria-label={copy.writeDecisionDuplicate}
+                        title={copy.writeDecisionDuplicate}
+                      >
+                        <Copy size={13} aria-hidden="true" />
+                      </Button>
                       <Button
                         variant="icon"
                         size="sm"
@@ -401,6 +579,7 @@ export default function WriteDecisionCard() {
                           rule={rule}
                           error={ruleErrors[index]}
                           copy={copy}
+                          limits={limits}
                           onChange={(patch) => {
                             if (patch.id !== undefined) changeRuleId(index, patch.id)
                             else patchRule(index, patch)
@@ -415,7 +594,17 @@ export default function WriteDecisionCard() {
             )
           })}
 
-          <Button variant="secondary" size="sm" onClick={() => addRule(action)}>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => addRule(action)}
+            disabled={atRuleLimit}
+            title={
+              atRuleLimit
+                ? translate(copy.writeDecisionRuleLimit, { max: limits.max_rules })
+                : undefined
+            }
+          >
             <Plus size={14} aria-hidden="true" />
             {copy[meta.addKey]}
           </Button>
@@ -459,8 +648,21 @@ export default function WriteDecisionCard() {
         </div>
       </div>
 
-      <div className="mt-3 rounded-lg border border-[var(--border-default)] bg-surface-inset/30 px-3 py-2 text-xs font-medium text-[var(--text-secondary)]">
-        {copy.writeDecisionFlow}
+      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-[var(--border-default)] bg-surface-inset/30 px-3 py-2">
+        <span className="text-xs font-medium text-[var(--text-secondary)]">
+          {copy.writeDecisionFlow}
+        </span>
+        <div className="ml-auto flex flex-wrap items-center gap-1.5">
+          <Badge variant="danger">
+            {counts.skip} {copy.writeDecisionActionSkip}
+          </Badge>
+          <Badge variant="info">
+            {counts.update} {copy.writeDecisionActionUpdate}
+          </Badge>
+          <Badge variant="success">
+            {counts.write} {copy.writeDecisionActionWrite}
+          </Badge>
+        </div>
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[var(--text-tertiary)]">
@@ -501,11 +703,11 @@ export default function WriteDecisionCard() {
 
       <p className="mt-3 text-xs text-[var(--text-tertiary)]">{copy.writeDecisionPriorityHint}</p>
 
-      <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
-        {renderGroup('write')}
-        {renderGroup('skip')}
+      <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
+        {renderGroup('skip', 1)}
+        {renderGroup('update', 2)}
       </div>
-      <div className="mt-3">{renderGroup('update')}</div>
+      <div className="mt-3">{renderGroup('write', 3)}</div>
 
       <div className="mt-4">
         <button
@@ -530,8 +732,79 @@ export default function WriteDecisionCard() {
               className="overflow-hidden"
             >
               <div className="mt-2 rounded-xl border border-[var(--border-default)] bg-surface-inset/40 p-3">
-                <pre className="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-[var(--text-secondary)]">
-                  {preview || copy.writeDecisionDisabledHint}
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs text-[var(--text-tertiary)]">
+                    {copy.writeDecisionPreviewWorkspace}
+                  </span>
+                  <Input
+                    value={previewWorkspace}
+                    onChange={(event) => setPreviewWorkspace(event.target.value)}
+                    placeholder={copy.writeDecisionPreviewWorkspacePlaceholder}
+                    className="h-8 w-44 py-1 text-xs"
+                  />
+                  {previewPending && (
+                    <span className="flex items-center gap-1 text-xs text-[var(--text-tertiary)]">
+                      <Loader2 size={12} className="animate-spin" aria-hidden="true" />
+                      {copy.writeDecisionPreviewLoading}
+                    </span>
+                  )}
+                  {previewResult && !previewPending && (
+                    <span className="ml-auto text-xs tabular-nums text-[var(--text-tertiary)]">
+                      {translate(copy.writeDecisionPreviewRules, {
+                        shown: previewResult.shown_rules,
+                        total: previewResult.total_rules,
+                      })}
+                    </span>
+                  )}
+                </div>
+
+                {previewResult && (
+                  <div className="mt-2">
+                    <div className="flex items-baseline justify-between text-xs">
+                      <span className="text-[var(--text-tertiary)]">
+                        {translate(copy.writeDecisionPreviewBudget, {
+                          used: previewResult.length,
+                          max: previewResult.max_chars,
+                        })}
+                      </span>
+                      <span className="tabular-nums text-[var(--text-tertiary)]">
+                        {previewBudget}%
+                      </span>
+                    </div>
+                    <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-surface-elevated">
+                      <div
+                        className={`h-full rounded-full transition-[width] duration-300 ease-out ${budgetBarClass}`}
+                        style={{ width: `${previewBudget}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {previewResult?.truncated && (
+                  <p className="mt-2 flex items-start gap-1.5 text-xs font-medium text-warning-fg">
+                    <AlertTriangle size={13} className="mt-0.5 shrink-0" aria-hidden="true" />
+                    {translate(copy.writeDecisionPreviewTruncated, {
+                      n: previewResult.total_rules - previewResult.shown_rules,
+                    })}
+                  </p>
+                )}
+                {previewResult && previewResult.skipped_rules > 0 && (
+                  <p className="mt-2 flex items-start gap-1.5 text-xs font-medium text-warning-fg">
+                    <AlertTriangle size={13} className="mt-0.5 shrink-0" aria-hidden="true" />
+                    {translate(copy.writeDecisionPreviewSkipped, {
+                      n: previewResult.skipped_rules,
+                    })}
+                  </p>
+                )}
+                {previewError && (
+                  <p className="mt-2 text-xs font-medium text-danger-fg">{previewError}</p>
+                )}
+
+                <pre className="mt-2 whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-[var(--text-secondary)]">
+                  {previewResult?.preview ||
+                    (previewPending
+                      ? copy.writeDecisionPreviewLoading
+                      : copy.writeDecisionPreviewEmpty)}
                 </pre>
                 <p className="mt-2 text-xs text-[var(--text-tertiary)]">
                   {copy.writeDecisionPreviewHint}
@@ -542,10 +815,29 @@ export default function WriteDecisionCard() {
         </AnimatePresence>
       </div>
 
+      {summaryIssues.length > 0 && (
+        <div className="mt-4 rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger-fg">
+          <p className="font-medium">
+            {translate(copy.writeDecisionIssueSummary, { n: summaryIssues.length })}
+          </p>
+          <ul className="mt-1 space-y-0.5">
+            {summaryIssues.slice(0, 3).map((issue) => (
+              <li key={`${issue.index}-${issue.ruleId}`}>
+                <span className="font-mono">{issue.ruleId}</span>：{issue.messages.join('；')}
+              </li>
+            ))}
+            {summaryIssues.length > 3 && <li>…</li>}
+          </ul>
+        </div>
+      )}
+
       <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border-default)] pt-4">
         <div className="flex items-center gap-2 text-xs">
           <span className="text-[var(--text-tertiary)]">
-            {translate(copy.writePolicyRuleCount, { n: draft.rules.length })}
+            {translate(copy.writeDecisionRuleCount, {
+              n: draft.rules.length,
+              max: limits.max_rules,
+            })}
           </span>
           {dirty && <span className="font-medium text-warning-fg">{copy.writePolicyUnsaved}</span>}
         </div>
