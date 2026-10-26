@@ -25,13 +25,9 @@ description: 会话开始或切换话题、需要检索既有项目知识时使�
 
 先写清值得保留的信息，再选类型。篇幅和条数不是目标。满足任一即可保存：(1) 帮助未来 agent 建立在已有知识之上；(2) 帮助用户学习、回顾或检索技术知识。
 
-**工具概览**（19 个，均 `memory_` 前缀）：检索 `search`；写入 `save`/`update`/`feedback`/`forget`；状态 `status`/`types`/`tags`；检查点 `checkpoint`；恢复 `retry_failed`；关系 `relations`（拆分前查关联）/`relation_create`/`relation_delete`；历史 `history`（更新前查版本）；复习 `review_due`/`review_submit`/`review_stats`；运维 `export`/`import`。完整参数见下表。
+**工具概览**（19 个，均 `memory_` 前缀）：检索 `search`；写入 `save`/`update`/`feedback`/`forget`；状态 `status`/`types`/`tags`；检查点 `checkpoint`；恢复 `retry_failed`；关系 `relations`（拆分前查关联）/`relation_create`/`relation_delete`；历史 `history`（更新前查版本）；复习 `review_due`/`review_submit`/`review_stats`；运维 `export`/`import`。
 
-首次使用：确认 `save`/`search` 可用，调 `status` 核对工作区和限制。完整参数、枚举与调用形态见 [references/tool-contract.md](references/tool-contract.md)。
-
-## 工具契约
-
-**所有工具 schema 均为 `additionalProperties: false`，传入未列出的键会被直接拒绝；工作区自动绑定当前项目，`workspace_name` 只在跨项目操作时传。** 19 个工具的必填/可选参数、枚举与调用形态见 [references/tool-contract.md](references/tool-contract.md)。
+首次使用：确认 `save`/`search` 可用，调 `status` 核对工作区和限制。必填/可选参数、枚举与调用形态见 [references/tool-contract.md](references/tool-contract.md)。
 
 ## 信号识别
 
@@ -94,30 +90,34 @@ description: 会话开始或切换话题、需要检索既有项目知识时使�
 
 按类型选用结构模板与 Callout、对照内容结构建议、避免反模式：见 [references/content-templates.md](references/content-templates.md)。
 
-**提交前确认**：能回答"未来什么场景会检索到它"→ 有效 Markdown → 首句即结论 → 含具体证据或数据 → 限定条件/边界保留 → 有行动指导 → 有检索价值。
-
 ## 保存与更新
 
-`memory_save(title=标题, content=完整正文, type=可选)`。**`title`（≤80 字符）与 `content` 均必填**；type 不传自动推断；**workspace_name 通常不传**——宿主 hook 会把工作区实时同步到当前项目。**返回结果回显 `workspace` 字段：每次保存后核对它是当前项目；若落到 `default` 或他区（hook 未激活、注册表过期、宿主刚切换项目），补传 `workspace_name=<项目目录名>` 重提一次；错误归属的 pending 候选不审批即可（人工拒绝或在 Web 控制台删除），绝不留到转正。**最低 `len(content.strip()) >= 20`，**有效最低 30 字符**（排除规则会拒绝 <30 或 >80% 代码的内容）。`#memory/{type}` 与 `#memory/{workspace}` 标签由 **MCP 适配器**自动补齐，服务端只做校验。新候选为 `pending_review`，需人工批准。
+`memory_save(title=标题, content=完整正文, type=可选)`。
+
+**必填字段**：`title`（≤80 字符）与 `content` 均必填；`type` 不传自动推断。
+
+**工作区绑定**：`workspace_name` 通常不传——宿主 hook 会把工作区实时同步到当前项目。**返回结果回显 `workspace` 字段**：每次保存后核对它是当前项目；若落到 `default` 或他区（hook 未激活、注册表过期、宿主刚切换项目），补传 `workspace_name=<项目目录名>` 重提一次；错误归属的 pending 候选不审批即可（人工拒绝或在 Web 控制台删除），绝不留到转正。
+
+**内容长度**：最低 `len(content.strip()) >= 20`，**有效最低 30 字符**（排除规则会拒绝 <30 或 >80% 代码的内容）。
+
+**标签注入**：`#memory/{type}` 与 `#memory/{workspace}` 标签由 **MCP 适配器**自动补齐，服务端只做校验。新候选为 `pending_review`，需人工批准。
 
 **永久记忆**：仅在用户明确要求长期保留时传 `is_permanent=true`（可附 `permanent_reason`），审批通过后正式记忆带永久标记，不参与自动衰减与自动合并归档。不要替用户推测永久性；普通高价值记忆用标签即可。
 
 **显式记忆请求优先**：用户明确说"记住"时，即使查重命中已有记忆也不能直接跳过——已有条目已覆盖则用 `memory_update` 补充，仍需要独立条目则照常 `memory_save`，并在回复中说明是更新还是新增。
 
-**写入策略**：服务端可能配置了 `memory.write_policy`。`memory_save` 返回体若带 `policy` 字段，按其 `action` 汇报：`auto` 表示评分后将自动生效，`review` 表示强制人工审核。若内容被策略拒绝（4xx，提示规则 id），不要原样重试；按拒绝原因调整内容，或告知用户该规则拦截。
+**服务端响应处理**：`memory_save` 返回体可能包含以下字段：
+- `policy.action`：`auto` = 评分后自动生效；`review` = 强制人工审核
+- `decision.action`：`review` = 强制人工审核
+- 4xx 错误 + `write_decision`：`skip` = 规则拦截，不要重试；`update` = 改用 `memory_update` 更新 `target_memory_id` 指向的记忆
 
-**写入决策复核**：`memory_save` 返回体若带 `decision` 字段，按其 `action` 汇报（`review` = 强制人工审核）。若返回 4xx 且带 `write_decision`：`skip` 表示规则不允许写入，不要重试；`update` 表示应使用 `memory_update` 更新 `target_memory_id` 指向的记忆。
+若内容被策略拒绝（4xx，提示规则 id），按拒绝原因调整内容，或告知用户该规则拦截。
 
 ### 服务端处理链
 
-提交后经过以下处理（agent 无需手动执行，但了解可避免意外拒绝）：
+提交后自动经过：内容规范化（去空白、合并空行）→ 排除规则（<30 字符或 >80% 代码拒绝）→ 注入检测（13 种模式）→ 相似检测（≥0.70 返回提示）→ 质量门控（5 维评分）→ 幂等保护（相同内容不重复创建）。
 
-1. **内容规范化**：去除行尾空白、合并 3+ 空行为 1 行、标题前确保空行、末尾单换行。**语义不变**，仅格式化。
-2. **排除规则**：`len(content.strip()) < 30` 或代码行占比 >80% 会被拒（认为可从代码/git 直接推导）。
-3. **注入检测**：匹配 13 种 prompt 注入模式（中英文），命中则拒绝。
-4. **相似检测**：与现有记忆比对（标题 20% + 正文 35% + 关键词 15% + embedding 余弦 30%），相似度 ≥0.70 的作为 `similar_memories` 返回提示。
-5. **质量门控**：5 维评分（stable/reusable/actionable/scoped/evidence_backed）决定审核优先级。
-6. **幂等保护**：`client_write_id = ms:{sha256(content)[:16]}`，重试时相同内容不会重复创建。
+了解这些可避免意外拒绝；agent 无需手动执行任何步骤。
 
 ### 两层去重
 
