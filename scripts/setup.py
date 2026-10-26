@@ -574,7 +574,6 @@ def ensure_skill(agent_key: str) -> None:
         fail(f"Skill 源文件不存在或不是文件：{source}")
 
     link_dir = skills_dir / source_dir.name
-    target = link_dir / "SKILL.md"
 
     if link_dir.is_symlink():
         if link_dir.resolve() == source_dir.resolve():
@@ -589,9 +588,9 @@ def ensure_skill(agent_key: str) -> None:
         os.symlink(source_dir, link_dir, target_is_directory=True)
         info(f"cwiki Skill 软链就位：{link_dir} → {source_dir}")
     except OSError:
-        link_dir.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source, target)
-        warn(f"软链失败，已复制文件：{target}（修改源文件后需重新运行）")
+        # 无软链权限时复制整个 skill 目录，references/ 等附属文件一并带上
+        shutil.copytree(source_dir, link_dir)
+        warn(f"软链失败，已复制目录：{link_dir}（修改源文件后需重新运行）")
 
 
 # ── 数据库与服务 ─────────────────────────────────────────────────────

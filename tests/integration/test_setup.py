@@ -722,6 +722,8 @@ def test_copies_skill_when_symlinks_are_unavailable(
     skill_paths: tuple[Path, Path], capsys: pytest.CaptureFixture[str]
 ) -> None:
     source_dir, skills_dir = skill_paths
+    (source_dir / "references").mkdir()
+    (source_dir / "references" / "tool-contract.md").write_text("ref", encoding="utf-8")
 
     with patch.object(setup.os, "symlink", side_effect=OSError("Symlinks unavailable")) as link:
         setup.ensure_skill("qoder")
@@ -730,6 +732,8 @@ def test_copies_skill_when_symlinks_are_unavailable(
     installed = skills_dir / "cwiki-save"
     assert not installed.is_symlink()
     assert (installed / "SKILL.md").read_text(encoding="utf-8") == "name: cwiki-save\n"
+    # 回退复制必须带上 references/ 等附属文件，否则拆分后的模板会丢
+    assert (installed / "references" / "tool-contract.md").read_text(encoding="utf-8") == "ref"
     assert not (skills_dir / "cwiki").exists()
     assert "修改源文件后需重新运行" in capsys.readouterr().out
 

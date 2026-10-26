@@ -27,44 +27,11 @@ description: 按需检索和保存知识。会话开始或话题切换时用 mem
 
 **工具概览**（19 个，均 `memory_` 前缀）：检索 `search`；写入 `save`/`update`/`feedback`/`forget`；状态 `status`/`types`/`tags`；检查点 `checkpoint`；恢复 `retry_failed`；关系 `relations`/`relation_create`/`relation_delete`；历史 `history`（更新前查 history）；复习 `review_due`/`review_submit`/`review_stats`；运维 `export`/`import`。完整参数见下表。
 
-首次使用：确认 `save`/`search` 可用，调 `status` 核对工作区和限制。
+首次使用：确认 `save`/`search` 可用，调 `status` 核对工作区和限制。完整参数、枚举与调用形态见 [references/tool-contract.md](references/tool-contract.md)。
 
-## 工具参数速查
+## 工具契约
 
-**所有工具 schema 均为 `additionalProperties: false`，传入表中未列出的键会被直接拒绝。工作区自动使用 Agent 当前绑定的项目（宿主 hook 实时同步），`workspace_name` 仅在明确要跨项目操作时才传。**
-
-| 工具 | 必填 | 可选 | 接收 workspace_name |
-|------|------|------|:---:|
-| `memory_search` | `keyword` 或 `query`（二选一） | `limit`(非 curated 1–100，curated 1–50，默认 10)、`mode`(hybrid/semantic)、`curated`、`max_tokens`(100–20000)、`project`、`filters`(`type`/`min_confidence`/`tags`，tags 为 AND) | ✓ |
-| `memory_save` | `title`(≤80 字符)、`content`(≥20 字符) | `type`、`tags`、`is_permanent`、`permanent_reason` | ✓ |
-| `memory_update` | `memory_id` | `content`、`title`、`tags`、`expected_version`、`confidence`、`importance`、`reason`、`is_permanent`、`permanent_reason` | ✗ |
-| `memory_feedback` | `memory_id`、`feedback_type` | `reason` | ✓ |
-| `memory_forget` | `memory_id` | `reason` | ✓ |
-| `memory_history` | `memory_id` | `view`(lifecycle/content)、`limit`(1–50，仅 content 视图) | ✗ |
-| `memory_relations` | `memory_id` | `depth`(1–3，默认 1) | ✗ |
-| `memory_relation_create` | `memory_id`、`target_memory_id`、`relation_type` | `confidence`(0–1，默认 1.0) | ✗ |
-| `memory_relation_delete` | `memory_id`、`relation_id` | — | ✗ |
-| `memory_checkpoint` | `trigger_reason` | `dry_run`、`event_session_id` | ✓ |
-| `memory_status` | — | — | ✓ |
-| `memory_types` | — | `type`(过滤) | ✗ |
-| `memory_tags` | — | `tags`(过滤，AND)、`limit`(1–100，默认 20) | ✓ |
-| `memory_retry_failed` | —（无任何参数） | — | ✗ |
-| `memory_review_due` | — | `limit`(1-100，默认 20) | ✓ |
-| `memory_review_submit` | `memory_id`、`quality`(0-5) | — | ✓ |
-| `memory_review_stats` | — | — | ✓ |
-| `memory_export` | — | `entities` | ✓ |
-| `memory_import` | `data` | `strategy`(skip/overwrite/rename) | ✓ |
-
-常见调用形态：
-
-```text
-memory_search(keyword="业务关键词", limit=5)                                  # 工作区自动绑定当前项目
-memory_search(keyword="关键词", limit=5)                                        # 通用召回 / 查重：跨全部工作区
-memory_save(title="主题", content="完整正文…", type="lesson")                  # 自动写入当前项目
-memory_update(memory_id="<id>", content="新正文…", reason="补充边界条件")
-```
-
-标注 ✗ 的工具不接收工作区参数。`keyword` 与 `query` 等价，传其一即可；`trigger_reason` 枚举见「检查点与结束前回顾」；`max_tokens` 与 `project` 仅在 `curated=true` 时使用。**工作区默认自动绑定 Agent 当前项目**（宿主 hook 实时同步，`memory_save` 不需要传 `workspace_name`）；`memory_search` 省略时跨全部工作区搜索，传 `workspace_name` 只用于显式限定。
+**所有工具 schema 均为 `additionalProperties: false`，传入未列出的键会被直接拒绝；工作区自动绑定当前项目，`workspace_name` 只在跨项目操作时传。** 19 个工具的必填/可选参数、枚举与调用形态见 [references/tool-contract.md](references/tool-contract.md)。
 
 ## 信号识别
 
@@ -123,36 +90,9 @@ memory_update(memory_id="<id>", content="新正文…", reason="补充边界条�
 
 **粒度**：一条 = 一个独立可检索知识单元。独立成立 → 拆分；总一起被检索 → 合并。拆分用 `[[标题]]` 关联。结构随篇幅：短（<100 字）无 `##`、中（100-300 字）1-2 个 `##`、长（300+ 字）多级 `##` + 表格/代码块。
 
-### 格式模板
+### 模板与结构
 
-按实际内容选用，不强制每个段落都出现。各类型推荐 Callout 见下表：
-
-| 类型 | 推荐结构 | Callout |
-|------|----------|---------|
-| **事实** (fact) | 核心结论 → `## 机制/原理` → `## 关键特性` → `## 适用边界` → `## 对比`（可选表格） | `> [!abstract]` |
-| **实战经验** (lesson) | 洞察一句话 → `## 背景` → `## 发现` → `## 下次应该` → `## 边界条件` | `> [!info]` |
-| **问题排查** (issue) | 根因一句话 → `## 现象`（代码块原样保留错误） → `## 根因` → `## 解决方案` → `## 边界条件` | `> [!bug]` |
-| **决策** (decision) | 结论一句话 → `## 背景` → `## 方案对比`（表格） → `## 取舍理由` + **Why:** / **How to apply:** | `> [!quote]` |
-| **编码约定** (convention) | 约定一句话 → `## 规则` → `## 示例`（代码块） → `## 例外` | `> [!info]` |
-| **实践模式** (pattern) | 模式一句话 → `## 适用场景` → `## 做法` → `## 反例` | `> [!tip]` |
-| **操作步骤** (procedure) | 目标一句话 → `## 前置条件` → `## 步骤`（编号列表） → `## 成功判据` | `> [!info]` |
-| **协作偏好** (feedback) | 规则一句话 + **Why:** + **How to apply:**（短偏好 <100 字无需 `##`） | `> [!tip]` |
-| **资源指引** (reference) | 资源一句话 → `## 用途` → `## 访问方式` + 链接（不只存 URL，记为什么值得收藏） | `> [!bookmark]` |
-| **技术约束** (constraint) | 约束一句话 → `## 来源` → `## 影响范围` → `## 例外` | `> [!warning]` |
-| **强制规则** (rule) | 规则一句话 → `## 必须/禁止` → `## 后果` → `## 例外` | `> [!warning]` |
-
-### 反模式与提交前自检
-
-**避免**：
-
-格式层面：纯文本墙（>5 行无结构）、装饰性标题（`## 总结` 无关键词）、空泛过渡（"综上所述"）、为凑结构拆段、标题后无空行。
-
-内容层面：
-
-- **正确的废话**——"要注意性能"、"代码要可维护"——无法指导决策，不如不写
-- **无证据结论**——"X 比 Y 好"但不说在什么场景、用什么指标衡量
-- **缺边界**——只说"怎么做"不说"什么时候不适用"
-- **无行动指导**——读完知道"是什么"但不知道"下次该怎么做"
+按类型选用结构模板与 Callout、对照内容结构建议、避免反模式：见 [references/content-templates.md](references/content-templates.md)。
 
 **提交前确认**：能回答"未来什么场景会检索到它"→ 有效 Markdown → 首句即结论 → 含具体证据或数据 → 限定条件/边界保留 → 有行动指导 → 有检索价值。
 
@@ -178,24 +118,6 @@ memory_update(memory_id="<id>", content="新正文…", reason="补充边界条�
 4. **相似检测**：与现有记忆比对（标题 20% + 正文 35% + 关键词 15% + embedding 余弦 30%），相似度 ≥0.70 的作为 `similar_memories` 返回提示。
 5. **质量门控**：5 维评分（stable/reusable/actionable/scoped/evidence_backed）决定审核优先级。
 6. **幂等保护**：`client_write_id = ms:{sha256(content)[:16]}`，重试时相同内容不会重复创建。
-
-### 内容结构建议（非强制校验）
-
-下列要素有助于质量门打分，但**当前不做类型级校验**：`content_contract` 字段尚未写入，质量门按通用启发式（长度、结构、证据密度）评分。缺要素只降低质量分与审核优先级，不阻止提交：
-
-| 类型 | 至少应包含 |
-|------|-----------|
-| fact | 结论 + 解释/来源 + 适用范围 |
-| decision | 结论 + 背景 + 理由/取舍 |
-| lesson | 经验结论 + 触发场景 + 原因 + 下次做法 |
-| issue | 现象 + 环境 + 根因 + 解决方案 + 验证结果 |
-| convention | 规则 + 适用范围 + 例外 |
-| rule | 约束 + 适用对象 + 违反后果 |
-| constraint | 限制条件 + 触发条件 + 影响 |
-| procedure | 前置条件 + 步骤 + 预期结果 + 验证方法 |
-| pattern | 适用场景 + 做法 + 有效条件 + 反例 |
-| feedback | 反馈主体 + 明确表述 + 作用范围 |
-| reference | 资源入口 + 用途 + 来源/版本 |
 
 ### 两层去重
 
