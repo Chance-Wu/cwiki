@@ -120,10 +120,10 @@ def parse_write_policy(raw: Any) -> WritePolicy:
         rule = _parse_rule(item, index)
         if rule is None:
             continue
-        if rule.id in seen:
+        if rule.id.casefold() in seen:
             logger.warning("write_policy 规则 id 重复：%s（忽略后出现的规则）", rule.id)
             continue
-        seen.add(rule.id)
+        seen.add(rule.id.casefold())
         rules.append(rule)
 
     return WritePolicy(enabled=enabled, rules=tuple(rules))

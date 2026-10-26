@@ -78,7 +78,8 @@ export default function MemoriesPage() {
   const [preview, setPreview] = useState<OptimizePreview | null>(null)
   const [showCreate, setShowCreate] = useState(searchParams.get('create') === '1')
   const [typeFilter, setTypeFilter] = useState<string>(validTypeParam ?? 'all')
-  const [workspaceFilter, setWorkspaceFilter] = useState('all')
+  // 首页工作区总览通过 ?workspace=<id> 跳转到这里预置筛选
+  const [workspaceFilter, setWorkspaceFilter] = useState(searchParams.get('workspace') ?? 'all')
   const [statusFilter, setStatusFilter] = useState('all')
   const [timeRange, setTimeRange] = useState('all')
   const [selectedTags, setSelectedTags] = useState<string[]>(

@@ -1,10 +1,8 @@
-import { useState } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
+import { useEffect, useState, type ReactNode } from 'react'
 import { motion } from 'framer-motion'
 import {
   Loader2,
   Database,
-  TrendingUp,
   Globe,
   Info,
   Download,
@@ -12,12 +10,9 @@ import {
   Moon,
   Monitor,
   Settings,
-  ListChecks,
-  RefreshCw,
 } from 'lucide-react'
 import { api } from '../lib/api'
-import { useTranslation, translate } from '../i18n/I18nProvider'
-import { formatTime } from '../lib/format'
+import { useTranslation } from '../i18n/I18nProvider'
 import { spring, duration } from '../lib/motion'
 import { CardSkeleton } from '../components/Skeleton'
 import ErrorAlert from '../components/ErrorAlert'
@@ -27,11 +22,35 @@ import PageTitle from '../components/PageTitle'
 import SectionGroup from '../components/SectionGroup'
 import { Button } from '../components/ui/Button'
 import { Card } from '../components/ui/Card'
-import StatBox from '../components/StatBox'
-import RingProgress from '../components/RingProgress'
+import RuntimeMonitor from '../components/settings/RuntimeMonitor'
 import { useHealth, useConfig } from '../hooks/useSettings'
-import { useMetrics, useDefaultWorkspace, useTaskQueueStatus } from '../hooks/useDashboard'
 import { useTheme } from '../theme/ThemeProvider'
+
+function InfoRow({
+  label,
+  value,
+  mono,
+  danger,
+}: {
+  label: string
+  value: ReactNode
+  mono?: boolean
+  danger?: boolean
+}) {
+  return (
+    <div className="flex items-baseline justify-between gap-3 border-b border-[var(--border-default)] py-2">
+      <span className="shrink-0 text-xs font-medium text-[var(--text-secondary)]">{label}</span>
+      <span
+        className={`truncate text-xs font-semibold ${
+          danger ? 'text-danger-fg' : 'text-[var(--text-primary)]'
+        } ${mono ? 'font-mono' : ''}`}
+        title={typeof value === 'string' ? value : undefined}
+      >
+        {value}
+      </span>
+    </div>
+  )
+}
 
 export default function SettingsPage() {
   const { locale, setLocale, t } = useTranslation()
@@ -46,42 +65,26 @@ export default function SettingsPage() {
     isFetching: healthFetching,
   } = useHealth()
   const { data: config } = useConfig()
-  const { data: metrics, isLoading: metricsLoading, isFetching: metricsFetching } = useMetrics()
-  const { data: workspaceId } = useDefaultWorkspace()
-  const { data: taskQueue } = useTaskQueueStatus()
-  const queryClient = useQueryClient()
 
   const [exporting, setExporting] = useState(false)
   const [importing, setImporting] = useState(false)
-  const [showFailedTasks, setShowFailedTasks] = useState(false)
-  const [retryingTaskId, setRetryingTaskId] = useState<string | null>(null)
 
-  const loading = healthLoading || metricsLoading
+  const loading = healthLoading
   const error = healthError && !health
-  const isFetching = healthFetching || metricsFetching
 
   const toggleLocale = () => setLocale(locale === 'zh' ? 'en' : 'zh')
 
-  const handleRetryTask = async (taskId: string) => {
-    setRetryingTaskId(taskId)
-    try {
-      await api.retryTaskQueueTask(taskId)
-      toast(translate(t.diagnostics.retryQueued, { id: taskId.slice(0, 8) }), 'success')
-      // 重试成功后刷新队列快照，失败计数与明细同步减少
-      queryClient.invalidateQueries({ queryKey: ['task-queue-status'] })
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      // 后端 404 同时覆盖任务不存在与状态非 FAILED 两种情况
-      if (message.includes('404') || /not found/i.test(message)) {
-        toast(t.diagnostics.retryNotFound, 'warning')
-        queryClient.invalidateQueries({ queryKey: ['task-queue-status'] })
-      } else {
-        toast(t.diagnostics.retryFailedTask, 'error')
-      }
-    } finally {
-      setRetryingTaskId(null)
-    }
-  }
+  // 首页异常告警条跳转 /settings#monitor：监控卡数据晚于页面加载，
+  // 卡片高度变化会把目标推走，短时间内反复对齐直到布局稳定
+  useEffect(() => {
+    if (loading || window.location.hash !== '#monitor') return
+    let attempts = 0
+    const timer = window.setInterval(() => {
+      document.getElementById('monitor')?.scrollIntoView({ block: 'start' })
+      if (++attempts >= 6) window.clearInterval(timer)
+    }, 100)
+    return () => window.clearInterval(timer)
+  }, [loading])
 
   const handleExport = async (format: 'json' | 'zip') => {
     setExporting(true)
@@ -116,7 +119,8 @@ export default function SettingsPage() {
   const handleExportMarkdown = async () => {
     setExporting(true)
     try {
-      const res = await api.exportMarkdown(workspaceId || undefined)
+      // 不传 workspace_id：后端导出全部工作区的记忆
+      const res = await api.exportMarkdown()
       const blob = await res.blob()
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
@@ -159,10 +163,10 @@ export default function SettingsPage() {
             onClick={() => {
               refetchHealth()
             }}
-            disabled={isFetching}
+            disabled={healthFetching}
             variant="secondary"
           >
-            <Loader2 size={14} className={isFetching ? 'animate-spin' : ''} />
+            <Loader2 size={14} className={healthFetching ? 'animate-spin' : ''} />
             {t.common.refresh}
           </Button>
         </div>
@@ -316,45 +320,6 @@ export default function SettingsPage() {
             </motion.div>
           </SectionGroup>
 
-          {/* ── 工作区 ── */}
-          <SectionGroup
-            accentFrom="from-info/60"
-            accentTo="to-info"
-            title={t.settings.groupWorkspace}
-          >
-            {/* 工作区信息 */}
-            <motion.div
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ ...spring.snappy, delay: 0.15 }}
-            >
-              <Card className="p-4 md:p-5 transition-all duration-150 hover:shadow-warm-md hover:border-[var(--border-strong)]">
-                <div className="flex items-center gap-2.5 mb-3">
-                  <motion.div
-                    className="flex items-center justify-center w-8 h-8 rounded-lg bg-gradient-to-br from-info/18 to-info/8 shrink-0 ring-1 ring-info/30"
-                    whileHover={{ scale: 1.08, rotate: [-3, 3, 0] }}
-                    transition={{ duration: duration.modal }}
-                  >
-                    <Info size={15} className="text-info-fg" aria-hidden="true" />
-                  </motion.div>
-                  <h3 className="text-base font-semibold text-[var(--text-primary)]">
-                    {t.settings.workspace}
-                  </h3>
-                </div>
-                <div className="space-y-4">
-                  <div className="flex justify-between text-xs">
-                    <span className="text-[var(--text-secondary)] font-medium">
-                      {t.settings.workspaceId}
-                    </span>
-                    <span className="font-semibold text-[var(--text-primary)]">
-                      {workspaceId || '-'}
-                    </span>
-                  </div>
-                </div>
-              </Card>
-            </motion.div>
-          </SectionGroup>
-
           {/* ── 数据 ── */}
           <SectionGroup
             accentFrom="from-success/60"
@@ -439,186 +404,21 @@ export default function SettingsPage() {
 
           {/* ── 系统 ── */}
           <SectionGroup
+            id="monitor"
             accentFrom="from-[var(--text-tertiary)]"
             accentTo="to-[var(--text-secondary)]"
             title={t.settings.groupSystem}
           >
-            {/* 系统监控 */}
-            {metrics && (
-              <motion.div
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ ...spring.snappy, delay: 0.25 }}
-              >
-                <Card className="p-4 md:p-5 transition-all duration-150 hover:shadow-warm-md hover:border-[var(--border-strong)] bg-surface-elevated/20">
-                  <div className="flex items-center gap-2.5 mb-3">
-                    <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-surface-elevated/40 shrink-0 ring-1 ring-subtle">
-                      <TrendingUp
-                        size={15}
-                        className="text-[var(--text-secondary)]"
-                        aria-hidden="true"
-                      />
-                    </div>
-                    <h3 className="text-base font-semibold text-[var(--text-primary)]">
-                      {t.settings.monitoring}
-                    </h3>
-                  </div>
+            {/* 运行监控：三张独立卡片，任一数据源失败不影响其余 */}
+            <motion.div
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ ...spring.snappy, delay: 0.25 }}
+            >
+              <RuntimeMonitor />
+            </motion.div>
 
-                  {/* 检索性能——可视化卡片 */}
-                  <div className="mb-5">
-                    <p className="text-xs font-semibold text-[var(--text-tertiary)] uppercase tracking-[0.08em] mb-3">
-                      {t.settings.retrieval}
-                    </p>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                      <StatBox
-                        value={
-                          <>
-                            {metrics.retrieval.avg_latency_ms}
-                            <span className="text-sm font-normal opacity-60">{t.settings.ms}</span>
-                          </>
-                        }
-                        label={t.settings.avgLatency}
-                        color={
-                          metrics.retrieval.avg_latency_ms < 100
-                            ? 'success'
-                            : metrics.retrieval.avg_latency_ms < 300
-                              ? 'warning'
-                              : 'danger'
-                        }
-                      />
-                      <StatBox
-                        value={metrics.retrieval.queries_24h}
-                        label={t.settings.queries24h}
-                        color="brand"
-                      />
-                      <div className="flex flex-col items-center justify-center p-3 bg-success/18 rounded-lg ring-1 ring-success/30">
-                        <RingProgress
-                          value={metrics.retrieval.success_rate}
-                          size={44}
-                          strokeWidth={4}
-                          color="var(--success-rgb)"
-                          label={`${(metrics.retrieval.success_rate * 100).toFixed(0)}%`}
-                        />
-                        <span className="text-xs text-success-fg mt-1.5 font-medium">
-                          {t.settings.successRate}
-                        </span>
-                      </div>
-                      <StatBox
-                        value={metrics.retrieval.total_queries}
-                        label={t.settings.totalQueries}
-                        color="info"
-                      />
-                    </div>
-                  </div>
-
-                  {/* 存储——紧凑行 */}
-                  <div className="pt-4 border-t border-[var(--border-default)]">
-                    <p className="text-xs font-semibold text-[var(--text-tertiary)] uppercase tracking-[0.08em] mb-3">
-                      {t.settings.storage}
-                    </p>
-                    <div className="flex items-center justify-between">
-                      <span className="flex items-center gap-2 text-xs text-[var(--text-secondary)] font-medium">
-                        <Database size={14} aria-hidden="true" />
-                        {t.settings.vectors}
-                      </span>
-                      <span className="text-xs font-semibold text-[var(--text-primary)] tabular-nums">
-                        {metrics.storage.vector_count.toLocaleString()}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* 任务队列——失败任务明细是 FAILED 死信的 UI 查询入口 */}
-                  {taskQueue && (
-                    <div className="pt-4 border-t border-[var(--border-default)] mt-4">
-                      <p className="text-xs font-semibold text-[var(--text-tertiary)] uppercase tracking-[0.08em] mb-3">
-                        {t.settings.taskQueue}
-                      </p>
-                      <div className="flex items-center justify-between">
-                        <span className="flex items-center gap-2 text-xs text-[var(--text-secondary)] font-medium">
-                          <ListChecks size={14} aria-hidden="true" />
-                          {t.settings.queueStatusLabel}
-                        </span>
-                        <span className="text-xs font-semibold text-[var(--text-primary)] tabular-nums">
-                          {translate(t.settings.queueCounts, {
-                            pending: taskQueue.counts.pending,
-                            running: taskQueue.counts.running,
-                            failed: taskQueue.counts.failed,
-                          })}
-                        </span>
-                      </div>
-                      {taskQueue.counts.failed > 0 && (
-                        <div className="mt-2">
-                          <button
-                            type="button"
-                            onClick={() => setShowFailedTasks(!showFailedTasks)}
-                            className="text-xs font-medium text-danger-fg hover:underline"
-                          >
-                            {showFailedTasks
-                              ? t.settings.hideFailedTasks
-                              : translate(t.settings.viewFailedTasks, {
-                                  n: taskQueue.failed.total,
-                                })}
-                          </button>
-                          {showFailedTasks && (
-                            <ul className="mt-2 space-y-2">
-                              {taskQueue.failed.items.map((task) => (
-                                <li
-                                  key={task.id}
-                                  className="p-2 rounded-lg bg-surface-inset border border-[var(--border-default)] text-xs"
-                                >
-                                  <div className="flex items-center justify-between gap-2">
-                                    <span className="font-mono font-medium text-[var(--text-primary)] truncate">
-                                      {task.name}
-                                    </span>
-                                    <Button
-                                      variant="secondary"
-                                      size="sm"
-                                      onClick={() => handleRetryTask(task.id)}
-                                      disabled={retryingTaskId === task.id}
-                                    >
-                                      {retryingTaskId === task.id ? (
-                                        <Loader2
-                                          size={12}
-                                          className="animate-spin"
-                                          aria-hidden="true"
-                                        />
-                                      ) : (
-                                        <RefreshCw size={12} aria-hidden="true" />
-                                      )}
-                                      {t.settings.retryTask}
-                                    </Button>
-                                  </div>
-                                  {task.error && (
-                                    <p className="mt-1 text-danger-fg truncate" title={task.error}>
-                                      {task.error}
-                                    </p>
-                                  )}
-                                  <p className="mt-0.5 text-[var(--text-tertiary)] tabular-nums">
-                                    {translate(t.settings.taskRetriedAt, { n: task.retry_count })}
-                                    {task.completed_at &&
-                                      ` · ${formatTime(task.completed_at, locale)}`}
-                                  </p>
-                                </li>
-                              ))}
-                              {taskQueue.failed.total > taskQueue.failed.items.length && (
-                                <li className="text-[var(--text-tertiary)]">
-                                  {translate(t.settings.failedTasksTruncated, {
-                                    shown: taskQueue.failed.items.length,
-                                    total: taskQueue.failed.total,
-                                  })}
-                                </li>
-                              )}
-                            </ul>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </Card>
-              </motion.div>
-            )}
-
-            {/* 关于 */}
+            {/* 关于 / 环境：版本与只读运行环境信息（配置页参数之外的部分） */}
             <motion.div
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
@@ -633,31 +433,51 @@ export default function SettingsPage() {
                     {t.settings.about}
                   </h3>
                 </div>
-                <div className="divide-y divide-[var(--border-default)]">
-                  <div className="flex justify-between py-2.5 first:pt-0">
-                    <span className="text-xs text-[var(--text-secondary)] font-medium">
-                      {t.settings.version}
-                    </span>
-                    <span className="font-semibold text-[var(--text-primary)]">
-                      {health?.version ?? '-'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between py-2.5">
-                    <span className="text-xs text-[var(--text-secondary)] font-medium">
-                      {t.settings.configFile}
-                    </span>
-                    <span className="font-mono text-xs text-[var(--text-secondary)] font-medium bg-surface-elevated/30 px-1.5 py-0.5 rounded-lg ring-1 ring-subtle">
-                      {config?.system_info.config_path ?? 'config.yaml'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between py-2.5 last:pb-0">
-                    <span className="text-xs text-[var(--text-secondary)] font-medium">
-                      {t.settings.dataDir}
-                    </span>
-                    <span className="font-mono text-xs text-[var(--text-secondary)] font-medium bg-surface-elevated/30 px-1.5 py-0.5 rounded-lg ring-1 ring-subtle">
-                      {config?.system_info.memory_dir ?? './cwiki-data/'}
-                    </span>
-                  </div>
+                <div className="grid grid-cols-1 gap-x-8 sm:grid-cols-2">
+                  <InfoRow label={t.settings.version} value={health?.version ?? '-'} />
+                  <InfoRow
+                    label={t.settings.serviceStatus}
+                    value={
+                      health
+                        ? health.status === 'healthy'
+                          ? t.diagnostics.healthOk
+                          : `${t.diagnostics.healthDegraded} · ${health.status}`
+                        : '-'
+                    }
+                    danger={health != null && health.status !== 'healthy'}
+                  />
+                  <InfoRow
+                    label={t.settings.embeddingModel}
+                    value={config?.system_info.embedding_model ?? '-'}
+                    mono
+                  />
+                  <InfoRow
+                    label={t.settings.embeddingDimensions}
+                    value={config?.system_info.embedding_dimensions ?? '-'}
+                    mono
+                  />
+                  <InfoRow
+                    label={t.settings.database}
+                    value={config?.system_info.database_url ?? '-'}
+                    mono
+                  />
+                  <InfoRow
+                    label={t.settings.apiEndpoint}
+                    value={
+                      config ? `${config.system_info.api_host}:${config.system_info.api_port}` : '-'
+                    }
+                    mono
+                  />
+                  <InfoRow
+                    label={t.settings.dataDir}
+                    value={config?.system_info.memory_dir ?? './cwiki-data/'}
+                    mono
+                  />
+                  <InfoRow
+                    label={t.settings.configFile}
+                    value={config?.system_info.config_path ?? 'config.yaml'}
+                    mono
+                  />
                 </div>
               </Card>
             </motion.div>

@@ -1,4 +1,10 @@
-import type { WriteDecisionLimits, WriteDecisionRule, WritePolicyRuleMatch } from '../../lib/api'
+import type {
+  WriteDecisionLimits,
+  WriteDecisionRule,
+  WritePolicyRule,
+  WritePolicyRuleMatch,
+} from '../../lib/api'
+import type { WritePolicyLimits } from '../../lib/api/types'
 import { translate } from '../../i18n/I18nProvider'
 
 export function isEmptyMatch(match: WritePolicyRuleMatch): boolean {
@@ -42,7 +48,7 @@ export const DEFAULT_WRITE_DECISION_LIMITS: WriteDecisionLimits = {
   max_examples: 5,
   max_example_chars: 120,
   max_match_values: 20,
-  max_keyword_values: 30,
+  max_keyword_values: 40,
   max_match_value_chars: 100,
   max_hint_chars: 800,
 }
@@ -112,4 +118,56 @@ export function collectLimitIssues(
 
 function matchValues(match: WritePolicyRuleMatch): string[] {
   return [...match.workspace, ...match.type, ...match.tags, ...match.keyword]
+}
+
+export const DEFAULT_WRITE_POLICY_LIMITS: WritePolicyLimits = {
+  max_rules: 50,
+  max_match_values: 20,
+  max_keyword_values: 40,
+  max_match_value_chars: 100,
+}
+
+/** 写入策略卡的限值校验：匹配字段数量与字符长度。 */
+export function collectWritePolicyLimitIssues(
+  rules: WritePolicyRule[],
+  copy: Record<string, string>,
+  limits: WritePolicyLimits = DEFAULT_WRITE_POLICY_LIMITS,
+): RuleLimitIssue[] {
+  const issues: RuleLimitIssue[] = []
+
+  rules.forEach((rule, index) => {
+    const messages: string[] = []
+    const match = rule.match
+    const counts: Array<[keyof WritePolicyRuleMatch, number]> = [
+      ['workspace', limits.max_match_values],
+      ['type', limits.max_match_values],
+      ['tags', limits.max_match_values],
+      ['keyword', limits.max_keyword_values],
+    ]
+    for (const [field, max] of counts) {
+      if (match[field].length > max) {
+        messages.push(
+          translate(copy.writeDecisionIssueMatchCount, {
+            field: copy[`writePolicy${field[0].toUpperCase()}${field.slice(1)}`] ?? field,
+            max,
+          }),
+        )
+      }
+    }
+    if (matchValues(match).some((value) => value.length > limits.max_match_value_chars)) {
+      messages.push(
+        translate(copy.writeDecisionIssueMatchValue, { max: limits.max_match_value_chars }),
+      )
+    }
+
+    if (messages.length > 0) {
+      issues.push({
+        index,
+        ruleId: rule.id.trim() || copy.writePolicyUntitled,
+        messages,
+      })
+    }
+  })
+
+  return issues
 }

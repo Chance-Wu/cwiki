@@ -24,6 +24,7 @@ import type {
   WritePolicyRuleMatch,
 } from '../../lib/api'
 import { useWriteDecision, useWriteDecisionPreview } from '../../hooks/useSettings'
+import { useBeforeUnloadGuard } from '../../hooks/useBeforeUnload'
 import ErrorAlert from '../ErrorAlert'
 import { useToast } from '../Toast'
 import { Badge } from '../ui/Badge'
@@ -248,6 +249,8 @@ export default function WriteDecisionCard() {
       })
     return snapshot(draft) !== snapshot(data)
   }, [data, draft])
+
+  useBeforeUnloadGuard(dirty)
 
   const counts = useMemo(() => {
     const total: Record<WriteDecisionAction, number> = { write: 0, skip: 0, update: 0 }

@@ -94,6 +94,11 @@ agent_policy:
               "Bearer ey",
               "AKIA",
               "ghp_",
+              "xoxb-",
+              "xoxp-",
+              "ya29.",
+              "ssh-rsa ",
+              "ssh-ed25519 ",
               "密码是",
             ]
       - id: skip-transient-status
@@ -107,11 +112,6 @@ agent_policy:
               "今天日期",
               "临时输出",
               "一次性状态",
-              "会话临时",
-              "明白了",
-              "谢谢",
-              "感谢",
-              "没问题",
             ]
       - id: update-existing-knowledge
         action: update
@@ -142,6 +142,16 @@ agent_policy:
               "补充说明",
               "终于明白",
               "搞清楚了",
+              "记错了",
+              "之前搞错",
+              "更正一下",
+              "纠正一下",
+              "澄清一下",
+              "之前理解",
+              "漏掉了",
+              "忽略了",
+              "重新理解",
+              "关键点",
             ]
       - id: must-save-signals
         action: write
@@ -173,6 +183,45 @@ agent_policy:
         examples: ["原理解析：…", "完整操作步骤…", "X 与 Y 的核心区别及选型理由"]
         match:
           type: [fact, reference, procedure]
+      - id: save-experience
+        action: write
+        description: 实战经验、踩坑记录与排查过程要保存（关键词捕获，防止类型标注遗漏）
+        examples: ["踩过的坑：…", "根因分析：…", "线上故障复盘：…", "调试发现：…"]
+        match:
+          keyword:
+            [
+              "踩坑",
+              "踩过",
+              "实战经验",
+              "血泪教训",
+              "实际踩",
+              "排查发现",
+              "根因分析",
+              "根因是",
+              "故障复盘",
+              "线上问题",
+              "复现步骤",
+              "调试发现",
+              "经验总结",
+            ]
+      - id: save-essence
+        action: write
+        description: 本质理解、核心原理与设计思想要保存（关键词捕获，侧重深层理解）
+        examples: ["本质上是…", "核心原理：…", "底层逻辑：…", "设计哲学：…"]
+        match:
+          keyword:
+            [
+              "本质上是",
+              "核心原理",
+              "底层逻辑",
+              "设计哲学",
+              "设计思想",
+              "核心区别",
+              "关键在于",
+              "重点是",
+              "核心思路",
+              "原理是",
+            ]
 parasitic_evolution:
   agent_profile_enabled: true
   auto_consolidate_enabled: true

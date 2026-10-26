@@ -4,6 +4,7 @@ import {
   ArrowDown,
   ArrowUp,
   ChevronDown,
+  Copy,
   ListFilter,
   Loader2,
   Plus,
@@ -19,7 +20,9 @@ import type {
   WritePolicyRule,
   WritePolicyRuleMatch,
 } from '../../lib/api'
+import type { WritePolicyLimits } from '../../lib/api/types'
 import { useWritePolicy } from '../../hooks/useSettings'
+import { useBeforeUnloadGuard } from '../../hooks/useBeforeUnload'
 import ErrorAlert from '../ErrorAlert'
 import { useToast } from '../Toast'
 import { Badge } from '../ui/Badge'
@@ -29,7 +32,12 @@ import { Input } from '../ui/Input'
 import { SegmentedControl } from '../ui/SegmentedControl'
 import { Switch } from '../ui/Switch'
 import { MatchChips, MatchEditor } from './writeRuleShared'
-import { isEmptyMatch, validateRuleIds } from './writeRuleUtils'
+import {
+  DEFAULT_WRITE_POLICY_LIMITS,
+  collectWritePolicyLimitIssues,
+  isEmptyMatch,
+  validateRuleIds,
+} from './writeRuleUtils'
 
 const ACTION_VARIANTS: Record<WritePolicyAction, 'success' | 'warning' | 'danger'> = {
   auto: 'success',
@@ -53,12 +61,14 @@ function RuleEditor({
   rule,
   error,
   copy,
+  limits,
   onChange,
   onMatchChange,
 }: {
   rule: WritePolicyRule
   error: string | null
   copy: Record<string, string>
+  limits: WritePolicyLimits
   onChange: (patch: Partial<WritePolicyRule>) => void
   onMatchChange: (key: keyof WritePolicyRuleMatch, values: string[]) => void
 }) {
@@ -129,6 +139,13 @@ function RuleEditor({
         hint={copy.writePolicyMatchHint}
         warning={copy.writePolicyCatchAllWarning}
         copy={copy}
+        limits={{
+          workspace: limits.max_match_values,
+          type: limits.max_match_values,
+          tags: limits.max_match_values,
+          keyword: limits.max_keyword_values,
+          valueChars: limits.max_match_value_chars,
+        }}
       />
     </div>
   )
@@ -147,8 +164,34 @@ export default function WritePolicyCard() {
     if (data && draft === null) setDraft(structuredClone(data))
   }, [data, draft])
 
+  const limits = data?.limits ?? DEFAULT_WRITE_POLICY_LIMITS
   const ruleErrors = useMemo(() => (draft ? validateRuleIds(draft.rules, copy) : []), [draft, copy])
-  const hasErrors = ruleErrors.some(Boolean)
+  const limitIssues = useMemo(
+    () => (draft ? collectWritePolicyLimitIssues(draft.rules, copy, limits) : []),
+    [draft, copy, limits],
+  )
+
+  const summaryIssues = useMemo(() => {
+    if (!draft) return []
+    return draft.rules
+      .map((rule, index) => {
+        const messages: string[] = []
+        if (ruleErrors[index]) messages.push(ruleErrors[index] as string)
+        const limit = limitIssues.find((issue) => issue.index === index)
+        if (limit) messages.push(...limit.messages)
+        if (messages.length === 0) return null
+        return {
+          index,
+          ruleId: rule.id.trim() || copy.writePolicyUntitled,
+          messages,
+        }
+      })
+      .filter((entry): entry is { index: number; ruleId: string; messages: string[] } =>
+        Boolean(entry),
+      )
+  }, [draft, ruleErrors, limitIssues, copy.writePolicyUntitled])
+
+  const hasErrors = summaryIssues.length > 0 || (draft?.rules.length ?? 0) > limits.max_rules
 
   const dirty = useMemo(() => {
     if (!data || !draft) return false
@@ -156,6 +199,8 @@ export default function WritePolicyCard() {
       JSON.stringify({ enabled: policy.enabled, rules: policy.rules })
     return snapshot(draft) !== snapshot(data)
   }, [data, draft])
+
+  useBeforeUnloadGuard(dirty)
 
   if (isLoading || (!draft && !error)) {
     return (
@@ -223,6 +268,31 @@ export default function WritePolicyCard() {
         : current,
     )
     if (removedId && expandedId === removedId) setExpandedId(null)
+  }
+
+  const duplicateRule = (index: number) => {
+    if (draft.rules.length >= limits.max_rules) {
+      toast(translate(copy.writePolicyRuleLimit, { max: limits.max_rules }), 'warning')
+      return
+    }
+    const original = draft.rules[index]
+    if (!original) return
+    const seed = (original.id.trim() || original.action).replace(/[^A-Za-z0-9._-]+/g, '-')
+    const base = `${seed}-copy`
+    let id = base
+    let suffix = 1
+    while (draft.rules.some((rule) => rule.id === id)) {
+      suffix += 1
+      id = `${base}-${suffix}`
+    }
+    const cloned = structuredClone({ ...original, id })
+    setDraft((current) => {
+      if (!current) return current
+      const rules = [...current.rules]
+      rules.splice(index + 1, 0, cloned)
+      return { ...current, rules }
+    })
+    setExpandedId(id)
   }
 
   const addRule = () => {
@@ -391,6 +461,16 @@ export default function WritePolicyCard() {
                       <Button
                         variant="icon"
                         size="sm"
+                        onClick={() => duplicateRule(index)}
+                        disabled={draft.rules.length >= limits.max_rules}
+                        aria-label={copy.writePolicyDuplicate}
+                        title={copy.writePolicyDuplicate}
+                      >
+                        <Copy size={13} aria-hidden="true" />
+                      </Button>
+                      <Button
+                        variant="icon"
+                        size="sm"
                         onClick={() => removeRule(index)}
                         aria-label={copy.writePolicyDelete}
                         title={copy.writePolicyDelete}
@@ -428,6 +508,7 @@ export default function WritePolicyCard() {
                           rule={rule}
                           error={ruleErrors[index]}
                           copy={copy}
+                          limits={limits}
                           onChange={(patch) => {
                             if (patch.id !== undefined) changeRuleId(index, patch.id)
                             else patchRule(index, patch)
@@ -443,16 +524,42 @@ export default function WritePolicyCard() {
           })
         )}
 
-        <Button variant="secondary" size="sm" onClick={addRule}>
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={addRule}
+          disabled={draft.rules.length >= limits.max_rules}
+        >
           <Plus size={14} aria-hidden="true" />
           {copy.writePolicyAddRule}
         </Button>
       </div>
 
+      {summaryIssues.length > 0 && (
+        <div className="mt-4 rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger-fg">
+          <p className="font-medium">
+            {translate(copy.writeDecisionIssueSummary, { n: summaryIssues.length })}
+          </p>
+          <ul className="mt-1 space-y-0.5">
+            {summaryIssues.slice(0, 3).map((issue) => (
+              <li key={`${issue.index}-${issue.ruleId}`}>
+                <span className="font-mono">{issue.ruleId}</span>：{issue.messages.join('；')}
+              </li>
+            ))}
+            {summaryIssues.length > 3 && <li>…</li>}
+          </ul>
+        </div>
+      )}
+
       <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border-default)] pt-4">
         <div className="flex items-center gap-2 text-xs">
           <span className="text-[var(--text-tertiary)]">
-            {translate(copy.writePolicyRuleCount, { n: draft.rules.length })}
+            {translate(copy.writePolicyRuleCount, { n: draft.rules.length, max: limits.max_rules })}
+            {draft.rules.length > limits.max_rules && (
+              <span className="ml-1 font-medium text-danger-fg">
+                ({translate(copy.writePolicyRuleCountExceed, { max: limits.max_rules })})
+              </span>
+            )}
           </span>
           {dirty && <span className="font-medium text-warning-fg">{copy.writePolicyUnsaved}</span>}
         </div>

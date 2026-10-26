@@ -3,8 +3,9 @@ import { describe, expect, it } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ListInput, MatchChips } from '../components/config/writeRuleShared'
-import { collectLimitIssues } from '../components/config/writeRuleUtils'
+import { collectLimitIssues, collectWritePolicyLimitIssues } from '../components/config/writeRuleUtils'
 import type { WriteDecisionLimits, WriteDecisionRule } from '../lib/api'
+import type { WritePolicyLimits, WritePolicyRule } from '../lib/api/types'
 
 const COPY: Record<string, string> = {
   writePolicyWorkspace: '工作区',
@@ -147,5 +148,52 @@ describe('collectLimitIssues', () => {
 
   it('returns no issues within limits', () => {
     expect(collectLimitIssues([rule({ description: 'ok' })], COPY, LIMITS)).toEqual([])
+  })
+})
+
+describe('collectWritePolicyLimitIssues', () => {
+  const POLICY_LIMITS: WritePolicyLimits = {
+    max_rules: 50,
+    max_match_values: 2,
+    max_keyword_values: 3,
+    max_match_value_chars: 5,
+  }
+
+  const policyRule = (patch: Partial<WritePolicyRule>): WritePolicyRule => ({
+    id: 'r1',
+    action: 'review',
+    reason: null,
+    match: { workspace: [], type: [], tags: [], keyword: [] },
+    ...patch,
+  })
+
+  it('flags overlong match values', () => {
+    const longRule = policyRule({
+      match: { workspace: [], type: [], tags: [], keyword: ['z'.repeat(6)] },
+    })
+
+    const issues = collectWritePolicyLimitIssues([longRule], COPY, POLICY_LIMITS)
+
+    expect(issues).toHaveLength(1)
+    expect(issues[0].ruleId).toBe('r1')
+    expect(issues[0].messages).toEqual(
+      expect.arrayContaining(['单个匹配值不能超过 5 字符']),
+    )
+  })
+
+  it('flags match value counts per field', () => {
+    const crowded = policyRule({
+      match: { workspace: ['a', 'b', 'c'], type: [], tags: [], keyword: ['1', '2', '3', '4'] },
+    })
+
+    const issues = collectWritePolicyLimitIssues([crowded], COPY, POLICY_LIMITS)
+
+    expect(issues[0].messages).toEqual(
+      expect.arrayContaining(['工作区 最多 2 个值', '关键词 最多 3 个值']),
+    )
+  })
+
+  it('returns no issues within limits', () => {
+    expect(collectWritePolicyLimitIssues([policyRule({})], COPY, POLICY_LIMITS)).toEqual([])
   })
 })

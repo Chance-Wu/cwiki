@@ -12,10 +12,10 @@ from packages.domain.config import agent_policy_config, settings
 
 
 @pytest.fixture
-def isolated_local_config(tmp_path, monkeypatch: pytest.MonkeyPatch):
-    """把 config.local.yaml 指向临时文件，并隔离全局配置。"""
-    local = tmp_path / "config.local.yaml"
-    local.write_text(
+def isolated_config(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    """把 config.yaml 指向临时文件，并隔离全局配置。"""
+    target = tmp_path / "config.yaml"
+    target.write_text(
         yaml.safe_dump(
             {
                 "agent_policy": {
@@ -30,15 +30,16 @@ def isolated_local_config(tmp_path, monkeypatch: pytest.MonkeyPatch):
         ),
         encoding="utf-8",
     )
-    monkeypatch.setattr(domain_config, "LOCAL_CONFIG_PATH", local)
-    monkeypatch.setattr(config_routes, "LOCAL_CONFIG_PATH", local)
+    monkeypatch.setattr(domain_config, "CONFIG_PATH", target)
+    monkeypatch.setattr(domain_config, "LOCAL_CONFIG_PATH", tmp_path / "config.local.yaml")
+    monkeypatch.setattr(config_routes, "CONFIG_PATH", target)
     monkeypatch.setattr(domain_config, "_yaml_config", domain_config._yaml_config)
     monkeypatch.setattr(settings, "write_policy", settings.write_policy)
     monkeypatch.setattr(agent_policy_config, "write_decisions", agent_policy_config.write_decisions)
     domain_config.reload_yaml_config()
     settings.reload()
     agent_policy_config.reload()
-    return local
+    return target
 
 
 def _payload() -> dict:
@@ -64,9 +65,7 @@ def _payload() -> dict:
     }
 
 
-async def test_get_default_write_decisions(
-    client: httpx.AsyncClient, isolated_local_config
-) -> None:
+async def test_get_default_write_decisions(client: httpx.AsyncClient, isolated_config) -> None:
     response = await client.get("/v1/config/write-decisions")
 
     assert response.status_code == 200, response.text
@@ -75,20 +74,20 @@ async def test_get_default_write_decisions(
     assert data["default_action"] == "write"
     assert data["rules"] == []
     assert data["preview"] == ""
-    assert data["storage_path"] == str(isolated_local_config)
+    assert data["storage_path"] == str(isolated_config)
     assert data["limits"] == {
         "max_rules": 30,
         "max_description": 300,
         "max_examples": 5,
         "max_example_chars": 120,
         "max_match_values": 20,
-        "max_keyword_values": 30,
+        "max_keyword_values": 40,
         "max_match_value_chars": 100,
         "max_hint_chars": 800,
     }
 
 
-async def test_put_persists_and_reloads(client: httpx.AsyncClient, isolated_local_config) -> None:
+async def test_put_persists_and_reloads(client: httpx.AsyncClient, isolated_config) -> None:
     response = await client.put("/v1/config/write-decisions", json=_payload())
 
     assert response.status_code == 200, response.text
@@ -104,7 +103,7 @@ async def test_put_persists_and_reloads(client: httpx.AsyncClient, isolated_loca
     assert policy.default_action == "write"
     assert [rule.id for rule in policy.rules] == ["skip-one-off", "update-existing"]
 
-    stored = yaml.safe_load(isolated_local_config.read_text(encoding="utf-8"))
+    stored = yaml.safe_load(isolated_config.read_text(encoding="utf-8"))
     decisions = stored["agent_policy"]["write_decisions"]
     assert decisions["enabled"] is True
     assert decisions["default_action"] == "write"
@@ -116,9 +115,9 @@ async def test_put_persists_and_reloads(client: httpx.AsyncClient, isolated_loca
 
 
 async def test_put_preserves_other_local_config_keys(
-    client: httpx.AsyncClient, isolated_local_config
+    client: httpx.AsyncClient, isolated_config
 ) -> None:
-    isolated_local_config.write_text(
+    isolated_config.write_text(
         yaml.safe_dump(
             {"app": {"debug": True}, "agent_policy": {"always_inject": {"enabled": True}}},
             allow_unicode=True,
@@ -129,15 +128,13 @@ async def test_put_preserves_other_local_config_keys(
     response = await client.put("/v1/config/write-decisions", json=_payload())
 
     assert response.status_code == 200, response.text
-    stored = yaml.safe_load(isolated_local_config.read_text(encoding="utf-8"))
+    stored = yaml.safe_load(isolated_config.read_text(encoding="utf-8"))
     assert stored["app"]["debug"] is True
     assert stored["agent_policy"]["always_inject"]["enabled"] is True
     assert stored["agent_policy"]["write_decisions"]["enabled"] is True
 
 
-async def test_duplicate_rule_ids_rejected(
-    client: httpx.AsyncClient, isolated_local_config
-) -> None:
+async def test_duplicate_rule_ids_rejected(client: httpx.AsyncClient, isolated_config) -> None:
     payload = _payload()
     payload["rules"].append({**payload["rules"][0], "action": "write"})
 
@@ -157,9 +154,7 @@ async def test_duplicate_rule_ids_rejected(
         lambda payload: payload["rules"][0].update({"description": "x" * 301}),
     ],
 )
-async def test_invalid_payload_rejected(
-    client: httpx.AsyncClient, isolated_local_config, mutate
-) -> None:
+async def test_invalid_payload_rejected(client: httpx.AsyncClient, isolated_config, mutate) -> None:
     payload = _payload()
     mutate(payload)
 
@@ -168,9 +163,7 @@ async def test_invalid_payload_rejected(
     assert response.status_code == 422
 
 
-async def test_preview_returns_budget_for_draft(
-    client: httpx.AsyncClient, isolated_local_config
-) -> None:
+async def test_preview_returns_budget_for_draft(client: httpx.AsyncClient, isolated_config) -> None:
     response = await client.post("/v1/config/write-decisions/preview", json=_payload())
 
     assert response.status_code == 200, response.text
@@ -184,7 +177,7 @@ async def test_preview_returns_budget_for_draft(
 
 
 async def test_preview_filters_by_simulated_workspace(
-    client: httpx.AsyncClient, isolated_local_config
+    client: httpx.AsyncClient, isolated_config
 ) -> None:
     payload = _payload()
     payload["rules"][0]["match"]["workspace"] = ["cwiki"]
@@ -203,7 +196,7 @@ async def test_preview_filters_by_simulated_workspace(
 
 
 async def test_preview_skips_invalid_draft_rules(
-    client: httpx.AsyncClient, isolated_local_config
+    client: httpx.AsyncClient, isolated_config
 ) -> None:
     payload = _payload()
     payload["rules"].append({"id": "", "action": "write", "match": {}})

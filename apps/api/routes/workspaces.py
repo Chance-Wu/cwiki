@@ -65,25 +65,32 @@ async def list_workspaces(
     limit: int = Query(20, ge=1, le=100),
     _identity: Annotated[AgentIdentity | None, Depends(get_current_agent)] = None,
 ) -> PaginatedResponse[WorkspaceRead]:
-    """分页列出全部 workspace。"""
+    """分页列出全部 workspace，附记忆计数（总览用）。"""
     count_result = await db.execute(select(func.count(Workspace.id)))
     total = count_result.scalar() or 0
 
+    # 计数用 outer join，保证空工作区仍出现在列表里；
     # UUID 作为次级排序键打破时间戳并列，保证翻页时页内容稳定
     result = await db.execute(
-        select(Workspace)
+        select(Workspace, func.count(Memory.id))
+        .outerjoin(Memory, Memory.workspace_id == Workspace.id)
+        .group_by(Workspace.id)
         .order_by(Workspace.created_at.desc(), Workspace.id)
         .offset(offset)
         .limit(limit)
     )
-    workspaces = result.scalars().all()
+    items = [
+        WorkspaceRead(
+            id=workspace.id,
+            name=workspace.name,
+            created_at=workspace.created_at,
+            updated_at=workspace.updated_at,
+            memory_count=memory_count,
+        )
+        for workspace, memory_count in result.all()
+    ]
 
-    return PaginatedResponse(
-        items=[WorkspaceRead.model_validate(w) for w in workspaces],
-        total=total,
-        offset=offset,
-        limit=limit,
-    )
+    return PaginatedResponse(items=items, total=total, offset=offset, limit=limit)
 
 
 @router.get("/default", response_model=WorkspaceRead)

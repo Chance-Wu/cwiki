@@ -3,10 +3,10 @@ import { motion, type Variants } from 'framer-motion'
 import {
   Loader2,
   AlertTriangle,
-  CheckCircle2,
   Clock,
   FileText,
   LayoutDashboard,
+  BookOpenCheck,
 } from 'lucide-react'
 import { spring } from '../lib/motion'
 import { useQueryClient } from '@tanstack/react-query'
@@ -19,8 +19,10 @@ import PageTitle from '../components/PageTitle'
 import StatCard from '../components/StatCard'
 import { Button } from '../components/ui/Button'
 import { useDashboardStats, useDefaultWorkspace } from '../hooks/useDashboard'
-import DiagnosticsPanel from '../components/home/DiagnosticsPanel'
+import { useReviewStats } from '../hooks/useReview'
+import HealthAlert from '../components/home/HealthAlert'
 import WeeklyReview from '../components/home/WeeklyReview'
+import WorkspaceOverview from '../components/home/WorkspaceOverview'
 const EvolutionPanel = lazy(() => import('../components/home/EvolutionPanel'))
 const LearningPanel = lazy(() => import('../components/home/LearningPanel'))
 
@@ -43,6 +45,7 @@ export default function HomePage() {
 
   const workspaceQuery = useDefaultWorkspace()
   const statsQuery = useDashboardStats()
+  const reviewStatsQuery = useReviewStats()
 
   const loading = workspaceQuery.isLoading || statsQuery.isLoading
   const error = !workspaceQuery.data && statsQuery.isError
@@ -84,20 +87,21 @@ export default function HomePage() {
         to: '/pending?tab=conflicts',
       },
       {
-        label: t.home.approved,
-        value: stats.approved,
-        icon: CheckCircle2,
-        tone: 'success' as const,
-        to: '/memories',
+        label: t.home.dueReview,
+        value: reviewStatsQuery.data?.due_now ?? 0,
+        icon: BookOpenCheck,
+        tone: 'info' as const,
+        to: '/review',
       },
     ],
     [
       t.home.candidates,
       t.home.highValue,
       t.home.conflicts,
-      t.home.approved,
+      t.home.dueReview,
       t.notes.pending,
       stats,
+      reviewStatsQuery.data,
     ],
   )
 
@@ -179,10 +183,12 @@ export default function HomePage() {
                 ))}
               </div>
 
-              {/* 本周回顾 + 系统诊断：同行等高，卡内 flex 分布吸收高度差 */}
-              <div className="mb-5 md:mb-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
+              {/* 异常时才出现的诊断入口；一切正常时首页不占位 */}
+              <HealthAlert />
+
+              {/* 本周回顾 */}
+              <div className="mb-5 md:mb-6">
                 <WeeklyReview workspaceId={workspaceQuery.data} />
-                <DiagnosticsPanel />
               </div>
 
               {/* Bento 网格：进化指标 / 学习助手 两列，每列一张宽卡 */}
@@ -209,6 +215,11 @@ export default function HomePage() {
                   </Suspense>
                 </motion.div>
               </motion.div>
+
+              {/* 工作区总览：多工作区下唯一的全局数据分布入口 */}
+              <div className="mt-5 md:mt-6">
+                <WorkspaceOverview defaultWorkspaceId={workspaceQuery.data} />
+              </div>
             </>
           </LoadingWrapper>
         )}

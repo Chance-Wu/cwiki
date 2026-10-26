@@ -30,6 +30,7 @@ export type {
   WritePolicyRuleMatch,
   WritePolicyRule,
   WritePolicyData,
+  WritePolicyLimits,
   WriteDecisionAction,
   WriteDecisionDefaultAction,
   WriteDecisionRule,

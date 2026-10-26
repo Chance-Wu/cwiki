@@ -3,6 +3,7 @@ export interface Workspace {
   name: string
   created_at: string
   updated_at: string
+  memory_count?: number
 }
 
 export interface FileMemory {
@@ -386,10 +387,18 @@ export interface WritePolicyRule {
   match: WritePolicyRuleMatch
 }
 
+export interface WritePolicyLimits {
+  max_rules: number
+  max_match_values: number
+  max_keyword_values: number
+  max_match_value_chars: number
+}
+
 export interface WritePolicyData {
   enabled: boolean
   rules: WritePolicyRule[]
   storage_path: string
+  limits: WritePolicyLimits
 }
 
 export type WriteDecisionAction = 'write' | 'skip' | 'update'

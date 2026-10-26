@@ -29,8 +29,6 @@ export default function WeeklyReview({ workspaceId }: Props) {
       `- ${t.weekly.reviewed}: ${data.reviewed}`,
       `- ${t.weekly.masteredUp}: ${data.mastered_up}`,
       `- ${t.weekly.pendingNotes}: ${data.pending_notes}`,
-      `- ${t.weekly.dueNow}: ${data.due_now}`,
-      `- ${t.weekly.avgQuality}: ${data.avg_quality ?? '-'}`,
       '',
       `## ${t.weekly.mostUsed}`,
       ...(data.most_used.length
@@ -87,21 +85,19 @@ export default function WeeklyReview({ workspaceId }: Props) {
       </div>
 
       {isLoading || !data ? (
-        <div className="mt-4 grid grid-cols-2 gap-2 md:grid-cols-5">
-          {Array.from({ length: 5 }).map((_, i) => (
+        <div className="mt-4 grid grid-cols-2 gap-2 md:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => (
             <Skeleton key={i} className="h-14 rounded-xl" />
           ))}
         </div>
       ) : (
         <>
-          <div className="mt-4 grid grid-cols-2 gap-2 md:grid-cols-6">
+          <div className="mt-4 grid grid-cols-2 gap-2 md:grid-cols-4">
             {[
               [t.weekly.newMemories, data.new_memories],
               [t.weekly.reviewed, data.reviewed],
               [t.weekly.masteredUp, data.mastered_up],
               [t.weekly.pendingNotes, data.pending_notes],
-              [t.weekly.dueNow, data.due_now],
-              [t.weekly.avgQuality, data.avg_quality ?? '-'],
             ].map(([label, value]) => (
               <div
                 key={String(label)}

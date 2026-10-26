@@ -4,12 +4,21 @@ interface SectionGroupProps {
   accentFrom: string
   accentTo: string
   title: ReactNode
+  id?: string
+  className?: string
   children: ReactNode
 }
 
-export default function SectionGroup({ accentFrom, accentTo, title, children }: SectionGroupProps) {
+export default function SectionGroup({
+  accentFrom,
+  accentTo,
+  title,
+  id,
+  className,
+  children,
+}: SectionGroupProps) {
   return (
-    <section className="space-y-4">
+    <section id={id} className={`space-y-4 scroll-mt-24 ${className ?? ''}`}>
       <div className="flex items-center gap-3">
         <div className={`w-1 h-5 bg-gradient-to-b ${accentFrom} ${accentTo} rounded-full`} />
         <h2 className="text-sm font-semibold text-[var(--text-primary)] uppercase tracking-[0.08em]">

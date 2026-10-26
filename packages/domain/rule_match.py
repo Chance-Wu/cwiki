@@ -25,23 +25,30 @@ def matches_fields(
     """所有非空字段之间是 AND；type/workspace/keyword 多值任一命中，tags 需全部存在。"""
     if workspaces:
         candidates = {
-            workspace_name.strip().casefold(),
-            workspace_id.strip().casefold(),
+            ws.strip().casefold()
+            for ws in (workspace_name, workspace_id)
+            if ws.strip()
         }
-        if not candidates.intersection(item.casefold() for item in workspaces):
+        if not candidates or not candidates.intersection(
+            item.casefold() for item in workspaces if item.strip()
+        ):
             return False
 
-    if types and memory_type.strip().casefold() not in {item.casefold() for item in types}:
+    if types and memory_type.strip().casefold() not in {
+        item.casefold() for item in types if item.strip()
+    }:
         return False
 
     if tags:
         available = {tag.strip().casefold() for tag in memory_tags}
-        if not all(tag.casefold() in available for tag in tags):
+        required = [tag.casefold() for tag in tags if tag.strip()]
+        if required and not all(tag in available for tag in required):
             return False
 
     if keywords:
         haystack = f"{title}\n{content}".casefold()
-        if not any(keyword.casefold() in haystack for keyword in keywords):
+        non_empty = [kw.casefold() for kw in keywords if kw.strip()]
+        if non_empty and not any(kw in haystack for kw in non_empty):
             return False
 
     return True

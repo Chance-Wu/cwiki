@@ -13,7 +13,6 @@ from apps.api.auth import AgentIdentity
 from apps.api.deps import require_scope
 from packages.domain.config import (
     CONFIG_PATH,
-    LOCAL_CONFIG_PATH,
     agent_policy_config,
     parasitic_evolution_config,
     reload_yaml_config,
@@ -32,6 +31,8 @@ from packages.domain.write_decisions import (
     parse_write_decisions,
 )
 from packages.domain.write_policy import parse_write_policy
+
+WRITE_POLICY_MAX_RULES = 50
 
 router = APIRouter(tags=["config"])
 
@@ -52,43 +53,43 @@ class ParasiticEvolutionConfigModel(BaseModel):
     entity_extraction_enabled: bool
     write_time_conflict_enabled: bool
     auto_merge_enabled: bool
-    auto_merge_threshold: float
+    auto_merge_threshold: float = Field(ge=0.0, le=1.0)
     episodic_retrieval_enabled: bool
 
 
 class MemoryConfigModel(BaseModel):
-    title_max_length: int
-    consolidate_threshold: float
-    similarity_threshold: float
-    relation_merge_threshold: float
-    relation_update_threshold: float
-    relation_conflict_threshold: float
-    priority_discard_threshold: float
-    priority_low_threshold: float
-    priority_high_threshold: float
+    title_max_length: int = Field(ge=1, le=500)
+    consolidate_threshold: float = Field(ge=0.0, le=1.0)
+    similarity_threshold: float = Field(ge=0.0, le=1.0)
+    relation_merge_threshold: float = Field(ge=0.0, le=1.0)
+    relation_update_threshold: float = Field(ge=0.0, le=1.0)
+    relation_conflict_threshold: float = Field(ge=0.0, le=1.0)
+    priority_discard_threshold: float = Field(ge=0.0, le=1.0)
+    priority_low_threshold: float = Field(ge=0.0, le=1.0)
+    priority_high_threshold: float = Field(ge=0.0, le=1.0)
 
 
 class PerformanceConfigModel(BaseModel):
-    context_cache_ttl: float
-    context_cache_max_size: int
-    context_token_budget: int
-    dedup_top_k: int
-    merge_suggestions_threshold: float
-    auto_consolidate_limit: int
-    auto_consolidate_top_k: int
+    context_cache_ttl: float = Field(ge=0.0, le=86400.0)
+    context_cache_max_size: int = Field(ge=1, le=100_000)
+    context_token_budget: int = Field(ge=64, le=200_000)
+    dedup_top_k: int = Field(ge=1, le=1_000)
+    merge_suggestions_threshold: float = Field(ge=0.0, le=1.0)
+    auto_consolidate_limit: int = Field(ge=1, le=100_000)
+    auto_consolidate_top_k: int = Field(ge=1, le=1_000)
 
 
 class RetrievalConfigModel(BaseModel):
-    bm25_weight: float
-    vector_weight: float
-    reranker_rrf_weight: float
-    reranker_semantic_weight: float
-    reranker_confidence_weight: float
-    reranker_importance_weight: float
-    reranker_freshness_weight: float
-    reranker_usage_weight: float
-    reranker_intent_weight: float
-    reranker_key_term_bonus: float
+    bm25_weight: float = Field(ge=0.0, le=10.0)
+    vector_weight: float = Field(ge=0.0, le=10.0)
+    reranker_rrf_weight: float = Field(ge=0.0, le=10.0)
+    reranker_semantic_weight: float = Field(ge=0.0, le=10.0)
+    reranker_confidence_weight: float = Field(ge=0.0, le=10.0)
+    reranker_importance_weight: float = Field(ge=0.0, le=10.0)
+    reranker_freshness_weight: float = Field(ge=0.0, le=10.0)
+    reranker_usage_weight: float = Field(ge=0.0, le=10.0)
+    reranker_intent_weight: float = Field(ge=0.0, le=10.0)
+    reranker_key_term_bonus: float = Field(ge=0.0, le=10.0)
 
 
 class SystemInfoModel(BaseModel):
@@ -160,7 +161,7 @@ class WriteRuleModel(BaseModel):
 
 class WritePolicyModel(BaseModel):
     enabled: bool = False
-    rules: list[WriteRuleModel] = Field(default_factory=list, max_length=50)
+    rules: list[WriteRuleModel] = Field(default_factory=list, max_length=WRITE_POLICY_MAX_RULES)
 
     @model_validator(mode="after")
     def _unique_rule_ids(self) -> WritePolicyModel:
@@ -173,8 +174,27 @@ class WritePolicyModel(BaseModel):
         return self
 
 
+class WritePolicyLimits(BaseModel):
+    """前端计数器与预校验使用的硬限制，与服务端校验同源。"""
+
+    max_rules: int
+    max_match_values: int
+    max_keyword_values: int
+    max_match_value_chars: int
+
+
+def _write_policy_limits() -> WritePolicyLimits:
+    return WritePolicyLimits(
+        max_rules=WRITE_POLICY_MAX_RULES,
+        max_match_values=MAX_MATCH_VALUES,
+        max_keyword_values=MAX_KEYWORD_VALUES,
+        max_match_value_chars=MAX_MATCH_VALUE_CHARS,
+    )
+
+
 class WritePolicyData(WritePolicyModel):
     storage_path: str
+    limits: WritePolicyLimits
 
 
 class WriteDecisionRuleModel(BaseModel):
@@ -303,25 +323,22 @@ def _effective_write_policy() -> WritePolicyData:
             )
             for rule in policy.rules
         ],
-        storage_path=str(LOCAL_CONFIG_PATH),
+        storage_path=str(CONFIG_PATH),
+        limits=_write_policy_limits(),
     )
 
 
-def _read_local_config() -> dict[str, Any]:
-    if not LOCAL_CONFIG_PATH.exists():
+def _read_config_file() -> dict[str, Any]:
+    if not CONFIG_PATH.exists():
         return {}
-    with open(LOCAL_CONFIG_PATH, encoding="utf-8") as f:
+    with open(CONFIG_PATH, encoding="utf-8") as f:
         data = yaml.safe_load(f) or {}
     return data if isinstance(data, dict) else {}
 
 
-def _write_local_write_policy(body: WritePolicyModel) -> None:
-    """写入 config.local.yaml，保留该文件中的其他设备本地覆盖项。
-
-    不写 config.yaml：运行时策略属于本机操作偏好，且避免 PyYAML 重写
-    共享配置文件时丢失注释。
-    """
-    data = _read_local_config()
+def _write_write_policy(body: WritePolicyModel) -> None:
+    """写入 config.yaml，保留配置中的其他段。"""
+    data = _read_config_file()
     memory = data.get("memory")
     if not isinstance(memory, dict):
         memory = {}
@@ -345,7 +362,7 @@ def _write_local_write_policy(body: WritePolicyModel) -> None:
         rules.append(entry)
 
     memory["write_policy"] = {"enabled": body.enabled, "rules": rules}
-    with open(LOCAL_CONFIG_PATH, "w", encoding="utf-8") as f:
+    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
         yaml.dump(data, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
 
 
@@ -369,14 +386,14 @@ def _effective_write_decisions() -> WriteDecisionData:
             )
             for rule in policy.rules
         ],
-        storage_path=str(LOCAL_CONFIG_PATH),
+        storage_path=str(CONFIG_PATH),
         preview=build_agent_hint_details(policy, "").text,
         limits=_write_decision_limits(),
     )
 
 
-def _write_local_write_decisions(body: WriteDecisionModel) -> None:
-    data = _read_local_config()
+def _write_write_decisions(body: WriteDecisionModel) -> None:
+    data = _read_config_file()
     agent_policy = data.get("agent_policy")
     if not isinstance(agent_policy, dict):
         agent_policy = {}
@@ -409,7 +426,7 @@ def _write_local_write_decisions(body: WriteDecisionModel) -> None:
         "default_action": body.default_action,
         "rules": rules,
     }
-    with open(LOCAL_CONFIG_PATH, "w", encoding="utf-8") as f:
+    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
         yaml.dump(data, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
 
 
@@ -438,7 +455,7 @@ async def update_write_decisions(
             detail += f"（{', '.join(failed)}）"
         raise HTTPException(status_code=422, detail=detail)
 
-    await asyncio.to_thread(_write_local_write_decisions, body)
+    await asyncio.to_thread(_write_write_decisions, body)
     reload_yaml_config()
     settings.reload()
     agent_policy_config.reload()
@@ -473,14 +490,15 @@ async def update_write_policy(
     body: WritePolicyModel,
     _identity: Annotated[AgentIdentity, Depends(require_scope("config:write"))],
 ) -> WritePolicyData:
-    """更新写入策略：写入 config.local.yaml 并即时重载运行时配置。"""
+    """更新写入策略：写入 config.yaml 并即时重载运行时配置。"""
     parsed = parse_write_policy(body.model_dump())
     if parsed.enabled != body.enabled or len(parsed.rules) != len(body.rules):
         raise HTTPException(status_code=422, detail="写入策略校验失败：部分规则无法解析")
 
-    await asyncio.to_thread(_write_local_write_policy, body)
+    await asyncio.to_thread(_write_write_policy, body)
     reload_yaml_config()
     settings.reload()
+    agent_policy_config.reload()
     return _effective_write_policy()
 
 
@@ -555,17 +573,7 @@ async def patch_config(
 ) -> ConfigPatchResult:
     """更新运行时配置并持久化到 config.yaml。"""
     changed_fields: list[str] = []
-
-    # 读取当前配置
-    if CONFIG_PATH.exists():
-
-        def _read_config() -> dict[str, Any]:
-            with open(CONFIG_PATH, encoding="utf-8") as f:
-                return yaml.safe_load(f) or {}
-
-        config_data = await asyncio.to_thread(_read_config)
-    else:
-        config_data = {}
+    config_data = await asyncio.to_thread(_read_config_file)
 
     # 逐段应用已知配置段的变更
     for section_name in _SECTION_MODELS:

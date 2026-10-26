@@ -29,6 +29,9 @@ async def test_list_workspaces(client: AsyncClient) -> None:
     data = resp.json()
     assert "items" in data
     assert data["total"] >= 1
+    # 列表附带记忆计数，空工作区为 0
+    created = next(w for w in data["items"] if w["name"] == "ws1")
+    assert created["memory_count"] == 0
 
 
 @pytest.mark.asyncio

@@ -27,6 +27,8 @@ class WorkspaceRead(BaseModel):
     name: str
     created_at: datetime
     updated_at: datetime
+    # 仅列表端点填充；单条读写的默认值 0 表示未统计
+    memory_count: int = 0
 
 
 class AgentCreate(BaseModel):
