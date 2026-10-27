@@ -78,9 +78,9 @@ def test_skill_md_tool_count_matches() -> None:
 def test_checkpoint_reasons_match_schema() -> None:
     schema = _tools()["memory_checkpoint"]["inputSchema"]
     enum = set(schema["properties"]["trigger_reason"]["enum"])
-    text = SKILL_MD.read_text(encoding="utf-8")
-    line = text.split("trigger_reason：", 1)[1].split("\n", 1)[0]
-    documented = set(re.findall(r"`([a-z_]+)`（", line))
+    text = TOOL_CONTRACT.read_text(encoding="utf-8")
+    line = text.split("memory_checkpoint.trigger_reason", 1)[1].split("\n", 1)[0]
+    documented = set(re.findall(r"`([a-z_]+)`", line))
     assert documented == enum
 
 

@@ -51,6 +51,6 @@ memory_update(memory_id="<id>", content="新正文…", reason="补充边界条�
 - `keyword` 与 `query` 等价，传其一即可。
 - 省略 `workspace_name` 的 `memory_search` 跨全部工作区；`curated=true` 时回落默认工作区。
 - `curated=true` 固定走上下文组装：忽略 `mode` 与 `filters`，`limit` 限 1–50，`project`/`max_tokens` 仅此时生效。
-- `memory_checkpoint.trigger_reason` 枚举见 SKILL.md「检查点与结束前回顾」。
+- `memory_checkpoint.trigger_reason`：`user_correction` / `problem_solved` / `technical_decision` / `convention_discovered` / `session_long` / `session_ending` / `manual`。
 - `memory_relation_create.relation_type`：`related` / `supports` / `contradicts` / `supersedes` / `refines`。
 - `memory_feedback.feedback_type`：`useful` / `not_useful` / `outdated` / `wrong`。
