@@ -24,11 +24,7 @@ def matches_fields(
 ) -> bool:
     """所有非空字段之间是 AND；type/workspace/keyword 多值任一命中，tags 需全部存在。"""
     if workspaces:
-        candidates = {
-            ws.strip().casefold()
-            for ws in (workspace_name, workspace_id)
-            if ws.strip()
-        }
+        candidates = {ws.strip().casefold() for ws in (workspace_name, workspace_id) if ws.strip()}
         if not candidates or not candidates.intersection(
             item.casefold() for item in workspaces if item.strip()
         ):

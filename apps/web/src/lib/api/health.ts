@@ -55,12 +55,17 @@ export const getMemoryStatus = (workspaceId?: string) => {
 
 // --- Health Summary / Candidate Quality ---
 
-export const getHealthSummary = () =>
-  request<{
+export const getHealthSummary = (workspaceId?: string) => {
+  const params = new URLSearchParams()
+  if (workspaceId) params.set('workspace_id', workspaceId)
+  const qs = params.toString()
+  return request<{
     total: number
     avg_score: number
     distribution: { healthy: number; needs_review: number; suspicious: number; conflicted: number }
-  }>('/health-summary')
+    reasons?: Array<{ reason: string; count: number }>
+  }>(`/health-summary${qs ? `?${qs}` : ''}`)
+}
 
 export const getCandidateQuality = () =>
   request<{
@@ -90,9 +95,12 @@ export const getKnowledgeGraph = (workspaceId: string, limit = 200) => {
       type: string
       confidence: number
       strength: number
+      created_by?: string
     }>
     total_nodes: number
     total_edges: number
+    total_active: number
+    truncated: boolean
   }>(`/graph?${params.toString()}`)
 }
 
@@ -102,6 +110,7 @@ export const getQualityDistribution = (workspaceId: string) => {
   const params = new URLSearchParams({ workspace_id: workspaceId })
   return request<{
     total: number
+    truncated: boolean
     confidence_distribution: { low: number; medium: number; high: number }
     importance_distribution: { low: number; medium: number; high: number }
     usage_distribution: { unused: number; low: number; medium: number; high: number }

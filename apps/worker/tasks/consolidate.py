@@ -244,6 +244,7 @@ async def task_auto_consolidate_similar(ctx: dict[str, Any]) -> dict[str, Any]:
                         target_memory_id=sid,
                         relation_type="supersedes",
                         confidence=suggestion["avg_similarity"],
+                        created_by="consolidate",
                     )
                     db_session.add(relation)
 

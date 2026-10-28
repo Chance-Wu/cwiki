@@ -189,6 +189,16 @@ class Settings:
         )
         # 未知工作区名是否自动建区；false 时拒绝并提示先创建（防拼写错误产生垃圾区）
         self.auto_create_workspace: bool = bool(memory_cfg.get("auto_create_workspace", True))
+        # 重复判定阈值（combined_score 加权分）
+        self.duplicate_exact_threshold = float(memory_cfg.get("duplicate_exact_threshold", 0.85))
+        self.duplicate_possible_threshold = float(
+            memory_cfg.get("duplicate_possible_threshold", 0.6)
+        )
+        # 提交时查重：扫描最近 N 条 active 记忆/待审候选，可选跨工作区
+        self.submit_dedup_scan_limit = int(memory_cfg.get("submit_dedup_scan_limit", 1000))
+        self.submit_dedup_cross_workspace = bool(
+            memory_cfg.get("submit_dedup_cross_workspace", False)
+        )
         self.relation_merge_threshold = memory_cfg.get(
             "relation_merge_threshold", _DEFAULT_MEMORY_THRESHOLDS["relation_merge"]
         )

@@ -23,7 +23,14 @@ function HealthCard() {
 
   return (
     <div className="hidden md:flex items-center gap-3">
-      <div className="relative w-9 h-9 shrink-0">
+      <div
+        className="relative w-9 h-9 shrink-0"
+        title={
+          data.reasons && data.reasons.length > 0
+            ? data.reasons.map((r) => `${r.reason} ×${r.count}`).join('\n')
+            : undefined
+        }
+      >
         <svg width="36" height="36" viewBox="0 0 40 40" className="-rotate-90">
           <circle
             cx="20"

@@ -8,7 +8,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.auth import AgentIdentity
@@ -118,11 +118,19 @@ async def _auto_detect_relations(
             result = await db.execute(stmt)
             existing_memories = list(result.all())
 
-        existing_rel_stmt = select(MemoryRelation.target_memory_id).where(
-            MemoryRelation.source_memory_id == memory.id
+        # 双向查重：入边与出边都算已关联，避免批准时再造一条反向重复边
+        existing_rel_stmt = select(
+            MemoryRelation.source_memory_id, MemoryRelation.target_memory_id
+        ).where(
+            or_(
+                MemoryRelation.source_memory_id == memory.id,
+                MemoryRelation.target_memory_id == memory.id,
+            )
         )
         existing_rel_result = await db.execute(existing_rel_stmt)
-        existing_targets = set(existing_rel_result.scalars().all())
+        linked_ids: set[Any] = set()
+        for src_id, tgt_id in existing_rel_result.all():
+            linked_ids.add(tgt_id if src_id == memory.id else src_id)
 
         new_bigrams = (
             {new_text[i : i + 2] for i in range(len(new_text) - 1)} if len(new_text) >= 2 else set()
@@ -134,7 +142,7 @@ async def _auto_detect_relations(
             other_id, other_title, other_content = row[0], row[1], row[2]
             other_embedding = row[3] if len(row) > 3 else None
 
-            if other_id in existing_targets:
+            if other_id in linked_ids:
                 continue
 
             other_id_str = str(other_id)
@@ -219,6 +227,7 @@ async def _auto_detect_relations(
                     target_memory_id=other_id,
                     relation_type=relation_type,
                     confidence=round(final_score, 3),
+                    created_by="review",
                 )
                 relations_to_add.append(rel)
 

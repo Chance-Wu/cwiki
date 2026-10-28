@@ -269,8 +269,7 @@ async def _generate_episode_candidate(
     title, content = built
 
     try:
-        candidate, _similar, created = await create_candidate(
-            db_session,
+        _candidate, _similar, created = await create_candidate(            db_session,
             workspace_id=episode.workspace_id,
             title=title,
             content=content,
@@ -279,10 +278,9 @@ async def _generate_episode_candidate(
             confidence=0.5,
             importance=0.5,
             client_write_id=f"episode-{episode.id}",
+            # 生成的候选天然来源于该 episode；显式关联让质量门可读取其证据
+            episode_id=episode.id,
         )
-        if created:
-            # 生成的候选天然来源于该 episode，显式挂上关联
-            candidate.episode_id = episode.id
         await db_session.commit()
     except ContentFormatError as exc:
         await db_session.rollback()
@@ -296,6 +294,6 @@ async def _generate_episode_candidate(
     if created:
         queue: TaskQueue | None = ctx.get("queue")
         if queue is not None:
-            await queue.enqueue("generate_candidate_embedding", str(candidate.id))
+            await queue.enqueue("generate_candidate_embedding", str(_candidate.id))
         logger.info("Generated lesson candidate from episode %s", episode.id)
     return created

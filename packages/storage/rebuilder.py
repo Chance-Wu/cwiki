@@ -1099,6 +1099,8 @@ class DatabaseRebuilder:
                         target_memory_id=uuid.UUID(target),
                         relation_type=relation_type,
                         confidence=item.get("confidence", 1.0),
+                        created_by=str(item.get("created_by") or "rebuilt"),
+                        source=item.get("source"),
                         created_at=_parse_dt(item.get("created_at")),
                     )
                 )

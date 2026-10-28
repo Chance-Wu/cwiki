@@ -160,6 +160,7 @@ async def task_auto_discover_relations(ctx: dict[str, Any]) -> dict[str, Any]:
     async with async_session_maker() as db_session:
         # 查询所有工作区
         from packages.domain.models import Workspace
+
         ws_result = await db_session.execute(select(Workspace))
         workspaces = ws_result.scalars().all()
 
@@ -176,11 +177,13 @@ async def task_auto_discover_relations(ctx: dict[str, Any]) -> dict[str, Any]:
                 )
                 total_created += created
                 if created > 0:
-                    workspace_stats.append({
-                        "workspace_id": str(ws.id),
-                        "workspace_name": ws.name,
-                        "relations_created": created,
-                    })
+                    workspace_stats.append(
+                        {
+                            "workspace_id": str(ws.id),
+                            "workspace_name": ws.name,
+                            "relations_created": created,
+                        }
+                    )
             except Exception:
                 logger.exception(f"自动关系发现失败: workspace={ws.name}")
 

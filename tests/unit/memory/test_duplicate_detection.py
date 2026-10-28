@@ -1,6 +1,10 @@
 """packages.memory.duplicate_detection 测试（spec 8.4 节）。"""
 
-from packages.memory.duplicate_detection import detect_duplicate
+from packages.memory.duplicate_detection import (
+    batch_detect_duplicates,
+    detect_duplicate,
+    precompute_combined,
+)
 
 
 class TestDetectDuplicate:
@@ -13,9 +17,19 @@ class TestDetectDuplicate:
             "title": "Use connection pooling",
             "content": "Always use connection pooling for database access in this project",
         }
+        verdict = detect_duplicate(a, b, embedding_similarity=1.0)
+        assert verdict.classification == "exact_duplicate"
+
+    def test_exact_unreachable_without_embedding(self):
+        """不提供 embedding 时词面满分约 0.70，达不到 exact 阈值（明确记录而非缺陷）。"""
+        a = {
+            "title": "Use connection pooling",
+            "content": "Always use connection pooling for database access in this project",
+        }
+        b = dict(a)
         verdict = detect_duplicate(a, b)
-        # 没有 embedding 相似度时，纯文本得分达不到 EXACT_DUPLICATE_THRESHOLD
         assert verdict.classification == "possible_duplicate"
+        assert verdict.combined_score < 0.85
 
     def test_possible_duplicate(self):
         a = {
@@ -74,9 +88,8 @@ class TestDetectDuplicate:
             "title": "Use connection pooling",
             "content": "Always use connection pooling for database access in this project",
         }
-        verdict = detect_duplicate(a, b)
-        # 没有 embedding 相似度时，纯文本得分达不到 EXACT_DUPLICATE_THRESHOLD
-        assert verdict.classification == "possible_duplicate"
+        verdict = detect_duplicate(a, b, embedding_similarity=1.0)
+        assert verdict.classification == "exact_duplicate"
         # 由调用方决定后续处理 — 检测只负责分类
 
     def test_normalized_more_forgiving_than_jaccard(self):
@@ -85,3 +98,25 @@ class TestDetectDuplicate:
         long = {"title": "X", "content": "hello world foo bar baz qux extra stuff here"}
         verdict = detect_duplicate(short, long)
         assert verdict.normalized_score >= verdict.jaccard_score
+
+
+class TestBatchDetectDuplicate:
+    def test_batch_reuses_precomputed_tokens_and_embedding(self):
+        candidate = {
+            "title": "Connection pooling",
+            "content": "Always use connection pooling for database access",
+        }
+        items = [
+            {
+                "title": "Connection pooling",
+                "content": "Always use connection pooling for database access",
+            },
+            {"title": "Testing", "content": "Use pytest for running unit tests"},
+        ]
+        verdicts = batch_detect_duplicates(
+            candidate,
+            precompute_combined(items),
+            embedding_similarities=[0.99, 0.0],
+        )
+        assert verdicts[0].classification == "exact_duplicate"
+        assert verdicts[1].classification == "distinct"

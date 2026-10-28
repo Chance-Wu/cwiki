@@ -207,10 +207,11 @@ async def update_memory(
         memory.embedding = None
 
     if body.status is not None and body.status != old_status:
+        # 归档单独记 event_type=archived，供演化指标统计（status_changed 不细分目标状态）
         lifecycle_event = MemoryLifecycleEvent(
             id=uuid.uuid4(),
             memory_id=memory_id,
-            event_type="status_changed",
+            event_type="archived" if body.status == "archived" else "status_changed",
             metadata_json=json.dumps({"old_status": old_status, "new_status": body.status}),
         )
     else:

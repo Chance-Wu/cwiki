@@ -475,13 +475,15 @@ async def get_context(
     usage_records: list[MemoryUsage] = []
     for mem_id, mem_type, mem, position in valid_memories:
         freshness = freshness_map.get(mem_id, {"days_unused": None})
+        # curated 上下文是 Agent 主动拉取并实际消费的内容 → 记 used；
+        # 检索（/v1/search）命中的记 retrieved，两者构成 utility 的成功率信号
         usage_records.append(
             MemoryUsage(
                 workspace_id=resolved_ws_id,
                 memory_id=mem_id,
                 session_id=body.session_id,
                 position=position,
-                stage="retrieved",
+                stage="used",
             )
         )
 

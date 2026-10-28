@@ -313,6 +313,10 @@ def _score_evidence_backed(candidate: dict[str, Any]) -> float:
     """有依据性：外部证据给高分；无证据时按正文内证与信号类型递减。"""
     evidences = candidate.get("evidences", [])
     evidence_count = len(evidences) if isinstance(evidences, list) else 0
+    # 调用方也可只传证据条数（如按 episode 关联的 Evidence 行数）
+    explicit_count = candidate.get("evidence_count")
+    if isinstance(explicit_count, int) and explicit_count > evidence_count:
+        evidence_count = explicit_count
 
     if evidence_count >= 3:
         return 1.0

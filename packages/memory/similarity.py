@@ -126,7 +126,9 @@ async def _embedding_similarity(text_a: dict[str, Any], text_b: dict[str, Any]) 
             format_memory_for_embedding(text_b.get("title", ""), text_b.get("content", ""))
         )
 
-    generated = await embedding_service.generate_embeddings_batch(texts_to_embed) if texts_to_embed else []
+    generated = (
+        await embedding_service.generate_embeddings_batch(texts_to_embed) if texts_to_embed else []
+    )
     gen_iter = iter(generated)
 
     final_emb_a = emb_a or next(gen_iter, None)
@@ -167,7 +169,7 @@ async def _hybrid_similarity(
     # 计算 embedding 相似度
     embedding_sim = await _embedding_similarity(text_a, text_b)
 
-    # 复用 duplicate_detection 的 verdict 构建逻辑
+    # 复用 duplicate_detection 的 verdict 构建逻辑（权重按总和归一化）
     verdict = _build_verdict(
         cand_title_t,
         exist_title_t,
@@ -178,6 +180,7 @@ async def _hybrid_similarity(
         cand_combined,
         exist_combined,
         embedding_similarity=embedding_sim,
+        weights=weights,
     )
 
     return verdict.combined_score

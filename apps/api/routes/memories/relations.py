@@ -143,6 +143,7 @@ async def create_memory_relation(
         target_memory_id=body.target_memory_id,
         relation_type=body.relation_type,
         confidence=body.confidence,
+        created_by="manual",
         created_at=datetime.now(UTC),
     )
     db.add(relation)

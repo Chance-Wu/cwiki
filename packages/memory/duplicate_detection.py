@@ -15,11 +15,15 @@ from __future__ import annotations
 
 import re
 from dataclasses import asdict, dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+from packages.domain.config import settings
 from packages.domain.text_utils import format_memory_for_embedding
 from packages.retrieval.embedding import get_embedding_service
 from packages.retrieval.vector_utils import batch_cosine_similarities
+
+if TYPE_CHECKING:
+    from packages.memory.similarity import HybridWeights
 
 
 @dataclass
@@ -48,11 +52,9 @@ class _Tokens:
     token_list: list[str] = field(default_factory=list)
 
 
-# 判定阈值：combined_score ≥ 0.85 为完全重复，≥ 0.60 为可能重复
-EXACT_DUPLICATE_THRESHOLD = 0.85
-POSSIBLE_DUPLICATE_THRESHOLD = 0.60
-
-# 标题/正文/关键词/embedding 四路相似度的融合权重：
+# 分类阈值由 config.yaml 的 memory.duplicate_*_threshold 提供（运行时读取）。
+# 判定规则：combined_score ≥ exact 为完全重复，≥ possible 为可能重复。
+# 标题/正文/关键词/embedding 四路相似度的默认融合权重：
 # 正文与语义（embedding）承载主要判断，标题短而信息密度高，关键词兜底
 WEIGHT_TITLE = 0.20
 WEIGHT_CONTENT = 0.35
@@ -81,9 +83,10 @@ def _precompute_text_tokens(text: str) -> _Tokens:
 
 
 def _classify(combined: float) -> tuple[str, str]:
-    if combined >= EXACT_DUPLICATE_THRESHOLD:
+    # 运行时读取，配置修改无需重启进程之外的操作
+    if combined >= settings.duplicate_exact_threshold:
         return "exact_duplicate", "Very high similarity — likely the same memory"
-    if combined >= POSSIBLE_DUPLICATE_THRESHOLD:
+    if combined >= settings.duplicate_possible_threshold:
         return "possible_duplicate", "Moderate similarity — may overlap with existing memory"
     return "distinct", "Low similarity — appears to be distinct memory"
 
@@ -111,11 +114,13 @@ def _build_verdict(
     cand_combined_tokens: list[str],
     exist_combined_tokens: list[str],
     embedding_similarity: float = 0.0,
+    weights: HybridWeights | None = None,
 ) -> DuplicateVerdict:
     """基于预计算 token 的核心比较逻辑。
 
     Args:
         embedding_similarity: 标题+正文 embedding 的余弦相似度（0.0-1.0）
+        weights: 融合权重；None 用模块默认值。传入时按总和归一化。
     """
     title_sim = 0.0
     if cand_title_t.ngrams and exist_title_t.ngrams:
@@ -143,11 +148,33 @@ def _build_verdict(
                     matched_weight += weight
             keyword_sim = matched_weight / total_weight if total_weight > 0 else 0.0
 
+    if weights is None:
+        w_title, w_content, w_keyword, w_embedding = (
+            WEIGHT_TITLE,
+            WEIGHT_CONTENT,
+            WEIGHT_KEYWORD,
+            WEIGHT_EMBEDDING,
+        )
+    else:
+        total_weight = weights.title + weights.content + weights.keyword + weights.embedding
+        if total_weight > 0:
+            w_title = weights.title / total_weight
+            w_content = weights.content / total_weight
+            w_keyword = weights.keyword / total_weight
+            w_embedding = weights.embedding / total_weight
+        else:
+            w_title, w_content, w_keyword, w_embedding = (
+                WEIGHT_TITLE,
+                WEIGHT_CONTENT,
+                WEIGHT_KEYWORD,
+                WEIGHT_EMBEDDING,
+            )
+
     combined = (
-        WEIGHT_TITLE * title_sim
-        + WEIGHT_CONTENT * content_sim
-        + WEIGHT_KEYWORD * keyword_sim
-        + WEIGHT_EMBEDDING * embedding_similarity
+        w_title * title_sim
+        + w_content * content_sim
+        + w_keyword * keyword_sim
+        + w_embedding * embedding_similarity
     )
     classification, detail = _classify(combined)
 
@@ -178,11 +205,16 @@ def _build_verdict(
 def detect_duplicate(
     candidate: dict[str, Any],
     existing: dict[str, Any],
+    *,
+    embedding_similarity: float = 0.0,
 ) -> DuplicateVerdict:
-    """将候选记忆与一条已有记忆比较。
+    """将候选记忆与一条已有记忆比较（同步、无 embedding 计算）。
 
-    使用加权组合：标题相似度、正文 n-gram 相似度、
-    BM25 风格关键词重叠（权重见模块顶部常量；本函数不含 embedding 通道）。
+    加权组合标题、正文 n-gram、BM25 风格关键词重叠与传入的
+    *embedding_similarity*。生产写入路径用
+    :func:`batch_detect_duplicates_with_embedding` 自动计算语义相似度；
+    本函数供不需要异步/模型的调用方使用，不传 embedding 时仅词面打分
+    （理论上限约 0.70，达不到 exact 阈值）。
     """
     cand_title_t = _precompute_text_tokens(_normalize_text(candidate.get("title", "")))
     exist_title_t = _precompute_text_tokens(_normalize_text(existing.get("title", "")))
@@ -203,6 +235,7 @@ def detect_duplicate(
         exist_combined_ts,
         cand_combined,
         exist_combined,
+        embedding_similarity=embedding_similarity,
     )
 
 
@@ -236,16 +269,21 @@ def precompute_combined(texts: list[dict[str, Any]]) -> list[_CombinedTokens]:
 def batch_detect_duplicates(
     candidate: dict[str, Any],
     precomputed_existing: list[_CombinedTokens],
+    *,
+    embedding_similarities: list[float] | None = None,
+    weights: HybridWeights | None = None,
 ) -> list[DuplicateVerdict]:
     """将候选与多条已预分词的已有项比较。
 
     候选只分词一次；已有项直接复用预计算结果，消除重复分词开销。
+    *embedding_similarities* 与 *precomputed_existing* 等长，缺省为 0。
     """
     cand_title_t = _precompute_text_tokens(_normalize_text(candidate.get("title", "")))
     cand_content_t = _precompute_text_tokens(_normalize_text(candidate.get("content", "")))
     cand_combined_ts = cand_title_t.token_set | cand_content_t.token_set
     cand_combined_list = cand_title_t.token_list + cand_content_t.token_list
 
+    embedding_scores = embedding_similarities or [0.0] * len(precomputed_existing)
     return [
         _build_verdict(
             cand_title_t,
@@ -256,8 +294,10 @@ def batch_detect_duplicates(
             ex.combined_set,
             cand_combined_list,
             ex.combined_list,
+            embedding_similarity=embedding_scores[idx],
+            weights=weights,
         )
-        for ex in precomputed_existing
+        for idx, ex in enumerate(precomputed_existing)
     ]
 
 

@@ -503,6 +503,8 @@ async def import_data(
             target_memory_id=tgt_uuid,
             relation_type=item.get("relation_type", "related"),
             confidence=item.get("confidence", 1.0),
+            created_by=str(item.get("created_by") or "import"),
+            source=item.get("source"),
         )
         db.add(relation)
         results["relations"]["imported"] += 1

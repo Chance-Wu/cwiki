@@ -362,6 +362,10 @@ class MemoryRelation(Base):
     )
     relation_type: Mapped[str] = mapped_column(String(50), nullable=False)
     confidence: Mapped[float] = mapped_column(Float, default=1.0, server_default="1.0")
+    # 关系来源：auto(相似度自动) / review(审核检测) / manual(人工) /
+    # merge(人工合并) / consolidate(自动合并) / import / rebuilt
+    created_by: Mapped[str] = mapped_column(String(16), default="manual", server_default="auto")
+    source: Mapped[str | None] = mapped_column(String(64), nullable=True)
     # Hebbian 强度：共检索强化、按半衰期衰减；与语义 confidence 分开存储
     strength: Mapped[float] = mapped_column(Float, default=0.0, server_default="0")
     last_reinforced_at: Mapped[datetime | None] = mapped_column(nullable=True)

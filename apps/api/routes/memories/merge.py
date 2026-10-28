@@ -133,12 +133,13 @@ async def get_merge_suggestions_embedding(
 
     resolved_ws_id = await resolve_workspace(workspace_id, db)
 
-    # 强制使用 embedding 策略
+    # 强制使用 embedding 策略（与统一端点区分）
     suggestions = await find_merge_candidates(
         db,
         workspace_id=resolved_ws_id,
         similarity_threshold=similarity_threshold,
         limit=limit,
+        strategy="embedding",
     )
 
     return {
@@ -256,6 +257,7 @@ async def merge_memories_post(
         target_memory_id=source.id,
         relation_type="supersedes",
         confidence=1.0,
+        created_by="merge",
     )
     db.add(rel)
 

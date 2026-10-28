@@ -2,6 +2,9 @@
 
 扫描 active 记忆，找出相似度较高、可能适合合并的记忆对。
 支持多种相似度策略：jaccard（词面）、embedding（语义）、hybrid（加权融合）。
+
+性能：token 与向量只预计算一次，成对比较复用预计算结果，
+避免 O(N²) 对每对重新分词。
 """
 
 from __future__ import annotations
@@ -16,11 +19,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.domain.config import settings
 from packages.domain.models import Memory
-from packages.memory.similarity import HybridWeights, compute_similarity
+from packages.memory.duplicate_detection import (
+    batch_detect_duplicates,
+    precompute_combined,
+)
+from packages.memory.similarity import (
+    HybridWeights,
+    jaccard_from_sets,
+    tokenize,
+)
+from packages.retrieval.vector_utils import batch_cosine_similarities
 
 logger = logging.getLogger(__name__)
 
-# 余弦相似度阈值：建议最终由人工裁决，阈值取高以压低误报
+# 默认阈值：建议最终由人工裁决，阈值取高以压低误报（可由配置覆盖）
 DEFAULT_SIMILARITY_THRESHOLD = 0.85
 
 
@@ -44,22 +56,40 @@ class MergeSuggestion:
         }
 
 
+def _embedding_scores(items: list[dict[str, Any]], i: int) -> list[float]:
+    """返回 items[i] 与 i 之后各项的 embedding 余弦相似度（缺失向量记 0）。"""
+    base = items[i].get("embedding")
+    others = [item.get("embedding") for item in items[i + 1 :]]
+    scores = [0.0] * len(others)
+    if not base:
+        return scores
+    valid = [(idx, emb) for idx, emb in enumerate(others) if emb]
+    if not valid:
+        return scores
+    sims = batch_cosine_similarities(base, [emb for _, emb in valid])
+    for (idx, _), sim in zip(valid, sims):
+        scores[idx] = float(sim)
+    return scores
+
+
 async def find_merge_candidates(
     db: AsyncSession,
     workspace_id: uuid.UUID,
-    similarity_threshold: float = DEFAULT_SIMILARITY_THRESHOLD,
+    similarity_threshold: float | None = None,
     limit: int = 20,
+    strategy: str | None = None,
 ) -> list[MergeSuggestion]:
     """找出相似度较高的 active 记忆对。
 
-    使用统一相似度计算策略（配置在 config.yaml 的 memory.similarity_strategy）。
+    使用统一相似度计算策略（默认取 memory.similarity_strategy）。
     为控制开销，只扫描最近更新的 500 条记忆。
 
     Args:
         db: 数据库会话
         workspace_id: 要扫描的 workspace
-        similarity_threshold: 最小相似度（0.0-1.0）
+        similarity_threshold: 最小相似度；省略时用 performance.merge_suggestions_threshold
         limit: 返回建议的最大数量
+        strategy: jaccard/embedding/hybrid；省略时取配置
 
     Returns:
         MergeSuggestion 列表，按相似度降序排列
@@ -85,45 +115,56 @@ async def find_merge_candidates(
     if len(memories) < 2:
         return []
 
-    # 构建文本字典列表
-    memory_items: list[dict[str, Any]] = []
-    for mem_id, title, content, emb in memories:
-        memory_items.append(
-            {
-                "id": str(mem_id),
-                "title": title,
-                "content": content,
-                "embedding": emb,
-            }
-        )
+    threshold = (
+        settings.merge_suggestions_threshold
+        if similarity_threshold is None
+        else similarity_threshold
+    )
+    resolved_strategy = strategy or settings.similarity_strategy
+    weights = HybridWeights(**settings.similarity_hybrid_weights)
+    memory_items = [
+        {"id": str(mem_id), "title": title, "content": content, "embedding": emb}
+        for mem_id, title, content, emb in memories
+    ]
 
-    # 计算两两相似度
+    # 一次性预计算：hybrid 用 n-gram/token 集合，jaccard 用统一分词
+    precomputed = precompute_combined(memory_items)
+    jaccard_sets = (
+        [tokenize(f"{item['title']} {item['content']}") for item in memory_items]
+        if resolved_strategy == "jaccard"
+        else []
+    )
+
     suggestions: list[MergeSuggestion] = []
     n = len(memory_items)
-    strategy = settings.similarity_strategy
-    weights = HybridWeights(**settings.similarity_hybrid_weights)
-
-    # 只比较 i < j 的对，避免重复计算
-    for i in range(n):
-        for j in range(i + 1, n):
-            sim = await compute_similarity(
+    for i in range(n - 1):
+        if resolved_strategy == "jaccard":
+            scores = [jaccard_from_sets(jaccard_sets[i], jaccard_sets[j]) for j in range(i + 1, n)]
+        elif resolved_strategy == "embedding":
+            scores = _embedding_scores(memory_items, i)
+        else:
+            verdicts = batch_detect_duplicates(
                 memory_items[i],
-                memory_items[j],
-                strategy=strategy,
+                precomputed[i + 1 :],
+                embedding_similarities=_embedding_scores(memory_items, i),
                 weights=weights,
             )
+            scores = [verdict.combined_score for verdict in verdicts]
 
-            if sim >= similarity_threshold:
-                suggestions.append(
-                    MergeSuggestion(
-                        memory_id_a=memory_items[i]["id"],
-                        memory_id_b=memory_items[j]["id"],
-                        title_a=memory_items[i]["title"],
-                        title_b=memory_items[j]["title"],
-                        similarity=float(sim),
-                        reason=f"Similarity ({sim:.2%}, strategy={strategy})",
-                    )
+        for offset, score in enumerate(scores):
+            if score < threshold:
+                continue
+            j = i + 1 + offset
+            suggestions.append(
+                MergeSuggestion(
+                    memory_id_a=memory_items[i]["id"],
+                    memory_id_b=memory_items[j]["id"],
+                    title_a=memory_items[i]["title"],
+                    title_b=memory_items[j]["title"],
+                    similarity=float(score),
+                    reason=f"Similarity ({score:.2%}, strategy={resolved_strategy})",
                 )
+            )
 
     suggestions.sort(key=lambda s: s.similarity, reverse=True)
     return suggestions[:limit]

@@ -15,7 +15,7 @@ from sqlalchemy.orm import defer
 from apps.api.auth import AgentIdentity
 from apps.api.deps import get_current_agent, get_db, get_or_404, require_scope, resolve_workspace
 from packages.domain.config import API_V1_PREFIX
-from packages.domain.models import Memory, MemoryConflict, MemoryFeedback
+from packages.domain.models import Memory, MemoryConflict, MemoryFeedback, MemoryUsage
 from packages.domain.schemas import (
     MemoryConflictRead,
     MemoryFeedbackCreate,
@@ -55,6 +55,16 @@ async def create_feedback(
         reason=body.reason,
     )
     db.add(feedback)
+    if body.feedback_type == "useful":
+        # useful 反馈 = 该记忆被实际引用且有效 → 记一条 cited 使用流水，
+        # 为 utility 的 agent_usage 分量提供生产者（此前该分量恒为 0）
+        db.add(
+            MemoryUsage(
+                workspace_id=resolved_ws_id,
+                memory_id=body.memory_id,
+                stage="cited",
+            )
+        )
     await db.commit()
     await db.refresh(feedback)
     return MemoryFeedbackRead.model_validate(feedback)

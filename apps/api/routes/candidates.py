@@ -61,6 +61,7 @@ async def create_candidate_endpoint(
             confidence=body.confidence or 0.5,
             importance=body.importance or 0.5,
             project_id=body.project_id,
+            episode_id=body.episode_id,
             client_write_id=body.client_write_id,
             legacy_client_write_id=body.legacy_client_write_id,
         )

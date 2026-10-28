@@ -118,7 +118,14 @@ export default function GraphPage() {
   const [hoveredNode, setHoveredNode] = useState<string | null>(null)
   const [selectedNode, setSelectedNode] = useState<string | null>(null)
   const [detailMemory, setDetailMemory] = useState<FileMemory | null>(null)
-  const [stats, setStats] = useState({ total: 0, edges: 0, isolated: 0, avgDegree: '0.00' })
+  const [stats, setStats] = useState({
+    total: 0,
+    edges: 0,
+    isolated: 0,
+    avgDegree: '0.00',
+    totalActive: 0,
+    truncated: false,
+  })
 
   const workspaceId = workspaceQuery.data
 
@@ -164,6 +171,8 @@ export default function GraphPage() {
           edges: data.edges.length,
           isolated,
           avgDegree: avgDegree.toFixed(2),
+          totalActive: data.total_active ?? count,
+          truncated: Boolean(data.truncated),
         })
 
         setError(false)
@@ -525,17 +534,26 @@ export default function GraphPage() {
             {/* Stats */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               {[
-                { label: '节点数', value: stats.total },
+                {
+                  label: '节点数',
+                  value: stats.total,
+                  subtext: stats.truncated ? `共 ${stats.totalActive} 条记忆` : undefined,
+                },
                 { label: '关系数', value: stats.edges },
                 { label: '孤立节点', value: stats.isolated },
                 { label: '平均度数', value: stats.avgDegree },
-              ].map(({ label, value }) => (
+              ].map(({ label, value, subtext }) => (
                 <div
                   key={label}
                   className="glass-card p-4 rounded-xl transition-transform duration-200 hover:-translate-y-0.5"
                 >
                   <div className="text-sm text-[var(--text-secondary)]">{label}</div>
                   <div className="text-2xl font-bold tabular-nums">{value}</div>
+                  {subtext && (
+                    <div className="text-xs text-[var(--text-tertiary)] mt-1">
+                      展示 Top · {subtext}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

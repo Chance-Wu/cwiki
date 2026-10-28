@@ -120,6 +120,8 @@ async def discover_relations(
                 relation_type="related",
                 confidence=similarity,  # 用相似度作为初始置信度
                 strength=0.0,
+                created_by="auto",
+                source=f"similarity:{similarity:.2f}",
                 created_at=now,
             )
             new_relations.append(relation)

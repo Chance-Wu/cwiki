@@ -25,6 +25,12 @@ memory:
   similarity_threshold: 0.7
   # 未知工作区名默认拒绝（不静默建区）：新项目接入前需先创建对应工作区
   auto_create_workspace: false
+  # 重复判定阈值：combined_score ≥ exact 判完全重复，≥ possible 判可能重复
+  duplicate_exact_threshold: 0.85
+  duplicate_possible_threshold: 0.6
+  # 提交时查重：扫描最近 N 条 active 记忆/待审候选；跨工作区默认关闭
+  submit_dedup_scan_limit: 1000
+  submit_dedup_cross_workspace: false
   # 相似度计算策略：jaccard（词面）| embedding（语义）| hybrid（加权融合）
   similarity_strategy: hybrid
   # 混合策略权重（仅 hybrid 生效，归一化为 1.0）

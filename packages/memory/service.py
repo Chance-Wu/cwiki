@@ -15,6 +15,7 @@ from packages.domain.config import agent_policy_config, settings
 from packages.domain.errors import AppError, WriteDecisionRejected
 from packages.domain.models import (
     CandidateMemory,
+    Evidence,
     Memory,
     MemoryLifecycleEvent,
     MemoryVersion,
@@ -49,9 +50,6 @@ def union_tags(*tag_lists: list[str] | None) -> list[str]:
 
 
 # 判重阈值从全局配置读取，便于按部署调整
-SIMILARITY_THRESHOLD = settings.similarity_threshold
-
-
 async def _maybe_extract_and_store_entities(
     db: AsyncSession,
     memory: Memory,
@@ -177,8 +175,9 @@ def _validate_mcp_content(content: str) -> None:
         raise ContentFormatError(str(exc)) from exc
 
 
-# 提交时查重用的正文截断长度：足够判重，又避免加载全量内容
-_CONTENT_PREVIEW_LEN = 500
+# 提交时查重：扫描范围与是否跨工作区由 memory.* 配置控制
+def _submit_dedup_scope() -> tuple[int, bool]:
+    return settings.submit_dedup_scan_limit, settings.submit_dedup_cross_workspace
 
 
 def _has_token_overlap(text_a: str, text_b: str) -> bool:
@@ -222,7 +221,7 @@ async def _find_similar_in_batch(
     for row, verdict in zip(filtered_rows, verdicts):
         if max_sim is None or verdict.combined_score > max_sim:
             max_sim = verdict.combined_score
-        if verdict.combined_score >= SIMILARITY_THRESHOLD:
+        if verdict.combined_score >= settings.similarity_threshold:
             items.append(
                 SimilarItem(
                     id=row.id,
@@ -244,27 +243,30 @@ async def _find_similar_at_submit(
 ) -> tuple[list[SimilarItem], float | None]:
     """提交时查找相似的已有记忆与待审候选。
 
-    为避免加载全量正文的优化：
-    - SUBSTR 在数据库层截断正文（500 字符）以减少 I/O
-    - token 集合预筛先跳过二元组零重叠的项，再做 embedding 增强判重
+    扫描范围由 memory.submit_dedup_scan_limit 控制；默认同工作区，
+    memory.submit_dedup_cross_workspace=true 时跨全部工作区比对。
+    正文取全文（不再截断）——词面预筛已能跳过大部分无关项。
     """
     similar_items: list[SimilarItem] = []
     max_similarity: float | None = None
 
-    # 只比较最近更新的 500 条记忆 / 200 条待审候选，控制判重范围
+    scan_limit, cross_workspace = _submit_dedup_scope()
+    memory_conditions = [Memory.status == "active"]
+    candidate_conditions = [CandidateMemory.status == "pending_review"]
+    if not cross_workspace:
+        memory_conditions.append(Memory.workspace_id == workspace_id)
+        candidate_conditions.append(CandidateMemory.workspace_id == workspace_id)
+
     memory_stmt = (
         select(
             Memory.id,
             Memory.title,
-            func.substr(Memory.content, 1, _CONTENT_PREVIEW_LEN).label("content"),
+            Memory.content,
             Memory.embedding,
         )
-        .where(
-            Memory.workspace_id == workspace_id,
-            Memory.status == "active",
-        )
+        .where(*memory_conditions)
         .order_by(Memory.updated_at.desc())
-        .limit(500)
+        .limit(scan_limit)
     )
     memory_result = await db.execute(memory_stmt)
     memories = memory_result.all()
@@ -273,15 +275,12 @@ async def _find_similar_at_submit(
         select(
             CandidateMemory.id,
             CandidateMemory.title,
-            func.substr(CandidateMemory.content, 1, _CONTENT_PREVIEW_LEN).label("content"),
+            CandidateMemory.content,
             CandidateMemory.embedding,
         )
-        .where(
-            CandidateMemory.workspace_id == workspace_id,
-            CandidateMemory.status == "pending_review",
-        )
+        .where(*candidate_conditions)
         .order_by(CandidateMemory.created_at.desc())
-        .limit(200)
+        .limit(scan_limit)
     )
     candidate_result = await db.execute(candidate_stmt)
     candidates = candidate_result.all()
@@ -318,6 +317,7 @@ async def create_candidate(
     confidence: float = 0.5,
     importance: float = 0.5,
     project_id: uuid.UUID | None = None,
+    episode_id: uuid.UUID | None = None,
     client_write_id: str | None = None,
     legacy_client_write_id: str | None = None,
     tags: list[str] | None = None,
@@ -466,6 +466,7 @@ async def create_candidate(
     candidate = CandidateMemory(
         workspace_id=workspace_id,
         project_id=project_id,
+        episode_id=episode_id,
         title=title,
         content=content,
         type=type,
@@ -488,8 +489,16 @@ async def create_candidate(
         duplicate_probability=max_similarity,
     )
 
-    # 质量门只决定复核优先级，不拦截写入
-    qg = compute_quality_gate({"type": type, "content": content})
+    # 质量门只决定复核优先级，不拦截写入。
+    # 关联了 episode 的候选带外部证据（Evidence 表），否则证据维按正文内证评估
+    gate_input: dict[str, Any] = {"type": type, "content": content}
+    if episode_id is not None:
+        evidence_count = await db.scalar(
+            select(func.count(Evidence.id)).where(Evidence.episode_id == episode_id)
+        )
+        if evidence_count:
+            gate_input["evidence_count"] = int(evidence_count)
+    qg = compute_quality_gate(gate_input)
     candidate.quality_gate_score = qg.score
     candidate.quality_gate_reason = qg.reason
     candidate.review_priority = qg.review_priority

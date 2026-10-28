@@ -5,11 +5,12 @@ from __future__ import annotations
 import logging
 import time
 import uuid
+from collections import Counter
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import case, func, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer
 
@@ -24,6 +25,7 @@ from packages.domain.config import API_V1_PREFIX
 from packages.domain.models import (
     AgentSession,
     CandidateMemory,
+    Evidence,
     Memory,
     MemoryConflict,
     MemoryFeedback,
@@ -56,41 +58,6 @@ _EMPTY_HEALTH_RESPONSE: dict[str, Any] = {
 }
 
 
-def _calculate_evidence_count(content: str | None) -> int:
-    """从内容特征推断证据强度。
-
-    证据包括：代码块、示例、结构化小节、参考链接。
-    返回 0-5 的计数，用于效用分计算。
-    """
-    if not content:
-        return 0
-
-    evidence = 0
-
-    # 代码块（``` 围栏或缩进代码）
-    if "```" in content:
-        evidence += 1
-    if content.count("    ") > 3 or content.count("\t") > 3:
-        evidence += 1
-
-    # 示例/反例关键词
-    if any(kw in content for kw in ["例如", "比如", "example", "反例", "反例"]):
-        evidence += 1
-
-    # 结构化小节（## 标题）
-    section_count = content.count("\n## ")
-    if section_count >= 2:
-        evidence += 1
-    if section_count >= 4:
-        evidence += 1
-
-    # 参考链接
-    if "http" in content or "参考" in content or "reference" in content.lower():
-        evidence += 1
-
-    return min(evidence, 5)
-
-
 # 仪表盘统计的简单 TTL 缓存（避免高频轮询重复执行 SQL）
 class _StatsCache:
     __slots__ = ("_expires_at", "_ttl", "_value")
@@ -116,11 +83,17 @@ class _StatsCache:
 
 _dashboard_cache = _StatsCache(ttl=30.0)
 _metrics_cache = _StatsCache(ttl=30.0)
-_health_summary_cache = _StatsCache(ttl=60.0)
+# 健康摘要缓存：按工作区（"all" = 全部），写入后由 invalidate 统一失效
+_health_summary_cache: dict[str, tuple[float, dict[str, Any]]] = {}
+_HEALTH_SUMMARY_TTL = 60.0
 
 # 单条记忆健康度缓存（以 memory_id 为键）
 _health_cache: dict[str, tuple[float, dict[str, Any]]] = {}
 _HEALTH_CACHE_TTL = 30.0
+
+# 质量分布缓存（按 workspace；写入后由 invalidate 统一失效）
+_quality_distribution_cache: dict[str, tuple[float, dict[str, Any]]] = {}
+_QUALITY_DIST_TTL = 60.0
 
 
 def invalidate_memory_status_caches(memory_id: str | None = None) -> None:
@@ -131,7 +104,8 @@ def invalidate_memory_status_caches(memory_id: str | None = None) -> None:
     """
     _dashboard_cache.invalidate()
     _metrics_cache.invalidate()
-    _health_summary_cache.invalidate()
+    _health_summary_cache.clear()
+    _quality_distribution_cache.clear()
     if memory_id is not None:
         _health_cache.pop(memory_id, None)
 
@@ -367,7 +341,8 @@ async def get_memory_health(
     usage_stats = await db.execute(
         select(
             func.count(MemoryUsage.id),
-            func.count(case((MemoryUsage.stage.in_(["used", "cited"]), MemoryUsage.id))),
+            func.count(case((MemoryUsage.stage == "used", MemoryUsage.id))),
+            func.count(case((MemoryUsage.stage == "cited", MemoryUsage.id))),
         ).where(MemoryUsage.memory_id == uid)
     )
     conflict_result = await db.execute(
@@ -384,16 +359,19 @@ async def get_memory_health(
 
     feedback_counts = {row[0]: row[1] for row in feedback_result.all()}
     row = usage_stats.first()
-    retrieval_count, used_count = (row[0], row[1]) if row else (0, 0)
+    retrieval_count, used_count, cited_count = (row[0], row[1], row[2]) if row else (0, 0, 0)
     conflict_count = conflict_result.scalar() or 0
 
-    # 从内容特征计算 evidence_count
-    evidence_count = _calculate_evidence_count(memory.content)
+    # 证据数统一取 Evidence 表（与汇总口径一致）
+    evidence_result = await db.execute(
+        select(func.count(Evidence.id)).where(Evidence.memory_id == uid)
+    )
+    evidence_count = evidence_result.scalar() or 0
 
     utility = compute_utility_score(
         retrieval_count=retrieval_count,
         used_count=used_count,
-        cited_count=0,
+        cited_count=cited_count,
         useful_votes=feedback_counts.get("useful", 0),
         not_useful_votes=feedback_counts.get("not_useful", 0),
         last_used_at=memory.last_used_at,
@@ -431,16 +409,22 @@ async def get_memory_health(
 @router.get("/health-summary")
 async def get_health_summary(
     db: Annotated[AsyncSession, Depends(get_db)],
+    workspace_id: str | None = Query(
+        None, min_length=1, description="工作区（名称或 UUID），不传统计全部"
+    ),
     _identity: Annotated[AgentIdentity | None, Depends(get_current_agent)] = None,
 ) -> dict[str, Any]:
-    """返回全部 active 记忆的聚合健康统计。"""
-    cached = _health_summary_cache.get()
-    if cached is not None:
-        return cached
+    """返回 active 记忆的聚合健康统计（可按工作区过滤）。"""
+    resolved_ws_id = await resolve_workspace(workspace_id, db) if workspace_id else None
+    cache_key = str(resolved_ws_id) if resolved_ws_id else "all"
+    cached = _health_summary_cache.get(cache_key)
+    if cached is not None and (time.monotonic() - cached[0]) < _HEALTH_SUMMARY_TTL:
+        return cached[1]
 
-    result = await db.execute(
-        select(Memory).where(Memory.status == "active").options(defer(Memory.embedding))
-    )
+    summary_stmt = select(Memory).where(Memory.status == "active").options(defer(Memory.embedding))
+    if resolved_ws_id is not None:
+        summary_stmt = summary_stmt.where(Memory.workspace_id == resolved_ws_id)
+    result = await db.execute(summary_stmt)
     memories = result.scalars().all()
 
     if not memories:
@@ -453,8 +437,9 @@ async def get_health_summary(
                 "suspicious": 0,
                 "conflicted": 0,
             },
+            "reasons": [],
         }
-        _health_summary_cache.set(empty)
+        _health_summary_cache[cache_key] = (time.monotonic(), empty)
         return empty
 
     ease_factor_result = await db.execute(
@@ -479,20 +464,31 @@ async def get_health_summary(
         for mid, ftype, cnt in feedback_result.all():
             feedback_batch.setdefault(mid, {})[ftype] = cnt
 
-    # 批量使用统计：memory_id -> (检索次数, 实际使用次数)
-    usage_batch: dict[Any, tuple[int, int]] = {}
+    # 批量使用统计：memory_id -> (检索次数, used 次数, cited 次数)
+    usage_batch: dict[Any, tuple[int, int, int]] = {}
     if memory_ids:
         usage_result = await db.execute(
             select(
                 MemoryUsage.memory_id,
                 func.count(MemoryUsage.id),
-                func.count(case((MemoryUsage.stage.in_(["used", "cited"]), MemoryUsage.id))),
+                func.count(case((MemoryUsage.stage == "used", MemoryUsage.id))),
+                func.count(case((MemoryUsage.stage == "cited", MemoryUsage.id))),
             )
             .where(MemoryUsage.memory_id.in_(memory_ids))
             .group_by(MemoryUsage.memory_id)
         )
-        for mid, total, used in usage_result.all():
-            usage_batch[mid] = (total, used)
+        for mid, total, used, cited in usage_result.all():
+            usage_batch[mid] = (total, used, cited)
+
+    # 证据数统一取 Evidence 表（与 utility_aggregation 口径一致）
+    evidence_batch: dict[Any, int] = {}
+    if memory_ids:
+        evidence_result = await db.execute(
+            select(Evidence.memory_id, func.count(Evidence.id))
+            .where(Evidence.memory_id.in_(memory_ids))
+            .group_by(Evidence.memory_id)
+        )
+        evidence_batch = {mid: cnt for mid, cnt in evidence_result.all() if mid is not None}
 
     # 批量冲突计数：memory_id -> 数量
     conflict_batch: dict[Any, int] = {}
@@ -509,21 +505,22 @@ async def get_health_summary(
             conflict_batch[mid] = cnt
 
     scores: list[float] = []
+    reason_counter: Counter[str] = Counter()
     # 分档键与 compute_health 的四种状态一一对应，保证 total == 各档之和
     distribution = {"healthy": 0, "needs_review": 0, "suspicious": 0, "conflicted": 0}
 
     for mem in memories:
         ef = ease_factor_map.get(mem.id, 2.5)
         feedback_counts = feedback_batch.get(mem.id, {})
-        retrieval_count, used_count = usage_batch.get(mem.id, (0, 0))
+        retrieval_count, used_count, cited_count = usage_batch.get(mem.id, (0, 0, 0))
         conflict_count = conflict_batch.get(mem.id, 0)
 
-        evidence_count = _calculate_evidence_count(mem.content)
+        evidence_count = evidence_batch.get(mem.id, 0)
 
         utility = compute_utility_score(
             retrieval_count=retrieval_count,
             used_count=used_count,
-            cited_count=0,
+            cited_count=cited_count,
             useful_votes=feedback_counts.get("useful", 0),
             not_useful_votes=feedback_counts.get("not_useful", 0),
             last_used_at=mem.last_used_at,
@@ -548,6 +545,8 @@ async def get_health_summary(
 
         scores.append(health.score)
         distribution[health.status] = distribution.get(health.status, 0) + 1
+        for reason in health.reasons:
+            reason_counter[reason] += 1
 
     avg_score = sum(scores) / len(scores) if scores else 0.0
 
@@ -555,9 +554,13 @@ async def get_health_summary(
         "total": len(memories),
         "avg_score": round(avg_score, 3),
         "distribution": distribution,
+        # 聚合扣分原因（Top 5），供前端展示分项解释
+        "reasons": [
+            {"reason": reason, "count": count} for reason, count in reason_counter.most_common(5)
+        ],
     }
 
-    _health_summary_cache.set(result_data)
+    _health_summary_cache[cache_key] = (time.monotonic(), result_data)
     return result_data
 
 
@@ -700,81 +703,93 @@ async def get_knowledge_graph(
 ) -> dict[str, Any]:
     """返回工作区级知识图谱（节点+边）。
 
-    limit 控制最大节点数（按度数排序取 Top N），避免大数据量下渲染卡顿。
+    节点 = active 记忆按度数降序的 TopN（同度数按创建时间，孤立点按顺序补位），
+    limit 控制最大节点数；边只包含两端都在节点集内的关系。
     """
     resolved_ws_id = await resolve_workspace(workspace_id, db)
 
-    # 查询该 workspace 下所有关系
-    rel_stmt = (
-        select(MemoryRelation)
-        .join(Memory, MemoryRelation.source_memory_id == Memory.id)
-        .where(Memory.workspace_id == resolved_ws_id)
-        .limit(2000)
-    )
-    rel_result = await db.execute(rel_stmt)
-    relations = rel_result.scalars().all()
-
-    if not relations:
-        return {"nodes": [], "edges": [], "total_nodes": 0, "total_edges": 0}
-
-    # 收集所有涉及的 memory_id
-    memory_ids = set()
-    for rel in relations:
-        memory_ids.add(rel.source_memory_id)
-        memory_ids.add(rel.target_memory_id)
-
-    # 查询这些 memory 的详情
-    mem_stmt = select(Memory).where(Memory.id.in_(list(memory_ids))).limit(limit)
-    mem_result = await db.execute(mem_stmt)
-    memories = mem_result.scalars().all()
-
-    # 计算每个节点的度数（入+出）
-    degree_map: dict[uuid.UUID, int] = {m.id: 0 for m in memories}
-    for rel in relations:
-        if rel.source_memory_id in degree_map:
-            degree_map[rel.source_memory_id] += 1
-        if rel.target_memory_id in degree_map:
-            degree_map[rel.target_memory_id] += 1
-
-    # 按度数排序取 Top limit
-    sorted_memories = sorted(memories, key=lambda m: degree_map.get(m.id, 0), reverse=True)[:limit]
-    top_ids = {m.id for m in sorted_memories}
-
-    # 构建节点
-    nodes = []
-    for m in sorted_memories:
-        nodes.append(
-            {
-                "id": str(m.id),
-                "title": m.title,
-                "type": m.type,
-                "confidence": m.confidence,
-                "importance": m.importance,
-                "degree": degree_map.get(m.id, 0),
-                "is_isolated": degree_map.get(m.id, 0) == 0,
-            }
-        )
-
-    # 过滤出 Top 节点间的边
-    edges = []
-    for rel in relations:
-        if rel.source_memory_id in top_ids and rel.target_memory_id in top_ids:
-            edges.append(
-                {
-                    "id": str(rel.id),
-                    "source": str(rel.source_memory_id),
-                    "target": str(rel.target_memory_id),
-                    "type": rel.relation_type,
-                    "confidence": rel.confidence,
-                    "strength": rel.strength,
-                }
+    # 相关子查询算度数：入边 + 出边
+    degree_expr = (
+        select(func.count(MemoryRelation.id))
+        .where(
+            or_(
+                MemoryRelation.source_memory_id == Memory.id,
+                MemoryRelation.target_memory_id == Memory.id,
             )
+        )
+        .correlate(Memory)
+        .scalar_subquery()
+    )
+    node_stmt = (
+        select(Memory, degree_expr.label("degree"))
+        .where(Memory.workspace_id == resolved_ws_id, Memory.status == "active")
+        .options(defer(Memory.embedding))
+        .order_by(degree_expr.desc(), Memory.created_at, Memory.id)
+        .limit(limit)
+    )
+    rows = (await db.execute(node_stmt)).all()
+    total_active = (
+        await db.scalar(
+            select(func.count(Memory.id)).where(
+                Memory.workspace_id == resolved_ws_id, Memory.status == "active"
+            )
+        )
+    ) or 0
+
+    if not rows:
+        return {
+            "nodes": [],
+            "edges": [],
+            "total_nodes": 0,
+            "total_edges": 0,
+            "total_active": int(total_active),
+            "truncated": False,
+        }
+
+    nodes = [
+        {
+            "id": str(memory.id),
+            "title": memory.title,
+            "type": memory.type,
+            "confidence": memory.confidence,
+            "importance": memory.importance,
+            "degree": int(degree or 0),
+            "is_isolated": int(degree or 0) == 0,
+        }
+        for memory, degree in rows
+    ]
+    top_ids = [memory.id for memory, _ in rows]
+
+    edge_stmt = (
+        select(MemoryRelation)
+        .where(
+            MemoryRelation.source_memory_id.in_(top_ids),
+            MemoryRelation.target_memory_id.in_(top_ids),
+        )
+        .order_by(MemoryRelation.id)
+        .limit(5000)
+    )
+    relations = (await db.execute(edge_stmt)).scalars().all()
+    edges = [
+        {
+            "id": str(rel.id),
+            "source": str(rel.source_memory_id),
+            "target": str(rel.target_memory_id),
+            "type": rel.relation_type,
+            "confidence": rel.confidence,
+            "strength": rel.strength,
+            "created_by": rel.created_by,
+        }
+        for rel in relations
+    ]
 
     return {
         "nodes": nodes,
         "edges": edges,
-        "total_nodes": len(sorted_memories),
+        "total_nodes": len(nodes),
         "total_edges": len(edges),
+        "total_active": int(total_active),
+        "truncated": int(total_active) > len(nodes),
     }
 
 
@@ -786,25 +801,41 @@ async def get_quality_distribution(
 ) -> dict[str, Any]:
     """返回工作区记忆质量分布（置信度/重要度/使用频率/衰减）。"""
     resolved_ws_id = await resolve_workspace(workspace_id, db)
+    cache_key = str(resolved_ws_id)
+    cached = _quality_distribution_cache.get(cache_key)
+    if cached is not None and (time.monotonic() - cached[0]) < _QUALITY_DIST_TTL:
+        return cached[1]
 
-    # 查询该 workspace 下所有 active 记忆
+    total_active = (
+        await db.scalar(
+            select(func.count(Memory.id)).where(
+                Memory.workspace_id == resolved_ws_id, Memory.status == "active"
+            )
+        )
+    ) or 0
+
+    # 单次最多扫描 5000 条；超出时回显 truncated，避免静默截断误导
     stmt = (
         select(Memory)
         .where(Memory.workspace_id == resolved_ws_id, Memory.status == "active")
+        .options(defer(Memory.embedding))
         .limit(5000)
     )
     result = await db.execute(stmt)
     memories = result.scalars().all()
 
     if not memories:
-        return {
+        empty = {
             "total": 0,
+            "truncated": False,
             "confidence_distribution": {"low": 0, "medium": 0, "high": 0},
             "importance_distribution": {"low": 0, "medium": 0, "high": 0},
             "usage_distribution": {"unused": 0, "low": 0, "medium": 0, "high": 0},
             "decay_distribution": {"fresh": 0, "aging": 0, "stale": 0},
             "averages": {"confidence": 0.0, "importance": 0.0, "usage_count": 0.0},
         }
+        _quality_distribution_cache[cache_key] = (time.monotonic(), empty)
+        return empty
 
     confidence_dist = {"low": 0, "medium": 0, "high": 0}
     importance_dist = {"low": 0, "medium": 0, "high": 0}
@@ -841,25 +872,25 @@ async def get_quality_distribution(
         else:
             usage_dist["high"] += 1
 
-        # 衰减分布（基于 last_used_at）
-        if m.last_used_at is None:
-            decay_dist["stale"] += 1
+        # 衰减分布：从未使用的记忆按创建时间计（与 health 的 30 天宽限口径一致），
+        # 而不是一律判 stale
+        usage_anchor = m.last_used_at or m.created_at
+        days = days_since(usage_anchor) if usage_anchor else 0.0
+        if days < 30:
+            decay_dist["fresh"] += 1
+        elif days < 90:
+            decay_dist["aging"] += 1
         else:
-            days = days_since(m.last_used_at)
-            if days < 30:
-                decay_dist["fresh"] += 1
-            elif days < 90:
-                decay_dist["aging"] += 1
-            else:
-                decay_dist["stale"] += 1
+            decay_dist["stale"] += 1
 
         total_confidence += m.confidence
         total_importance += m.importance
         total_usage += m.usage_count
 
     total = len(memories)
-    return {
+    payload = {
         "total": total,
+        "truncated": total_active > total,
         "confidence_distribution": confidence_dist,
         "importance_distribution": importance_dist,
         "usage_distribution": usage_dist,
@@ -870,3 +901,5 @@ async def get_quality_distribution(
             "usage_count": round(total_usage / total, 2),
         },
     }
+    _quality_distribution_cache[cache_key] = (time.monotonic(), payload)
+    return payload
