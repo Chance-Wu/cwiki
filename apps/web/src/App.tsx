@@ -35,6 +35,8 @@ const SkillsPage = lazy(() => import('./pages/SkillsPage'))
 const ReviewPage = lazy(() => import('./pages/ReviewPage'))
 const ConfigPage = lazy(() => import('./pages/ConfigPage'))
 const SettingsPage = lazy(() => import('./pages/SettingsPage'))
+const GraphPage = lazy(() => import('./pages/GraphPage'))
+const QualityPage = lazy(() => import('./pages/QualityPage'))
 const NotFoundPage = lazy(() => import('./pages/NotFoundPage'))
 
 function ChunkErrorFallback() {
@@ -90,6 +92,8 @@ function AnimatedRoutes() {
       <Route path="/review" element={<ReviewPage />} />
       <Route path="/config" element={<ConfigPage />} />
       <Route path="/settings" element={<SettingsPage />} />
+      <Route path="/graph" element={<GraphPage />} />
+      <Route path="/quality" element={<QualityPage />} />
       <Route path="*" element={<NotFoundPage />} />
     </Routes>
   )

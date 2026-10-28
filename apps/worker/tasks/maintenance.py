@@ -140,3 +140,61 @@ async def task_periodic_meta_export(ctx: dict[str, Any]) -> dict[str, Any]:
     except Exception:
         logger.exception("Periodic meta export failed")
         return {"status": "error"}
+
+
+async def task_auto_discover_relations(ctx: dict[str, Any]) -> dict[str, Any]:
+    """基于向量相似度自动发现并创建记忆间关系。
+
+    扫描所有工作区，对 embedding 余弦相似度 >= threshold 的记忆对
+    自动创建 related 类型关系。受 auto_relation_enabled 特性开关控制。
+    """
+    from packages.domain.config import parasitic_evolution_config
+    from packages.memory.auto_relation import discover_relations
+
+    if not parasitic_evolution_config.auto_relation_enabled:
+        return {"status": "disabled"}
+
+    threshold = parasitic_evolution_config.auto_relation_threshold
+    max_per_memory = parasitic_evolution_config.auto_relation_max_per_memory
+
+    async with async_session_maker() as db_session:
+        # 查询所有工作区
+        from packages.domain.models import Workspace
+        ws_result = await db_session.execute(select(Workspace))
+        workspaces = ws_result.scalars().all()
+
+        total_created = 0
+        workspace_stats = []
+
+        for ws in workspaces:
+            try:
+                created = await discover_relations(
+                    db_session,
+                    ws.id,
+                    threshold=threshold,
+                    max_relations_per_memory=max_per_memory,
+                )
+                total_created += created
+                if created > 0:
+                    workspace_stats.append({
+                        "workspace_id": str(ws.id),
+                        "workspace_name": ws.name,
+                        "relations_created": created,
+                    })
+            except Exception:
+                logger.exception(f"自动关系发现失败: workspace={ws.name}")
+
+        logger.info(
+            "Auto relation discovery: %d new relations across %d workspaces (threshold=%.2f)",
+            total_created,
+            len(workspace_stats),
+            threshold,
+        )
+
+        return {
+            "status": "completed",
+            "total_created": total_created,
+            "workspaces_with_new_relations": len(workspace_stats),
+            "threshold": threshold,
+            "details": workspace_stats,
+        }

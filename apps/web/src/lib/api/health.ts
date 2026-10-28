@@ -68,3 +68,44 @@ export const getCandidateQuality = () =>
     avg_score: number
     distribution: { high: number; medium: number; low: number }
   }>('/candidate-quality')
+
+// --- Knowledge Graph ---
+
+export const getKnowledgeGraph = (workspaceId: string, limit = 200) => {
+  const params = new URLSearchParams({ workspace_id: workspaceId, limit: String(limit) })
+  return request<{
+    nodes: Array<{
+      id: string
+      title: string
+      type: string
+      confidence: number
+      importance: number
+      degree: number
+      is_isolated: boolean
+    }>
+    edges: Array<{
+      id: string
+      source: string
+      target: string
+      type: string
+      confidence: number
+      strength: number
+    }>
+    total_nodes: number
+    total_edges: number
+  }>(`/graph?${params.toString()}`)
+}
+
+// --- Quality Distribution ---
+
+export const getQualityDistribution = (workspaceId: string) => {
+  const params = new URLSearchParams({ workspace_id: workspaceId })
+  return request<{
+    total: number
+    confidence_distribution: { low: number; medium: number; high: number }
+    importance_distribution: { low: number; medium: number; high: number }
+    usage_distribution: { unused: number; low: number; medium: number; high: number }
+    decay_distribution: { fresh: number; aging: number; stale: number }
+    averages: { confidence: number; importance: number; usage_count: number }
+  }>(`/quality-distribution?${params.toString()}`)
+}

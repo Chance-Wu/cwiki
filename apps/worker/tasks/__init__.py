@@ -39,6 +39,7 @@ from apps.worker.tasks.episode import (
     task_finalize_episode,
 )
 from apps.worker.tasks.maintenance import (
+    task_auto_discover_relations,
     task_check_review_reminders,
     task_periodic_meta_export,
 )
@@ -59,6 +60,7 @@ __all__ = [
     "recover_orphaned_candidates",
     "register_tasks",
     "task_auto_consolidate_similar",
+    "task_auto_discover_relations",
     "task_batch_generate_embeddings",
     "task_check_review_reminders",
     "task_dedup_check",
@@ -81,6 +83,7 @@ def register_tasks(queue: TaskQueue) -> None:
     queue.register("auto_consolidate_similar", task_auto_consolidate_similar)
     queue.register("check_review_reminders", task_check_review_reminders)
     queue.register("periodic_meta_export", task_periodic_meta_export)
+    queue.register("auto_discover_relations", task_auto_discover_relations)
 
 
 async def recover_orphaned_candidates(queue: TaskQueue) -> None:

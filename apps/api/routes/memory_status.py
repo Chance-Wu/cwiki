@@ -27,6 +27,7 @@ from packages.domain.models import (
     Memory,
     MemoryConflict,
     MemoryFeedback,
+    MemoryRelation,
     MemoryUsage,
     RetrievalTrace,
     ReviewSchedule,
@@ -36,6 +37,7 @@ from packages.memory.evolution_metrics import compute_evolution_metrics
 from packages.memory.health import compute_health
 from packages.memory.utility_score import compute_utility_score
 from packages.retrieval.embedding import get_embedding_metrics
+from packages.domain.time_utils import days_since
 
 logger = logging.getLogger(__name__)
 
@@ -683,3 +685,181 @@ async def get_evolution_metrics(
     """返回寄生演化系统的演化指标。"""
     resolved_ws_id = await resolve_workspace(workspace_id, db)
     return await compute_evolution_metrics(db, resolved_ws_id, days=days)
+
+
+@router.get("/graph")
+async def get_knowledge_graph(
+    workspace_id: str,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    limit: int = Query(200, ge=10, le=1000),
+    _identity: Annotated[AgentIdentity | None, Depends(get_current_agent)] = None,
+) -> dict[str, Any]:
+    """返回工作区级知识图谱（节点+边）。
+
+    limit 控制最大节点数（按度数排序取 Top N），避免大数据量下渲染卡顿。
+    """
+    resolved_ws_id = await resolve_workspace(workspace_id, db)
+
+    # 查询该 workspace 下所有关系
+    rel_stmt = (
+        select(MemoryRelation)
+        .join(Memory, MemoryRelation.source_memory_id == Memory.id)
+        .where(Memory.workspace_id == resolved_ws_id)
+        .limit(2000)
+    )
+    rel_result = await db.execute(rel_stmt)
+    relations = rel_result.scalars().all()
+
+    if not relations:
+        return {"nodes": [], "edges": [], "total_nodes": 0, "total_edges": 0}
+
+    # 收集所有涉及的 memory_id
+    memory_ids = set()
+    for rel in relations:
+        memory_ids.add(rel.source_memory_id)
+        memory_ids.add(rel.target_memory_id)
+
+    # 查询这些 memory 的详情
+    mem_stmt = select(Memory).where(Memory.id.in_(list(memory_ids))).limit(limit)
+    mem_result = await db.execute(mem_stmt)
+    memories = mem_result.scalars().all()
+
+    # 计算每个节点的度数（入+出）
+    degree_map: dict[uuid.UUID, int] = {m.id: 0 for m in memories}
+    for rel in relations:
+        if rel.source_memory_id in degree_map:
+            degree_map[rel.source_memory_id] += 1
+        if rel.target_memory_id in degree_map:
+            degree_map[rel.target_memory_id] += 1
+
+    # 按度数排序取 Top limit
+    sorted_memories = sorted(memories, key=lambda m: degree_map.get(m.id, 0), reverse=True)[:limit]
+    top_ids = {m.id for m in sorted_memories}
+
+    # 构建节点
+    nodes = []
+    for m in sorted_memories:
+        nodes.append({
+            "id": str(m.id),
+            "title": m.title,
+            "type": m.type,
+            "confidence": m.confidence,
+            "importance": m.importance,
+            "degree": degree_map.get(m.id, 0),
+            "is_isolated": degree_map.get(m.id, 0) == 0,
+        })
+
+    # 过滤出 Top 节点间的边
+    edges = []
+    for rel in relations:
+        if rel.source_memory_id in top_ids and rel.target_memory_id in top_ids:
+            edges.append({
+                "id": str(rel.id),
+                "source": str(rel.source_memory_id),
+                "target": str(rel.target_memory_id),
+                "type": rel.relation_type,
+                "confidence": rel.confidence,
+                "strength": rel.strength,
+            })
+
+    return {
+        "nodes": nodes,
+        "edges": edges,
+        "total_nodes": len(sorted_memories),
+        "total_edges": len(edges),
+    }
+
+
+@router.get("/quality-distribution")
+async def get_quality_distribution(
+    workspace_id: str,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _identity: Annotated[AgentIdentity | None, Depends(get_current_agent)] = None,
+) -> dict[str, Any]:
+    """返回工作区记忆质量分布（置信度/重要度/使用频率/衰减）。"""
+    resolved_ws_id = await resolve_workspace(workspace_id, db)
+
+    # 查询该 workspace 下所有 active 记忆
+    stmt = (
+        select(Memory)
+        .where(Memory.workspace_id == resolved_ws_id, Memory.status == "active")
+        .limit(5000)
+    )
+    result = await db.execute(stmt)
+    memories = result.scalars().all()
+
+    if not memories:
+        return {
+            "total": 0,
+            "confidence_distribution": {"low": 0, "medium": 0, "high": 0},
+            "importance_distribution": {"low": 0, "medium": 0, "high": 0},
+            "usage_distribution": {"unused": 0, "low": 0, "medium": 0, "high": 0},
+            "decay_distribution": {"fresh": 0, "aging": 0, "stale": 0},
+            "averages": {"confidence": 0.0, "importance": 0.0, "usage_count": 0.0},
+        }
+
+    now = datetime.now(UTC)
+    confidence_dist = {"low": 0, "medium": 0, "high": 0}
+    importance_dist = {"low": 0, "medium": 0, "high": 0}
+    usage_dist = {"unused": 0, "low": 0, "medium": 0, "high": 0}
+    decay_dist = {"fresh": 0, "aging": 0, "stale": 0}
+    total_confidence = 0.0
+    total_importance = 0.0
+    total_usage = 0
+
+    for m in memories:
+        # 置信度分布
+        if m.confidence < 0.4:
+            confidence_dist["low"] += 1
+        elif m.confidence < 0.7:
+            confidence_dist["medium"] += 1
+        else:
+            confidence_dist["high"] += 1
+
+        # 重要度分布
+        if m.importance < 0.4:
+            importance_dist["low"] += 1
+        elif m.importance < 0.7:
+            importance_dist["medium"] += 1
+        else:
+            importance_dist["high"] += 1
+
+        # 使用频率分布
+        if m.usage_count == 0:
+            usage_dist["unused"] += 1
+        elif m.usage_count < 5:
+            usage_dist["low"] += 1
+        elif m.usage_count < 20:
+            usage_dist["medium"] += 1
+        else:
+            usage_dist["high"] += 1
+
+        # 衰减分布（基于 last_used_at）
+        if m.last_used_at is None:
+            decay_dist["stale"] += 1
+        else:
+            days = days_since(m.last_used_at)
+            if days < 30:
+                decay_dist["fresh"] += 1
+            elif days < 90:
+                decay_dist["aging"] += 1
+            else:
+                decay_dist["stale"] += 1
+
+        total_confidence += m.confidence
+        total_importance += m.importance
+        total_usage += m.usage_count
+
+    total = len(memories)
+    return {
+        "total": total,
+        "confidence_distribution": confidence_dist,
+        "importance_distribution": importance_dist,
+        "usage_distribution": usage_dist,
+        "decay_distribution": decay_dist,
+        "averages": {
+            "confidence": round(total_confidence / total, 3),
+            "importance": round(total_importance / total, 3),
+            "usage_count": round(total_usage / total, 2),
+        },
+    }

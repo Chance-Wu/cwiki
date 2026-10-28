@@ -95,6 +95,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         "periodic_meta_export",
         scheduler_config.meta_export_interval_hours * 3600,
     )
+    if parasitic_evolution_config.auto_relation_enabled:
+        _scheduler.add(
+            "auto_discover_relations",
+            scheduler_config.auto_relation_interval_hours * 3600,
+        )
     await _scheduler.start()
 
     file_store = FileStore(storage_config.memory_dir)

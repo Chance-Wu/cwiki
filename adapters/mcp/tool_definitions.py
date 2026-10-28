@@ -23,10 +23,8 @@ def build_tool_definitions() -> list[dict[str, Any]]:
         {
             "name": "memory_search",
             "description": (
-                "搜索记忆。省略 workspace_name 时跨全部工作区搜索；"
-                "项目相关召回建议传 workspace_name 限定工作区。"
-                "curated=true 时按 token 预算组装上下文并返回记忆缺口提示"
-                "（始终按工作区执行，省略 workspace_name 回落默认工作区）。"
+                "搜索记忆。省略 workspace_name 跨全部工作区；项目相关建议指定工作区。"
+                "curated=true 时按 token 预算组装上下文并提示记忆缺口。"
             ),
             "inputSchema": {
                 "type": "object",

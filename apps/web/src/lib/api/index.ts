@@ -151,6 +151,8 @@ import {
   getMemoryStatus,
   getHealthSummary,
   getCandidateQuality,
+  getKnowledgeGraph,
+  getQualityDistribution,
 } from './health'
 import { exportData, exportMarkdown, importData } from './data'
 
@@ -242,4 +244,6 @@ export const api = {
   exportData,
   exportMarkdown,
   importData,
+  getKnowledgeGraph,
+  getQualityDistribution,
 }

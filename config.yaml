@@ -239,6 +239,10 @@ parasitic_evolution:
   relation_reinforcement_enabled: true
   relation_reinforcement_rate: 0.2
   relation_decay_half_life_days: 30
+  # 自动关系发现：基于向量相似度自动创建 related 关系
+  auto_relation_enabled: true
+  auto_relation_threshold: 0.75
+  auto_relation_max_per_memory: 10
   memory_version_tracking_enabled: true
   proactive_push_enabled: true
   review_reminders_enabled: true
@@ -248,6 +252,7 @@ scheduler:
   auto_consolidate_interval_hours: 6
   review_reminders_interval_hours: 24
   meta_export_interval_hours: 12
+  auto_relation_interval_hours: 6
 retrieval:
   bm25_weight: 0.6
   vector_weight: 0.4
