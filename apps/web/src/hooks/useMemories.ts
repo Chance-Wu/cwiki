@@ -9,6 +9,12 @@ export function useMemories(
     tags?: string[]
     limit?: number
     offset?: number
+    min_confidence?: number
+    max_confidence?: number
+    min_importance?: number
+    max_importance?: number
+    usage?: 'unused' | 'low' | 'medium' | 'high'
+    decay?: 'fresh' | 'aging' | 'stale'
   },
   queryOpts?: { enabled?: boolean },
 ) {

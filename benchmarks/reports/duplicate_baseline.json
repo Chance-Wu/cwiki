@@ -1,0 +1,10 @@
+{
+  "dataset": "gold.jsonl",
+  "channel": "lexical",
+  "description": "词面通道（无 embedding）重复检测回归门槛，允许 3% 容差；近原文重复为正例，同领域不同事实为负例",
+  "total": 24,
+  "precision": 1.0,
+  "recall": 0.9167,
+  "f1": 0.9565,
+  "accuracy": 0.9583
+}

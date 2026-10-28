@@ -38,6 +38,12 @@ export const getMemories = (opts?: {
   tags?: string[]
   limit?: number
   offset?: number
+  min_confidence?: number
+  max_confidence?: number
+  min_importance?: number
+  max_importance?: number
+  usage?: 'unused' | 'low' | 'medium' | 'high'
+  decay?: 'fresh' | 'aging' | 'stale'
 }) => {
   const params = new URLSearchParams()
   if (opts?.workspace_id) params.set('workspace_id', opts.workspace_id)
@@ -46,6 +52,12 @@ export const getMemories = (opts?: {
   if (opts?.tags?.length) params.set('tags', opts.tags.join(','))
   if (opts?.limit) params.set('limit', String(opts.limit))
   if (opts?.offset) params.set('offset', String(opts.offset))
+  if (opts?.min_confidence !== undefined) params.set('min_confidence', String(opts.min_confidence))
+  if (opts?.max_confidence !== undefined) params.set('max_confidence', String(opts.max_confidence))
+  if (opts?.min_importance !== undefined) params.set('min_importance', String(opts.min_importance))
+  if (opts?.max_importance !== undefined) params.set('max_importance', String(opts.max_importance))
+  if (opts?.usage) params.set('usage', opts.usage)
+  if (opts?.decay) params.set('decay', opts.decay)
   const qs = params.toString()
   return request<PaginatedResponse<MemoryListItem>>(`/memories${qs ? `?${qs}` : ''}`)
 }

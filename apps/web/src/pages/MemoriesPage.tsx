@@ -71,6 +71,48 @@ export default function MemoriesPage() {
   const typeParam = searchParams.get('type')
   const validTypeParam = typeParam && MEMORY_TYPES.includes(typeParam) ? typeParam : null
   const memoryIdParam = searchParams.get('memoryId')
+  // 质量分布页下钻：分箱过滤通过 URL 参数传入
+  const usageParam = searchParams.get('usage')
+  const decayParam = searchParams.get('decay')
+  const minConfidenceParam = searchParams.get('min_confidence')
+  const maxConfidenceParam = searchParams.get('max_confidence')
+  const minImportanceParam = searchParams.get('min_importance')
+  const maxImportanceParam = searchParams.get('max_importance')
+  const qualityUsage: 'unused' | 'low' | 'medium' | 'high' | undefined =
+    usageParam === 'unused' ||
+    usageParam === 'low' ||
+    usageParam === 'medium' ||
+    usageParam === 'high'
+      ? usageParam
+      : undefined
+  const qualityDecay: 'fresh' | 'aging' | 'stale' | undefined =
+    decayParam === 'fresh' || decayParam === 'aging' || decayParam === 'stale'
+      ? decayParam
+      : undefined
+  const qualityMinConfidence =
+    minConfidenceParam && !Number.isNaN(Number(minConfidenceParam))
+      ? Number(minConfidenceParam)
+      : undefined
+  const qualityMaxConfidence =
+    maxConfidenceParam && !Number.isNaN(Number(maxConfidenceParam))
+      ? Number(maxConfidenceParam)
+      : undefined
+  const qualityMinImportance =
+    minImportanceParam && !Number.isNaN(Number(minImportanceParam))
+      ? Number(minImportanceParam)
+      : undefined
+  const qualityMaxImportance =
+    maxImportanceParam && !Number.isNaN(Number(maxImportanceParam))
+      ? Number(maxImportanceParam)
+      : undefined
+  const hasQualityFilters = Boolean(
+    qualityUsage ||
+    qualityDecay ||
+    qualityMinConfidence !== undefined ||
+    qualityMaxConfidence !== undefined ||
+    qualityMinImportance !== undefined ||
+    qualityMaxImportance !== undefined,
+  )
 
   const [searchInput, setSearchInput] = useState('')
   const deferredQuery = useDeferredValue(searchInput)
@@ -80,7 +122,10 @@ export default function MemoriesPage() {
   const [typeFilter, setTypeFilter] = useState<string>(validTypeParam ?? 'all')
   // 首页工作区总览通过 ?workspace=<id> 跳转到这里预置筛选
   const [workspaceFilter, setWorkspaceFilter] = useState(searchParams.get('workspace') ?? 'all')
-  const [statusFilter, setStatusFilter] = useState('all')
+  const statusParam = searchParams.get('status')
+  const [statusFilter, setStatusFilter] = useState(
+    statusParam === 'active' || statusParam === 'archived' ? statusParam : 'all',
+  )
   const [timeRange, setTimeRange] = useState('all')
   const [selectedTags, setSelectedTags] = useState<string[]>(
     searchParams.get('tags')?.split(',').filter(Boolean) ?? [],
@@ -116,6 +161,12 @@ export default function MemoriesPage() {
           tags: selectedTags.length > 0 ? selectedTags : undefined,
           limit: pageSize,
           offset: (page - 1) * pageSize,
+          usage: qualityUsage,
+          decay: qualityDecay,
+          min_confidence: qualityMinConfidence,
+          max_confidence: qualityMaxConfidence,
+          min_importance: qualityMinImportance,
+          max_importance: qualityMaxImportance,
         },
     { enabled: !isSearching },
   )
@@ -410,7 +461,18 @@ export default function MemoriesPage() {
     setPage(1)
     setFocusedIndex(-1)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [deferredQuery, workspaceFilter, statusFilter, timeRange])
+  }, [
+    deferredQuery,
+    workspaceFilter,
+    statusFilter,
+    timeRange,
+    qualityUsage,
+    qualityDecay,
+    qualityMinConfidence,
+    qualityMaxConfidence,
+    qualityMinImportance,
+    qualityMaxImportance,
+  ])
 
   const hasActiveFilters =
     isSearching ||
@@ -418,7 +480,22 @@ export default function MemoriesPage() {
     workspaceFilter !== 'all' ||
     statusFilter !== 'all' ||
     timeRange !== 'all' ||
-    selectedTags.length > 0
+    selectedTags.length > 0 ||
+    hasQualityFilters
+
+  const clearQualityFilters = () => {
+    const next = new URLSearchParams(searchParams)
+    for (const key of [
+      'usage',
+      'decay',
+      'min_confidence',
+      'max_confidence',
+      'min_importance',
+      'max_importance',
+    ])
+      next.delete(key)
+    setSearchParams(next)
+  }
 
   const clearAllFilters = () => {
     setSearchInput('')
@@ -428,6 +505,7 @@ export default function MemoriesPage() {
     setTimeRange('all')
     setSelectedTags([])
     setPage(1)
+    clearQualityFilters()
   }
 
   const titleSuggestions = useMemo<FileMemory[]>(() => {
@@ -540,6 +618,37 @@ export default function MemoriesPage() {
           setPage(1)
         }}
       />
+
+      {hasQualityFilters && (
+        <div className="flex items-center justify-between rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] px-3 py-2 text-xs">
+          <span className="text-[var(--text-secondary)]">
+            质量筛选：
+            {[
+              qualityMinConfidence !== undefined || qualityMaxConfidence !== undefined
+                ? `置信度 ${qualityMinConfidence ?? 0} – ${qualityMaxConfidence ?? 1}`
+                : null,
+              qualityMinImportance !== undefined || qualityMaxImportance !== undefined
+                ? `重要度 ${qualityMinImportance ?? 0} – ${qualityMaxImportance ?? 1}`
+                : null,
+              qualityUsage
+                ? `使用频率 ${{ unused: '未使用', low: '低', medium: '中', high: '高' }[qualityUsage]}`
+                : null,
+              qualityDecay
+                ? `衰减 ${{ fresh: '新鲜', aging: '老化', stale: '陈旧' }[qualityDecay]}`
+                : null,
+            ]
+              .filter(Boolean)
+              .join(' · ')}
+          </span>
+          <button
+            type="button"
+            onClick={clearQualityFilters}
+            className="text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)]"
+          >
+            清除
+          </button>
+        </div>
+      )}
 
       {/* 合并建议横幅 */}
       <MergeSuggestionsBanner

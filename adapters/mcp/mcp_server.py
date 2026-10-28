@@ -724,6 +724,7 @@ class MCPServer:
             return False
         if write.get("attempts", 0) >= MAX_AUTO_RETRY_ATTEMPTS:
             self.outbox.mark_exhausted(workspace_id, write["id"])
+            self._outbox_manager.invalidate_summary()
             return False
         return True
 
@@ -747,6 +748,8 @@ class MCPServer:
     async def _drain_outbox(self) -> None:
         """只遍历一次启动时的快照；绝不清理 exhausted 条目的原文。"""
         reset = self.outbox.reset_all_exhausted()
+        if reset:
+            self._outbox_manager.invalidate_summary()
         if reset:
             logger.info("Reset %d exhausted outbox entries for retry", reset)
         total = 0
@@ -788,7 +791,7 @@ class MCPServer:
     async def _search_context(self, arguments: dict[str, Any]) -> dict[str, Any]:
         limit = arguments.get("limit", 10)
         max_tokens = arguments.get("max_tokens", 5000)
-        local = self._local_context_lookup(arguments, limit, max_tokens)
+        local = await self._local_context_lookup(arguments, limit, max_tokens)
         result: dict[str, Any] | None = None
         if local is not None and self._local_context_is_strong(local):
             result = local
@@ -892,14 +895,14 @@ class MCPServer:
             except httpx.HTTPError as exc:
                 if not _api_unavailable(exc):
                     raise
-                local = self._local_search_lookup(arguments, workspace, tags)
+                local = await self._local_search_lookup(arguments, workspace, tags)
                 if local is None:
                     result = self._local_unavailable_error()
                 else:
                     result = self._mark_degraded(local, type(exc).__name__, semantic=True)
         else:
             # 本地优先：强命中直接返回（不依赖 API）；弱命中/空结果才请求 API 补语义
-            local = self._local_search_lookup(arguments, workspace, tags)
+            local = await self._local_search_lookup(arguments, workspace, tags)
             if local is not None and self._local_search_is_strong(local):
                 result = local
             else:
@@ -924,17 +927,21 @@ class MCPServer:
             result.setdefault("warnings", []).append(f"参数已忽略：{'；'.join(ignored)}")
         return result
 
-    def _local_search_lookup(
+    async def _local_search_lookup(
         self,
         arguments: dict[str, Any],
         workspace: str | None,
         tags: list[str] | None,
     ) -> dict[str, Any] | None:
-        """本地只读检索；DB 不可读时返回 None。"""
+        """本地只读检索；DB 不可读时返回 None。
+
+        search_local 是同步 SQLite + BM25 实现，放线程池避免阻塞事件循环。
+        """
         filters = arguments.get("filters")
         memory_type = filters.get("type") if isinstance(filters, dict) else None
         min_confidence = filters.get("min_confidence") if isinstance(filters, dict) else None
-        result = search_local(
+        result = await asyncio.to_thread(
+            search_local,
             arguments["keyword"],
             workspace=workspace,
             limit=arguments.get("limit", 10),
@@ -952,13 +959,14 @@ class MCPServer:
         coverage = results[0].get("coverage")
         return isinstance(coverage, (int, float)) and coverage >= STRONG_COVERAGE
 
-    def _local_context_lookup(
+    async def _local_context_lookup(
         self,
         arguments: dict[str, Any],
         limit: int,
         max_tokens: int,
     ) -> dict[str, Any] | None:
-        result = build_local_context(
+        result = await asyncio.to_thread(
+            build_local_context,
             workspace=str(arguments["workspace_id"]),
             query=arguments["keyword"],
             max_items=limit,
@@ -1339,6 +1347,7 @@ class MCPServer:
                     continue
                 if state in ("exhausted", "rejected"):
                     self.outbox.reset_entry(workspace, write["id"])
+                    self._outbox_manager.invalidate_summary()
                 error = await self._replay_entry(workspace, write)
                 if error:
                     errors.append(error)

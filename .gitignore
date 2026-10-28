@@ -51,6 +51,7 @@ tmp-screenshot*.png
 # 报告产物不入库；但 CI 回归门槛基线必须入库（compare_reports 的 --baseline）
 benchmarks/reports/*
 !benchmarks/reports/baseline.json
+!benchmarks/reports/duplicate_baseline.json
 benchmarks/labeling/
 
 .qoder/

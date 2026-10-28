@@ -8,7 +8,7 @@ from typing import Any, cast
 
 import httpx
 
-from packages.domain.config import API_V1_PREFIX
+from packages.domain.config import API_V1_PREFIX, settings
 
 logger = logging.getLogger("cwiki-mcp")
 
@@ -74,8 +74,6 @@ class CwikiClient:
 
     def _auth_headers(self) -> dict[str, str]:
         """服务端配置 auth_token 时透传 Bearer 头；未配置则不带（保持零鉴权兼容）。"""
-        from packages.domain.config import settings
-
         if settings.api_auth_token:
             return {"Authorization": f"Bearer {settings.api_auth_token}"}
         return {}
@@ -88,22 +86,25 @@ class CwikiClient:
         json_body: dict[str, Any] | None = None,
         params: dict[str, Any] | None = None,
         timeout: float | None = None,
-        max_retries: int = 2,
+        max_retries: int | None = None,
     ) -> dict[str, Any]:
+        if max_retries is None:
+            max_retries = settings.mcp_max_retries
+        backoff_base = settings.mcp_retry_backoff_seconds
         headers = self._auth_headers()
         url = f"{self.base_url}{path}"
         req_kwargs: dict[str, Any] = {"json": json_body, "params": params, "headers": headers}
         if timeout is not None:
             req_kwargs["timeout"] = timeout
 
-        # 503/429 与网络错误按指数退避重试（1s、2s），上限 max_retries 次
+        # 503/429 与网络错误按指数退避重试（默认 1s、2s），上限 max_retries 次
         for attempt in range(max_retries + 1):
             try:
                 resp = await self.http.request(method, url, **req_kwargs)
                 if resp.status_code in (503, 429) and attempt < max_retries:
-                    wait = 2**attempt
+                    wait = backoff_base * (2**attempt)
                     logger.debug(
-                        "Retrying %s %s after %ds (status %d)",
+                        "Retrying %s %s after %.1fs (status %d)",
                         method,
                         path,
                         wait,
@@ -115,8 +116,8 @@ class CwikiClient:
                 return cast("dict[str, Any]", resp.json())
             except httpx.RequestError as exc:
                 if attempt < max_retries:
-                    wait = 2**attempt
-                    logger.debug("Retrying %s %s after %ds (%s)", method, path, wait, exc)
+                    wait = backoff_base * (2**attempt)
+                    logger.debug("Retrying %s %s after %.1fs (%s)", method, path, wait, exc)
                     await asyncio.sleep(wait)
                     continue
                 raise

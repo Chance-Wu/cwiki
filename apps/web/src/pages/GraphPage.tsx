@@ -583,7 +583,7 @@ export default function GraphPage() {
               )}
               {(hoveredNode || selectedNode) && (
                 <div className="absolute top-4 right-4 text-xs text-[var(--text-tertiary)] pointer-events-none">
-                  {selectedNode ? '点击空白处取消聚焦' : '点击节点聚焦邻居关系'}
+                  {selectedNode ? '点击空白处取消聚焦' : '点击节点查看详情与关系编辑'}
                 </div>
               )}
             </div>

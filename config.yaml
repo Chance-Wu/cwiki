@@ -11,6 +11,10 @@ app:
   embedding_dimensions: 512
   embedding_model: BAAI/bge-small-zh-v1.5
   openai_api_key: ''
+# MCP 适配器调用后端的重试策略（连接失败/503/429 指数退避）
+mcp:
+  max_retries: 2
+  retry_backoff_seconds: 1.0
 database:
   url: sqlite+aiosqlite:///./cwiki-data/cwiki.db
 memory:

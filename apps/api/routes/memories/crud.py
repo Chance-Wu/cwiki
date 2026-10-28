@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 from typing import Annotated, Any
 
 from fastapi import Depends, HTTPException, Query, status
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer
 
@@ -63,6 +63,16 @@ async def list_memories(
     memory_status: MemoryStatus | None = Query(None, alias="status"),
     project_id: uuid.UUID | None = Query(None),
     tags: str | None = Query(None, description="按标签过滤，逗号分隔（AND 逻辑）"),
+    min_confidence: float | None = Query(None, ge=0.0, le=1.0),
+    max_confidence: float | None = Query(None, ge=0.0, le=1.0),
+    min_importance: float | None = Query(None, ge=0.0, le=1.0),
+    max_importance: float | None = Query(None, ge=0.0, le=1.0),
+    usage: str | None = Query(
+        None, pattern="^(unused|low|medium|high)$", description="使用频率分箱过滤"
+    ),
+    decay: str | None = Query(
+        None, pattern="^(fresh|aging|stale)$", description="衰减分箱过滤（最后使用或创建时间）"
+    ),
     offset: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     _identity: Annotated[AgentIdentity | None, Depends(get_current_agent)] = None,
@@ -86,6 +96,32 @@ async def list_memories(
         tag_list = [t.strip().lower() for t in tags.split(",") if t.strip()]
         for tag in tag_list:
             conditions.append(memory_has_tag(tag))
+    if min_confidence is not None:
+        conditions.append(Memory.confidence >= min_confidence)
+    if max_confidence is not None:
+        conditions.append(Memory.confidence <= max_confidence)
+    if min_importance is not None:
+        conditions.append(Memory.importance >= min_importance)
+    if max_importance is not None:
+        conditions.append(Memory.importance <= max_importance)
+    if usage == "unused":
+        conditions.append(Memory.usage_count == 0)
+    elif usage == "low":
+        conditions.append(and_(Memory.usage_count >= 1, Memory.usage_count < 5))
+    elif usage == "medium":
+        conditions.append(and_(Memory.usage_count >= 5, Memory.usage_count < 20))
+    elif usage == "high":
+        conditions.append(Memory.usage_count >= 20)
+    if decay is not None:
+        # 与质量分布口径一致：从未使用过的按创建时间计
+        anchor = func.coalesce(Memory.last_used_at, Memory.created_at)
+        age_days = func.julianday("now") - func.julianday(anchor)
+        if decay == "fresh":
+            conditions.append(age_days < 30)
+        elif decay == "aging":
+            conditions.append(and_(age_days >= 30, age_days < 90))
+        else:
+            conditions.append(age_days >= 90)
     stmt, count_stmt = apply_optional_filters(stmt, count_stmt, conditions)
 
     total, memories = await execute_paginated(

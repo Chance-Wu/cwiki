@@ -6,12 +6,16 @@ Retry/replay orchestration stays on MCPServer so its hooks remain patchable.
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Callable
 from typing import Any
 
 from adapters.mcp.outbox import WriteAheadOutbox
 
 logger = logging.getLogger(__name__)
+
+# 摘要缓存 TTL：跨进程写入最多延迟该时长反映到计数；本进程写操作即时失效
+_SUMMARY_TTL_SECONDS = 2.0
 
 
 class ReplayRejected(Exception):
@@ -50,6 +54,11 @@ class OutboxManager:
         self._classify_memory_type = classify_memory_type
         self._is_client_rejection = is_client_rejection
         self._safe_error = safe_error
+        self._summary_cache: tuple[float, dict[str, Any]] | None = None
+
+    def invalidate_summary(self) -> None:
+        """使摘要缓存失效（本进程写操作后或外部改动时调用）。"""
+        self._summary_cache = None
 
     def log(
         self,
@@ -59,6 +68,7 @@ class OutboxManager:
         client_write_id: str,
     ) -> dict[str, Any] | None:
         """Log a pending write to the outbox."""
+        self.invalidate_summary()
         return self.outbox.log_pending(workspace_id, tool, arguments, client_write_id)
 
     def done(self, workspace_id: str, entry_id: str) -> str | None:
@@ -66,6 +76,7 @@ class OutboxManager:
 
         Returns warning message if cleanup fails, None otherwise.
         """
+        self.invalidate_summary()
         try:
             self.outbox.mark_success(workspace_id, entry_id)
         except Exception as exc:
@@ -75,10 +86,17 @@ class OutboxManager:
 
     def fail(self, workspace_id: str, entry_id: str) -> None:
         """Mark an entry as failed."""
+        self.invalidate_summary()
         self.outbox.mark_failed(workspace_id, entry_id)
 
     def summary(self, *, status_tool: bool = False) -> dict[str, Any]:
-        """Get outbox summary with counts by state."""
+        """Get outbox summary with counts by state.
+
+        计数走进程内短 TTL 缓存：memory_save 成功路径会调用两次摘要，
+        每次都全分片扫描磁盘代价过高。
+        """
+        if self._summary_cache is not None and time.monotonic() < self._summary_cache[0]:
+            return self._summary_cache[1]
         counts = dict.fromkeys(("pending", "failed", "exhausted", "rejected"), 0)
         try:
             counts.update(self.outbox.count_all_by_state())
@@ -91,12 +109,14 @@ class OutboxManager:
                 "outbox_exhausted": None,
                 "outbox_error": "本地 outbox 计数不可用",
             }
-        return {
+        result = {
             "outbox_counts": counts,
             "outbox_total": sum(counts.values()),
             "outbox_pending": counts["failed"] + (0 if status_tool else counts["exhausted"]),
             "outbox_exhausted": counts["exhausted"],
         }
+        self._summary_cache = (time.monotonic() + _SUMMARY_TTL_SECONDS, result)
+        return result
 
     def on_error(self, workspace_id: str, entry_id: str, exc: Exception) -> None:
         """Handle error during write submission.
@@ -105,6 +125,7 @@ class OutboxManager:
         """
         if not entry_id:
             return
+        self.invalidate_summary()
         reason = self._safe_error(exc)
         try:
             if self._is_client_rejection(exc):

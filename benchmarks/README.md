@@ -137,3 +137,16 @@ p95 retrieval < 700ms（10K 规模 SLA；实测全管线 p95 约 4ms）
 
 `datasets/context/gold.jsonl` 每行一条组装场景（查询 + 候选池定义 + 期望入选/排除 + 期望矛盾对），
 池中条目可内联 `content` 合成重复/矛盾/干扰样本，或引用夹具 DB 的记忆 id。
+
+## 重复检测黄金集
+
+```
+python -m benchmarks.runners.duplicate_runner             # 词面通道（确定性，CI 门槛）
+python -m benchmarks.runners.duplicate_runner --semantic  # embedding 语义通道（改写句）
+```
+
+- `datasets/duplicates/gold.jsonl`：24 对近原文重复/同领域不同事实，正类 = exact 或 possible；
+  词面通道回归门槛见 `reports/duplicate_baseline.json`，由 `tests/unit/memory/test_duplicate_golden.py`
+  以 3% 容差守护。
+- `datasets/duplicates/gold_semantic.jsonl`：9 对改写/同义表达，需本地 embedding 模型可用；
+  运行结果写入 `reports/duplicate-semantic-report.json`，不做 CI 门槛（依赖模型版本）。

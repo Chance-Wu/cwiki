@@ -110,6 +110,17 @@ class TestOutboxSummary:
         assert result["outbox_counts"] is None
         assert result["outbox_error"] == "本地 outbox 计数不可用"
 
+    def test_summary_cached_until_local_mutation(self, server, mock_outbox):
+        """连续摘要走缓存；本进程写入后立即失效。"""
+        server._outbox_summary()
+        server._outbox_summary()
+        assert mock_outbox.count_all_by_state.call_count == 1
+
+        server._outbox_log("ws-1", "memory_save", {"content": "x"}, "write-1")
+        server._outbox_summary()
+        assert mock_outbox.count_all_by_state.call_count == 2
+        assert server._outbox_summary()["outbox_total"] == 4
+
 
 class TestOutboxOnError:
     def test_client_rejection_marks_rejected(self, server, mock_outbox):

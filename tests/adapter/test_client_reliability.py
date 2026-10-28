@@ -88,3 +88,39 @@ async def test_expected_version_only_forwarded_when_provided(client, expected_ve
         expected_body["expected_version"] = expected_version
     assert requests == [expected_body]
     assert result == {"id": "memory-1"}
+
+
+async def test_request_retries_follow_config(client, monkeypatch):
+    """重试次数与退避基数来自 config.yaml 的 mcp.* 配置。"""
+    from packages.domain.config import settings
+
+    monkeypatch.setattr(settings, "mcp_max_retries", 1)
+    monkeypatch.setattr(settings, "mcp_retry_backoff_seconds", 0.0)
+    attempts: list[str] = []
+
+    def handler(request):
+        attempts.append(request.url.path)
+        if len(attempts) == 1:
+            raise httpx.ConnectError("boom", request=request)
+        return httpx.Response(200, json={"ok": True})
+
+    mock_transport(client, handler)
+    assert await client._request("GET", "/v1/health") == {"ok": True}
+    assert len(attempts) == 2
+
+
+async def test_request_no_retry_when_disabled(client, monkeypatch):
+    from packages.domain.config import settings
+
+    monkeypatch.setattr(settings, "mcp_max_retries", 0)
+    monkeypatch.setattr(settings, "mcp_retry_backoff_seconds", 0.0)
+    attempts: list[str] = []
+
+    def handler(request):
+        attempts.append(request.url.path)
+        raise httpx.ConnectError("boom", request=request)
+
+    mock_transport(client, handler)
+    with pytest.raises(httpx.ConnectError):
+        await client._request("GET", "/v1/health")
+    assert len(attempts) == 1
