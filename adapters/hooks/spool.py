@@ -33,6 +33,37 @@ def _safe_session(session_id: str) -> str:
     return cleaned[:120] or "unknown"
 
 
+def _lock(fh: Any) -> None:
+    """尽力加排他锁（POSIX fcntl / Windows msvcrt），失败不阻塞写入。"""
+    try:
+        if os.name == "nt":
+            import msvcrt
+
+            msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+
+            # win32 下 fcntl 桩模块无这些属性；该分支只在 POSIX 运行
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX)  # type: ignore[attr-defined]
+    except (ImportError, OSError):
+        pass
+
+
+def _unlock(fh: Any) -> None:
+    try:
+        if os.name == "nt":
+            import msvcrt
+
+            fh.seek(0)
+            msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(fh.fileno(), fcntl.LOCK_UN)  # type: ignore[attr-defined]
+    except (ImportError, OSError):
+        pass
+
+
 def append(host: str, session_id: str, record: dict[str, Any]) -> Path:
     path = host_dir(host) / f"{_safe_session(session_id)}.jsonl"
     if path.exists() and path.stat().st_size >= MAX_FILE_BYTES:
@@ -42,21 +73,12 @@ def append(host: str, session_id: str, record: dict[str, Any]) -> Path:
         path.rename(rotated)
     line = json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n"
     with open(path, "a", encoding="utf-8") as fh:
+        _lock(fh)
         try:
-            import fcntl
-
-            # win32 下 fcntl 桩模块无属性；POSIX 分支运行时才会执行
-            fcntl.flock(fh.fileno(), fcntl.LOCK_EX)  # type: ignore[attr-defined]
-        except (ImportError, OSError):
-            pass
-        fh.write(line)
-        fh.flush()
-        try:
-            import fcntl
-
-            fcntl.flock(fh.fileno(), fcntl.LOCK_UN)  # type: ignore[attr-defined]
-        except (ImportError, OSError):
-            pass
+            fh.write(line)
+            fh.flush()
+        finally:
+            _unlock(fh)
     return path
 
 
@@ -71,7 +93,7 @@ def load(host: str, limit: int = 200) -> list[tuple[Path, dict[str, Any]]]:
     for path in iter_files(host):
         try:
             lines = path.read_text(encoding="utf-8").splitlines()
-        except OSError:
+        except (OSError, ValueError):
             continue
         for line in lines:
             if len(items) >= limit:
@@ -86,25 +108,41 @@ def load(host: str, limit: int = 200) -> list[tuple[Path, dict[str, Any]]]:
 
 
 def remove_delivered(host: str, delivered_ids: set[str]) -> None:
-    """从 spool 中删除已成功投递的 record_id；保留未投递/坏行。"""
+    """从 spool 中删除已成功投递的 record_id；保留未投递/坏行。
+
+    加锁后原地重写，避免与并发 append（SessionEnd 的 session-end 与 drain
+    同时触发）交错导致丢记录。
+    """
     if not delivered_ids:
         return
     for path in iter_files(host):
+        kept: list[str] | None = None
         try:
-            lines = path.read_text(encoding="utf-8").splitlines()
-        except OSError:
+            with open(path, "r+", encoding="utf-8") as fh:
+                _lock(fh)
+                try:
+                    lines = fh.read().splitlines()
+                    kept = []
+                    for line in lines:
+                        try:
+                            record = json.loads(line)
+                        except ValueError:
+                            kept.append(line)
+                            continue
+                        if isinstance(record, dict) and record.get("record_id") in delivered_ids:
+                            continue
+                        kept.append(line)
+                    fh.seek(0)
+                    fh.truncate()
+                    if kept:
+                        fh.write("\n".join(kept) + "\n")
+                        fh.flush()
+                finally:
+                    _unlock(fh)
+        except (OSError, ValueError):
             continue
-        kept: list[str] = []
-        for line in lines:
+        if kept is not None and not kept:
             try:
-                record = json.loads(line)
-            except ValueError:
-                kept.append(line)
-                continue
-            if isinstance(record, dict) and record.get("record_id") in delivered_ids:
-                continue
-            kept.append(line)
-        if kept:
-            path.write_text("\n".join(kept) + "\n", encoding="utf-8")
-        else:
-            path.unlink(missing_ok=True)
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass

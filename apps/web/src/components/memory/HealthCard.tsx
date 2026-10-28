@@ -69,6 +69,15 @@ function HealthCard() {
             <XCircle size={10} className="text-danger" />
             {distribution.suspicious}
           </span>
+          {distribution.conflicted > 0 && (
+            <span
+              className="flex items-center gap-0.5 font-semibold text-danger"
+              title={t.memories.healthConflicted}
+            >
+              <XCircle size={10} />
+              {distribution.conflicted}
+            </span>
+          )}
           {health?.version && (
             <>
               <span className="opacity-40">·</span>

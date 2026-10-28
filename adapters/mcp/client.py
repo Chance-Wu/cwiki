@@ -213,6 +213,7 @@ class CwikiClient:
         project_id: str | None = None,
         source: str | None = None,
         client_write_id: str | None = None,
+        legacy_client_write_id: str | None = None,
         tags: list[str] | None = None,
         is_permanent: bool = False,
         permanent_reason: str | None = None,
@@ -229,6 +230,8 @@ class CwikiClient:
             body["source"] = source
         if client_write_id:
             body["client_write_id"] = client_write_id
+        if legacy_client_write_id:
+            body["legacy_client_write_id"] = legacy_client_write_id
         if tags:
             body["tags"] = tags
         if is_permanent:

@@ -94,6 +94,14 @@ def _write_json(payload: dict[str, object]) -> None:
 
 
 def main() -> int:
+    try:
+        return _dispatch()
+    except Exception:  # fail-open：任何意外都不能阻塞宿主
+        _diagnose("internal error")
+        return 0
+
+
+def _dispatch() -> int:
     args = sys.argv[1:]
     if len(args) != 2:
         _diagnose("expected <host> <event>")
@@ -137,7 +145,6 @@ def main() -> int:
     refresh(normalized.workspace, host)
 
     if event == "session-start":
-        capture.drain(host, max_batches=1)
         parts = [REMINDER]
         hint = decisions.build_hint(normalized.workspace)
         if hint:
@@ -146,6 +153,8 @@ def main() -> int:
         if head:
             parts.append(head)
         _write_json(profiles.render_context(host, event, "\n\n".join(parts)))
+        # 先输出再补投：补投含 HTTP，API 慢时不能挤掉本次会话注入
+        capture.drain(host, max_batches=1)
         return 0
 
     if event == "user-prompt-submit":

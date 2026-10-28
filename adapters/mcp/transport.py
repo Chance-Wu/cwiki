@@ -32,7 +32,7 @@ def _jsonrpc_error(code: int, message: str, *, id: Any = None) -> dict[str, Any]
 
 OVERSIZE_ERROR: dict[str, Any] = _jsonrpc_error(
     _JSONRPC_TRANSPORT_ERROR,
-    f"Message exceeds {MAX_MESSAGE_BYTES} bytes; transport closed",
+    f"Message exceeds {MAX_MESSAGE_BYTES} bytes; request rejected",
 )
 
 PARSE_ERROR: dict[str, Any] = _jsonrpc_error(_JSONRPC_PARSE_ERROR, "Invalid JSON or UTF-8")

@@ -240,7 +240,7 @@ setup 仅更新 `<!-- cwiki:begin -->` / `<!-- cwiki:end -->` 管理的区块，
 
 - **19 个 MCP 工具** — `memory_search`、`memory_save`、`memory_tags`、`memory_relations`、`memory_relation_create`、`memory_relation_delete`、`memory_history`、`memory_review_due`、`memory_review_submit`、`memory_review_stats` 等
 - **cwiki-save skill** — 按需提取与保存记忆
-- **3 个斜杠命令** — `/memory-status`、`/memory-search`、`/memory-review`
+- **4 个斜杠命令** — `/memory-status`、`/memory-search`、`/memory-review`、`/memory-pin`
 
 > MCP 负责工具契约与可靠写入，AGENTS 定义行为契约，skill 独占提取质量与检查点策略。
 > 完整工具清单 → [MCP 工具参考](adapters/qoder/README.md#mcp-tools)，写入契约 → [记忆系统](docs/memory-system.md#写入契约)

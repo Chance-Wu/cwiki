@@ -243,6 +243,7 @@ const zh: TranslationKeys = {
     healthHealthy: '健康',
     healthReview: '待审',
     healthSuspicious: '可疑',
+    healthConflicted: '冲突',
     utilityScore: '效用分',
     matchScore: '匹配分（搜索结果的多信号加权得分或相似度）',
     reasonStrengths: '强项：{items}',

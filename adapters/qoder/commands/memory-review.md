@@ -1,8 +1,11 @@
-# Memory Review
+---
+description: 审核待处理的记忆候选，支持批准、编辑、拒绝或合并
+---
 
-Review pending candidate memories in cwiki inbox.
+# 审核记忆候选
 
-## Usage
-/memory-review
-
-Shows pending candidates with options to Approve, Edit, Reject, or Merge each one.
+1. 调用 `memory_status`，记录 `pending_candidates` 数量；为 0 时直接告知无需审核。
+2. 打开控制台审核页 http://127.0.0.1:5173/review（后续端与前端均已启动）。
+3. 逐条处理：批准 → 转正；编辑 → 修正正文/标题后再批准；拒绝 → 隔离留存；合并 → 选目标记忆。
+4. 审核是人工动作：不要用 `memory_update` 或重新 `memory_save` 冒充批准。
+5. 完成后回归报告：`批准 N / 编辑 M / 拒绝 K / 合并 J`；失败时给出原因与重试命令。

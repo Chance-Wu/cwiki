@@ -19,21 +19,30 @@ async def discover_relations(
     db: AsyncSession,
     workspace_id: uuid.UUID,
     *,
-    threshold: float = 0.85,
-    max_relations_per_memory: int = 10,
+    threshold: float | None = None,
+    max_relations_per_memory: int | None = None,
 ) -> int:
     """扫描工作区内的记忆，基于向量相似度自动创建 related 关系。
 
     Args:
         db: 数据库会话
         workspace_id: 工作区 ID
-        threshold: 余弦相似度阈值（默认 0.85）
-        max_relations_per_memory: 每条记忆最多自动创建的关系数（防止过度连接）
+        threshold: 余弦相似度阈值（省略时读 parasitic_evolution.auto_relation_threshold）
+        max_relations_per_memory: 每条记忆的关系总数上限（省略时读配置）
 
     Returns:
         新创建的关系数量
+
+    配额按既有关系总数计算（而非单轮），避免每 6 小时一轮持续加边。
     """
-    # 查询该工作区所有有 embedding 的 active 记忆
+    from packages.domain.config import parasitic_evolution_config
+
+    if threshold is None:
+        threshold = parasitic_evolution_config.auto_relation_threshold
+    if max_relations_per_memory is None:
+        max_relations_per_memory = parasitic_evolution_config.auto_relation_max_per_memory
+
+    # 查询该工作区所有有 embedding 的 active 记忆（固定排序保证结果确定）
     stmt = (
         select(Memory)
         .where(
@@ -41,6 +50,7 @@ async def discover_relations(
             Memory.status == "active",
             Memory.embedding.isnot(None),
         )
+        .order_by(Memory.created_at, Memory.id)
     )
     result = await db.execute(stmt)
     memories = result.scalars().all()
@@ -75,8 +85,13 @@ async def discover_relations(
         existing_pairs.add((rel.source_memory_id, rel.target_memory_id))
         existing_pairs.add((rel.target_memory_id, rel.source_memory_id))
 
-    # 统计每条记忆已创建的关系数
+    # 统计每条记忆已创建的关系总数：配额是"总度数上限"而非单轮新增数
     relation_count: dict[uuid.UUID, int] = {mid: 0 for mid in memory_ids}
+    for rel in existing_relations:
+        if rel.source_memory_id in relation_count:
+            relation_count[rel.source_memory_id] += 1
+        if rel.target_memory_id in relation_count:
+            relation_count[rel.target_memory_id] += 1
 
     new_relations = []
     now = datetime.now(UTC)

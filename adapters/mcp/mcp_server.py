@@ -287,6 +287,8 @@ def _safe_error(exc: Exception) -> str:
     if isinstance(exc, httpx.HTTPStatusError):
         try:
             detail = exc.response.json().get("detail")
+            if isinstance(detail, dict):
+                detail = detail.get("hint") or detail.get("reason") or detail.get("code")
             if detail:
                 return f"API error {exc.response.status_code}: {detail}"
         except (ValueError, KeyError):
@@ -361,17 +363,35 @@ def _security_error(content: str) -> dict[str, Any] | None:
     return None
 
 
-def _make_write_id(content: str, prefix: str = "ms") -> str:
-    """从内容生成确定性的 client_write_id。
+def _make_write_id(
+    content: str,
+    prefix: str = "ms",
+    *,
+    title: str = "",
+    memory_type: str = "",
+    workspace: str = "",
+) -> str:
+    """从内容（及标题/类型/工作区）生成确定性的 client_write_id。
 
-    取 SHA-256 前 16 个十六进制字符：相同内容重试得到相同幂等键，
-    由服务端/outbox 去重，避免崩溃恢复后的重复提交。
+    取 SHA-256 前 16 个十六进制字符：相同输入重试得到相同幂等键，由服务端/
+    outbox 去重。标题参与哈希——只改标题的重新提交不会再命中旧候选。
+    未提供标题等字段时退化为纯内容哈希（checkpoint 等旧调用保持兼容）。
     """
-    digest = hashlib.sha256(content.encode()).hexdigest()[:16]
+    if title or memory_type or workspace:
+        material = f"{title}\x1f{memory_type}\x1f{workspace}\x1f{content}"
+    else:
+        material = content
+    digest = hashlib.sha256(material.encode()).hexdigest()[:16]
     return f"{prefix}:{digest}"
 
 
 _SAVE_ISSUE_KEYS = frozenset(("error", "outbox_warning", "outbox_error"))
+
+# 单条正文上限：避免一次工具调用接近 MCP 帧上限（8MB）被传输层拒绝，
+# 同时保证工具响应不会灌爆宿主上下文
+SAVE_CONTENT_MAX_BYTES = 256 * 1024
+# 导入载荷上限：超过后引导改用 Web 控制台导入
+IMPORT_PAYLOAD_MAX_BYTES = 2 * 1024 * 1024
 
 
 def _save_result_has_issues(result: dict[str, Any]) -> bool:
@@ -984,6 +1004,14 @@ class MCPServer:
             return {"error": "content 为必填字符串"}
         if not isinstance(title, str) or not title.strip():
             return {"error": "title 为必填参数"}
+        content_bytes = len(content.encode("utf-8"))
+        if content_bytes > SAVE_CONTENT_MAX_BYTES:
+            return {
+                "error": (
+                    f"content 为 {content_bytes / 1024:.0f}KB，超过单条上限 "
+                    f"{SAVE_CONTENT_MAX_BYTES // 1024}KB。请拆分多条记忆或精简正文。"
+                )
+            }
         validation_error = _validate_string_fields(
             {"title": title, "content": content},
             {"title": validate_memory_title, "content": validate_memory_content},
@@ -1031,7 +1059,11 @@ class MCPServer:
             permanent_reason = arguments.get("permanent_reason")
             if isinstance(permanent_reason, str) and permanent_reason.strip():
                 frozen["permanent_reason"] = permanent_reason.strip()[:500]
-        write_id = _make_write_id(content)
+        write_id = _make_write_id(
+            content, title=title.strip(), memory_type=memory_type, workspace=workspace
+        )
+        # 旧版幂等键只含正文：随请求附带，服务端双查一版，避免升级后重复候选
+        frozen["legacy_client_write_id"] = _make_write_id(content)
         response, entry, exc = await self._outbox_submit("memory_save", frozen, workspace, write_id)
         if exc is not None:
             rejected = _is_client_rejection(exc)
@@ -1058,10 +1090,12 @@ class MCPServer:
                 )
             return result
         assert response is not None
+        created = bool(response.get("created", True))
         similar_items = response.get("similar_items", [])
         candidate_payload = response.get("candidate", {})
         result = {
             "status": "created",
+            "created": created,
             "candidate_id": candidate_payload.get("id"),
             "title": title,
             "inferred_type": memory_type,
@@ -1097,6 +1131,13 @@ class MCPServer:
             result["hint"] = (
                 response.get("hint")
                 or "发现相似记忆，请核对完整来源；修正已有记忆可使用 memory_update。"
+            )
+        if not created:
+            # 幂等命中：同标题/类型/正文的候选已存在，不能谎报 created
+            result["status"] = "deduplicated"
+            result["message"] = "相同标题/类型/正文的候选已存在（幂等命中），未新建"
+            result["hint"] = (
+                "如需修改标题或正文，请在审核时编辑该候选；已转正记忆请用 memory_update。"
             )
         result["delivery"] = "confirmed"
         warning = self._outbox_done(workspace, entry["id"]) if entry else None
@@ -1546,6 +1587,15 @@ class MCPServer:
         workspace_id = arguments.get("workspace_name") or current_workspace_for(self)
         strategy = arguments.get("strategy", "skip")
         import_data_payload = arguments.get("data", {})
+        payload_bytes = len(json.dumps(import_data_payload, ensure_ascii=False).encode("utf-8"))
+        if payload_bytes > IMPORT_PAYLOAD_MAX_BYTES:
+            return {
+                "error": (
+                    f"导入载荷 {payload_bytes / 1024:.0f}KB 超过上限 "
+                    f"{IMPORT_PAYLOAD_MAX_BYTES // 1024}KB。请分批导入，"
+                    "或改用 Web 控制台的导入功能。"
+                )
+            }
         import_result = await self.client.import_data(import_data_payload, workspace_id, strategy)
         return {
             "status": "ok",
@@ -1809,8 +1859,9 @@ async def run_server() -> None:
         if not line:
             return None
         if len(line) > MAX_MESSAGE_BYTES:
+            # 整行已读完，丢弃该请求后可继续读下一行，无需关闭传输
             await write_response(OVERSIZE_ERROR)
-            return None
+            return _CONTINUE
         if not line.strip():
             return _CONTINUE
         try:

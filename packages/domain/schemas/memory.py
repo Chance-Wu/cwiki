@@ -110,6 +110,8 @@ class CandidateMemoryCreate(BaseModel):
     permanent_reason: str | None = Field(default=None, max_length=500)
     source: str = Field("mcp", max_length=32)
     client_write_id: str | None = Field(default=None, max_length=64)
+    # 旧版只含正文的幂等键：兼容升级前的候选，服务端双查一版
+    legacy_client_write_id: str | None = Field(default=None, max_length=64)
     confidence: float | None = None
     importance: float | None = None
     novelty: float | None = None
@@ -199,6 +201,8 @@ class CandidateMemoryCreateResponse(BaseModel):
     candidate: CandidateMemoryRead
     similar_items: list[SimilarItemRead] = []
     hint: str | None = None
+    # False 表示命中了 client_write_id 幂等（返回已有候选，未新建）
+    created: bool = True
 
 
 class EvidenceRead(BaseModel):

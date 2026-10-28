@@ -7,7 +7,7 @@ import logging
 import time
 import uuid
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
@@ -80,6 +80,8 @@ class _SearchParams:
     session_id: uuid.UUID | None = None
     record_trace: bool = True
     tags: list[str] | None = None
+    # 本次检索发生的降级标记（向量检索失败等），随结果透出
+    degraded: set[str] = field(default_factory=set)
 
 
 def _ensure_candidate(candidates: dict[str, dict[str, Any]], doc_id: str) -> dict[str, Any]:
@@ -308,15 +310,23 @@ class RetrievalEngine:
         """
         start_time = time.time()
         params = _SearchParams(
-            db=db, query=query, workspace_id=workspace_id,
-            project_id=project_id, top_k=top_k, memory_type=memory_type,
-            min_confidence=min_confidence, min_similarity=min_similarity,
-            session_id=session_id, record_trace=record_trace, tags=tags,
+            db=db,
+            query=query,
+            workspace_id=workspace_id,
+            project_id=project_id,
+            top_k=top_k,
+            memory_type=memory_type,
+            min_confidence=min_confidence,
+            min_similarity=min_similarity,
+            session_id=session_id,
+            record_trace=record_trace,
+            tags=tags,
         )
 
         # 规范化标签过滤
         if params.tags:
             from packages.memory.service import normalize_tags
+
             params.tags = normalize_tags(params.tags)
 
         # 指纹 + BM25 索引
@@ -334,27 +344,42 @@ class RetrievalEngine:
         # Phase 3: RRF 融合
         rrf_scores = self._rrf_fusion(candidates)
         top_ids = [
-            doc_id for doc_id, _ in
-            sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)[:top_k * 3]
+            doc_id
+            for doc_id, _ in sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)[
+                : top_k * 3
+            ]
         ]
 
         uuid_ids = self._parse_uuid_ids(top_ids)
         if not uuid_ids:
             return {
-                "memories": [], "total": 0, "sources": [],
-                "context": "", "latency_ms": 0, "fallback": False,
+                "memories": [],
+                "total": 0,
+                "sources": [],
+                "context": "",
+                "latency_ms": 0,
+                "fallback": False,
+                "degraded": self._degraded_flags(params),
             }
 
         # Phase 4: Hydrate + 过滤
         mem_map = await self._hydrate_memories(db, uuid_ids, workspace_id, project_id)
         rerank_inputs = self._build_rerank_inputs(
-            top_ids, mem_map, candidates, rrf_scores, params, analyzed,
+            top_ids,
+            mem_map,
+            candidates,
+            rrf_scores,
+            params,
+            analyzed,
         )
 
         # Phase 5: 重排
         reranked = rerank(
-            rerank_inputs, query_intent=analyzed.intent, top_k=top_k * 2,
-            intent_confidence=analyzed.confidence, negations=analyzed.negations,
+            rerank_inputs,
+            query_intent=analyzed.intent,
+            top_k=top_k * 2,
+            intent_confidence=analyzed.confidence,
+            negations=analyzed.negations,
             key_terms=analyzed.key_terms,
         )
 
@@ -363,25 +388,38 @@ class RetrievalEngine:
 
         # Phase 7: 候选过滤 + 多样性 + 效用分
         reranked = self._apply_candidate_filters(
-            reranked, mem_map, skip_stale=analyzed.is_historical_query,
+            reranked,
+            mem_map,
+            skip_stale=analyzed.is_historical_query,
         )
         diverse = self._apply_diversity(reranked, mem_map, params, analyzed, top_k)
         utility_map = await self._aggregate_utility_scores(
-            db, [mid for mid, _, _ in diverse], mem_map,
+            db,
+            [mid for mid, _, _ in diverse],
+            mem_map,
         )
 
         # Phase 8: 构建结果
         final_memories, sources = self._build_final_results(
-            diverse, mem_map, candidates, rrf_scores, utility_map,
+            diverse,
+            mem_map,
+            candidates,
+            rrf_scores,
+            utility_map,
         )
         latency_ms = int((time.time() - start_time) * 1000)
 
         # Phase 9: 记录 trace
         if record_trace and workspace_id is not None:
             await self._safe_record_trace(
-                db=db, workspace_id=workspace_id, session_id=session_id,
-                query=query or "", analyzed=analyzed, candidates=candidates,
-                final_memories=final_memories, latency_ms=latency_ms,
+                db=db,
+                workspace_id=workspace_id,
+                session_id=session_id,
+                query=query or "",
+                analyzed=analyzed,
+                candidates=candidates,
+                final_memories=final_memories,
+                latency_ms=latency_ms,
             )
 
         return {
@@ -392,6 +430,7 @@ class RetrievalEngine:
             "latency_ms": latency_ms,
             "analyzed": analyzed,
             "candidates": candidates,
+            "degraded": self._degraded_flags(params),
         }
 
     async def _dual_recall(
@@ -432,9 +471,7 @@ class RetrievalEngine:
                     boost = score * 1.2
                     if entry["bm25_score"] < boost:
                         entry["bm25_score"] = boost
-                        entry["bm25_rank"] = min(
-                            entry["bm25_rank"] or _FALLBACK_RANK, rank + 30
-                        )
+                        entry["bm25_rank"] = min(entry["bm25_rank"] or _FALLBACK_RANK, rank + 30)
 
         # 同义词扩展命中打折（x0.7、名次 +50）
         if analyzed.expanded_terms:
@@ -445,20 +482,23 @@ class RetrievalEngine:
                 boost = score * 0.7
                 if entry["bm25_score"] < boost:
                     entry["bm25_score"] = boost
-                    entry["bm25_rank"] = min(
-                        entry["bm25_rank"] or _FALLBACK_RANK, rank + 50
-                    )
+                    entry["bm25_rank"] = min(entry["bm25_rank"] or _FALLBACK_RANK, rank + 50)
 
         # 等待 embedding 并执行向量检索
         query_embedding = await embedding_task
         if query_embedding is not None:
             try:
                 vector_results = await self._vector_search(
-                    params.db, query_embedding, params.workspace_id,
-                    top_k=50, project_id=params.project_id, fingerprint=fingerprint,
+                    params.db,
+                    query_embedding,
+                    params.workspace_id,
+                    top_k=50,
+                    project_id=params.project_id,
+                    fingerprint=fingerprint,
                 )
             except Exception:
                 logger.exception("Vector search failed, degrading to BM25-only")
+                params.degraded.add("vector_search_failed")
                 vector_results = []
             for rank, (doc_id, score) in enumerate(vector_results, 1):
                 entry = _ensure_candidate(candidates, doc_id)
@@ -475,8 +515,12 @@ class RetrievalEngine:
     ) -> dict[str, Any]:
         """Phase 2: 无候选时按重要性返回 top-N 兜底。"""
         stmt = select(
-            Memory.id, Memory.title, Memory.content,
-            Memory.type, Memory.tags, Memory.version,
+            Memory.id,
+            Memory.title,
+            Memory.content,
+            Memory.type,
+            Memory.tags,
+            Memory.version,
         ).where(Memory.status == "active")
         if params.workspace_id is not None:
             stmt = stmt.where(Memory.workspace_id == params.workspace_id)
@@ -497,9 +541,14 @@ class RetrievalEngine:
         rows = result.all()
         mem_dicts = [
             {
-                "id": str(r.id), "title": r.title, "content": r.content,
-                "type": r.type, "tags": r.tags or [], "version": r.version,
-                "score": 0.0, "fallback": True,
+                "id": str(r.id),
+                "title": r.title,
+                "content": r.content,
+                "type": r.type,
+                "tags": r.tags or [],
+                "version": r.version,
+                "score": 0.0,
+                "fallback": True,
             }
             for r in rows
         ]
@@ -507,9 +556,13 @@ class RetrievalEngine:
 
         if params.record_trace and params.workspace_id is not None:
             await self._safe_record_trace(
-                db=params.db, workspace_id=params.workspace_id,
-                session_id=params.session_id, query=params.query or "",
-                analyzed=analyzed, candidates={}, final_memories=mem_dicts,
+                db=params.db,
+                workspace_id=params.workspace_id,
+                session_id=params.session_id,
+                query=params.query or "",
+                analyzed=analyzed,
+                candidates={},
+                final_memories=mem_dicts,
                 latency_ms=latency_ms,
             )
 
@@ -521,7 +574,16 @@ class RetrievalEngine:
             "latency_ms": latency_ms,
             "analyzed": analyzed,
             "candidates": {},
+            "degraded": self._degraded_flags(params),
         }
+
+    @staticmethod
+    def _degraded_flags(params: _SearchParams) -> list[str]:
+        """汇总本次检索的降级标记（含 embedding 哈希兜底）。"""
+        flags = set(params.degraded)
+        if getattr(get_embedding_service(), "is_fallback", False):
+            flags.add("embedding_fallback")
+        return sorted(flags)
 
     def _rrf_fusion(self, candidates: dict[str, dict[str, Any]]) -> dict[str, float]:
         """Phase 3: RRF 倒数排名融合。"""
@@ -559,10 +621,20 @@ class RetrievalEngine:
     ) -> dict[str, Any]:
         """Phase 4a: 从 DB 取回完整记忆记录。"""
         final_stmt = select(
-            Memory.id, Memory.title, Memory.content, Memory.type, Memory.tags,
-            Memory.version, Memory.confidence, Memory.importance, Memory.usage_count,
-            Memory.valid_from, Memory.valid_to, Memory.created_at,
-            Memory.last_used_at, Memory.embedding,
+            Memory.id,
+            Memory.title,
+            Memory.content,
+            Memory.type,
+            Memory.tags,
+            Memory.version,
+            Memory.confidence,
+            Memory.importance,
+            Memory.usage_count,
+            Memory.valid_from,
+            Memory.valid_to,
+            Memory.created_at,
+            Memory.last_used_at,
+            Memory.embedding,
         ).where(Memory.id.in_(uuid_ids), Memory.status == "active")
         if workspace_id is not None:
             final_stmt = final_stmt.where(Memory.workspace_id == workspace_id)
@@ -601,20 +673,26 @@ class RetrievalEngine:
                     continue
             data = candidates.get(doc_id, {})
             freshness = temporal_score(
-                valid_from=m.valid_from, valid_to=m.valid_to,
-                created_at=m.created_at, last_used_at=m.last_used_at,
+                valid_from=m.valid_from,
+                valid_to=m.valid_to,
+                created_at=m.created_at,
+                last_used_at=m.last_used_at,
                 ignore_expiry=analyzed.is_historical_query,
             )
             usage_score = min(m.usage_count / 100.0, 1.0) if m.usage_count else 0.0
             rerank_inputs.append(
                 RerankInput(
-                    memory_id=doc_id, title=m.title, content=m.content,
+                    memory_id=doc_id,
+                    title=m.title,
+                    content=m.content,
                     memory_type=m.type,
                     bm25_score=data.get("bm25_score", 0.0),
                     vector_score=data.get("vector_score", 0.0),
                     rrf_score=rrf_scores.get(doc_id, 0.0),
-                    confidence=m.confidence, importance=m.importance,
-                    freshness=freshness, usage_score=usage_score,
+                    confidence=m.confidence,
+                    importance=m.importance,
+                    freshness=freshness,
+                    usage_score=usage_score,
                 )
             )
         return rerank_inputs
@@ -629,6 +707,7 @@ class RetrievalEngine:
         """Phase 6: 一跳图扩展——沿记忆关系边给邻居加分。"""
         try:
             from packages.domain.config import parasitic_evolution_config
+
             if not parasitic_evolution_config.memory_relations_enabled:
                 return reranked
             top_ids_for_expansion = [mid for mid, _ in reranked[:5]]
@@ -651,9 +730,7 @@ class RetrievalEngine:
                         continue
                     if (
                         params.min_similarity is not None
-                        and float(
-                            candidates.get(neighbor_id, {}).get("vector_score", 0.0) or 0.0
-                        )
+                        and float(candidates.get(neighbor_id, {}).get("vector_score", 0.0) or 0.0)
                         < params.min_similarity
                     ):
                         continue
@@ -685,7 +762,9 @@ class RetrievalEngine:
         if params.memory_type:
             max_per_type = top_k
         return apply_diversity(
-            ranked_with_type, top_k=top_k, max_per_type=max_per_type,
+            ranked_with_type,
+            top_k=top_k,
+            max_per_type=max_per_type,
         )
 
     def _build_final_results(
@@ -705,28 +784,30 @@ class RetrievalEngine:
             if not m:
                 continue
             rank += 1
-            final_memories.append({
-                "id": mem_id,
-                "title": m.title,
-                "content": m.content,
-                "type": m.type,
-                "tags": m.tags or [],
-                "version": m.version,
-                "score": round(final_score, 4),
-                "bm25_score": round(
-                    float(candidates.get(mem_id, {}).get("bm25_score", 0.0)), 6
-                ),
-                "vector_score": round(
-                    float(candidates.get(mem_id, {}).get("vector_score", 0.0)), 6
-                ),
-                "rerank_score": round(final_score, 4),
-                "utility_score": utility_map.get(mem_id, 0.0),
-                "rrf_score": round(rrf_scores.get(mem_id, 0), 6),
-                "confidence": m.confidence,
-                "valid_to": m.valid_to,
-                "rank": rank,
-                "embedding": m.embedding,
-            })
+            final_memories.append(
+                {
+                    "id": mem_id,
+                    "title": m.title,
+                    "content": m.content,
+                    "type": m.type,
+                    "tags": m.tags or [],
+                    "version": m.version,
+                    "score": round(final_score, 4),
+                    "bm25_score": round(
+                        float(candidates.get(mem_id, {}).get("bm25_score", 0.0)), 6
+                    ),
+                    "vector_score": round(
+                        float(candidates.get(mem_id, {}).get("vector_score", 0.0)), 6
+                    ),
+                    "rerank_score": round(final_score, 4),
+                    "utility_score": utility_map.get(mem_id, 0.0),
+                    "rrf_score": round(rrf_scores.get(mem_id, 0), 6),
+                    "confidence": m.confidence,
+                    "valid_to": m.valid_to,
+                    "rank": rank,
+                    "embedding": m.embedding,
+                }
+            )
             sources.append({"memory_id": mem_id, "score": round(final_score, 4)})
         return final_memories, sources
 
@@ -776,6 +857,7 @@ class RetrievalEngine:
                         ),
                         "latency_ms": latency_ms,
                         "fallback": False,
+                        "degraded": [],
                     }
             except Exception:
                 logger.warning(
@@ -833,6 +915,7 @@ class RetrievalEngine:
             "context": ctx.text,
             "latency_ms": latency_ms,
             "fallback": result["fallback"],
+            "degraded": result.get("degraded", []),
         }
 
     def _apply_candidate_filters(
@@ -894,6 +977,7 @@ class RetrievalEngine:
             select(
                 MemoryRelation.source_memory_id,
                 MemoryRelation.target_memory_id,
+                MemoryRelation.relation_type,
                 MemoryRelation.confidence,
                 MemoryRelation.strength,
                 MemoryRelation.last_reinforced_at,
@@ -906,7 +990,17 @@ class RetrievalEngine:
         )
         resolved_now = now or datetime.now(UTC)
         boosts: dict[str, float] = {}
-        for source_id, target_id, confidence, strength, last_reinforced_at in result.all():
+        for (
+            source_id,
+            target_id,
+            relation_type,
+            confidence,
+            strength,
+            last_reinforced_at,
+        ) in result.all():
+            # contradicts 表示相互矛盾，不能当正相关给邻居加分
+            if relation_type == "contradicts":
+                continue
             source_hit = source_id in id_set
             target_hit = target_id in id_set
             if source_hit and target_hit:
@@ -1195,6 +1289,9 @@ class RetrievalEngine:
         result = await db.execute(stmt)
         workspace_ids = [row[0] for row in result if row[0]]
 
+        # 预热 embedding 模型（首次加载也可能触发下载，放到线程里避免阻塞循环）
+        embedding_ready = await get_embedding_service().warm_up()
+
         built = 0
         for ws_id in workspace_ids:
             try:
@@ -1204,7 +1301,11 @@ class RetrievalEngine:
             except Exception:
                 logger.warning("Warm-up failed for workspace %s", ws_id, exc_info=True)
 
-        return {"workspaces_found": len(workspace_ids), "caches_built": built}
+        return {
+            "workspaces_found": len(workspace_ids),
+            "caches_built": built,
+            "embedding_ready": embedding_ready,
+        }
 
     async def _vector_search(
         self,

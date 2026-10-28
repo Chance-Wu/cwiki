@@ -94,7 +94,7 @@ def build_tool_definitions() -> list[dict[str, Any]]:
                     },
                     "limit": {
                         "type": "integer",
-                        "description": "最大返回数",
+                        "description": "最大返回数（curated 模式最多 50）",
                         "minimum": 1,
                         "maximum": 100,
                         "default": 10,

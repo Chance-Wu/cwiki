@@ -15,6 +15,8 @@ from .spool import append, load, remove_delivered
 
 MAX_CONTENT = 50000
 MAX_BATCH = 100
+# 必须小于宿主 hook 超时（SessionStart 5s），否则 API 慢时内层先超时
+POST_TIMEOUT_SECONDS = 3
 _SECRET_PATTERNS = [
     re.compile(r"(?i)(sk-[A-Za-z0-9_-]{12,})"),
     re.compile(r"(?i)(gh[pousr]_[A-Za-z0-9]{12,})"),
@@ -128,7 +130,7 @@ def store(event: HookEvent) -> None:
         return
     try:
         append(event.host, event.session_id, record)
-    except OSError:
+    except Exception:  # spool 失败不得影响宿主会话
         return
     drain(event.host, max_batches=1)
 
@@ -143,7 +145,7 @@ def _post(host: str, records: list[dict[str, Any]]) -> tuple[bool, set[str]]:
         method="POST",
     )
     try:
-        with urllib.request.urlopen(request, timeout=5) as response:
+        with urllib.request.urlopen(request, timeout=POST_TIMEOUT_SECONDS) as response:
             json.loads(response.read().decode("utf-8"))
     except (urllib.error.URLError, TimeoutError, ValueError, OSError):
         return False, set()
@@ -155,7 +157,7 @@ def drain(host: str, max_batches: int = 5) -> dict[str, int]:
     delivered = 0
     try:
         return _drain(host, max_batches)
-    except OSError:
+    except Exception:  # 投递失败只保留积压，不阻塞 hook
         return {"delivered": delivered}
 
 

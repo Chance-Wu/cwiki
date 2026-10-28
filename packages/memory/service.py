@@ -319,6 +319,7 @@ async def create_candidate(
     importance: float = 0.5,
     project_id: uuid.UUID | None = None,
     client_write_id: str | None = None,
+    legacy_client_write_id: str | None = None,
     tags: list[str] | None = None,
     is_permanent: bool = False,
     permanent_reason: str | None = None,
@@ -331,12 +332,17 @@ async def create_candidate(
     Returns:
         (candidate, similar_items, created) 三元组；返回已有候选时 *created* 为 False
     """
-    if client_write_id:
-        existing_stmt = select(CandidateMemory).where(
-            CandidateMemory.workspace_id == workspace_id,
-            CandidateMemory.client_write_id == client_write_id,
+    write_ids = [wid for wid in (client_write_id, legacy_client_write_id) if wid]
+    if write_ids:
+        existing_stmt = (
+            select(CandidateMemory)
+            .where(
+                CandidateMemory.workspace_id == workspace_id,
+                CandidateMemory.client_write_id.in_(write_ids),
+            )
+            .limit(1)
         )
-        existing = (await db.execute(existing_stmt)).scalar_one_or_none()
+        existing = (await db.execute(existing_stmt)).scalars().first()
         if existing is not None:
             return existing, [], False
 

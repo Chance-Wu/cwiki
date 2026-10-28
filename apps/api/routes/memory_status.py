@@ -33,11 +33,11 @@ from packages.domain.models import (
     ReviewSchedule,
     SessionNote,
 )
+from packages.domain.time_utils import days_since
 from packages.memory.evolution_metrics import compute_evolution_metrics
 from packages.memory.health import compute_health
 from packages.memory.utility_score import compute_utility_score
 from packages.retrieval.embedding import get_embedding_metrics
-from packages.domain.time_utils import days_since
 
 logger = logging.getLogger(__name__)
 
@@ -447,7 +447,12 @@ async def get_health_summary(
         empty = {
             "total": 0,
             "avg_score": 0.0,
-            "distribution": {"healthy": 0, "needs_review": 0, "suspicious": 0},
+            "distribution": {
+                "healthy": 0,
+                "needs_review": 0,
+                "suspicious": 0,
+                "conflicted": 0,
+            },
         }
         _health_summary_cache.set(empty)
         return empty
@@ -504,7 +509,8 @@ async def get_health_summary(
             conflict_batch[mid] = cnt
 
     scores: list[float] = []
-    distribution = {"healthy": 0, "needs_review": 0, "suspicious": 0}
+    # 分档键与 compute_health 的四种状态一一对应，保证 total == 各档之和
+    distribution = {"healthy": 0, "needs_review": 0, "suspicious": 0, "conflicted": 0}
 
     for mem in memories:
         ef = ease_factor_map.get(mem.id, 2.5)
@@ -541,9 +547,7 @@ async def get_health_summary(
         )
 
         scores.append(health.score)
-        status = health.status
-        if status in distribution:
-            distribution[status] += 1
+        distribution[health.status] = distribution.get(health.status, 0) + 1
 
     avg_score = sum(scores) / len(scores) if scores else 0.0
 
@@ -739,28 +743,32 @@ async def get_knowledge_graph(
     # 构建节点
     nodes = []
     for m in sorted_memories:
-        nodes.append({
-            "id": str(m.id),
-            "title": m.title,
-            "type": m.type,
-            "confidence": m.confidence,
-            "importance": m.importance,
-            "degree": degree_map.get(m.id, 0),
-            "is_isolated": degree_map.get(m.id, 0) == 0,
-        })
+        nodes.append(
+            {
+                "id": str(m.id),
+                "title": m.title,
+                "type": m.type,
+                "confidence": m.confidence,
+                "importance": m.importance,
+                "degree": degree_map.get(m.id, 0),
+                "is_isolated": degree_map.get(m.id, 0) == 0,
+            }
+        )
 
     # 过滤出 Top 节点间的边
     edges = []
     for rel in relations:
         if rel.source_memory_id in top_ids and rel.target_memory_id in top_ids:
-            edges.append({
-                "id": str(rel.id),
-                "source": str(rel.source_memory_id),
-                "target": str(rel.target_memory_id),
-                "type": rel.relation_type,
-                "confidence": rel.confidence,
-                "strength": rel.strength,
-            })
+            edges.append(
+                {
+                    "id": str(rel.id),
+                    "source": str(rel.source_memory_id),
+                    "target": str(rel.target_memory_id),
+                    "type": rel.relation_type,
+                    "confidence": rel.confidence,
+                    "strength": rel.strength,
+                }
+            )
 
     return {
         "nodes": nodes,
@@ -798,7 +806,6 @@ async def get_quality_distribution(
             "averages": {"confidence": 0.0, "importance": 0.0, "usage_count": 0.0},
         }
 
-    now = datetime.now(UTC)
     confidence_dist = {"low": 0, "medium": 0, "high": 0}
     importance_dist = {"low": 0, "medium": 0, "high": 0}
     usage_dist = {"unused": 0, "low": 0, "medium": 0, "high": 0}

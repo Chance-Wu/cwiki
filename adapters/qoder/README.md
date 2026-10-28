@@ -139,11 +139,10 @@ Backend APIs remain available. Extraction strategy stays in `cwiki-save`; remind
 ```
 Qoder Agent
   |
-  |-- hooks (SessionStart only)
+  |-- hooks (SessionStart / UserPromptSubmit / PreToolUse / PostCompact / PostToolUseFailure / SessionEnd)
   |     |
   |     v
-  |   python -m adapters.hooks -> static additionalContext -> Qoder Agent
-  |                                      (no collection or API calls)
+  |   python -m adapters.hooks -> additionalContext + spool capture -> Qoder Agent
   |
   |-- MCP (stdio)
         |

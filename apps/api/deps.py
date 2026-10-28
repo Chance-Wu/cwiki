@@ -142,7 +142,11 @@ async def execute_paginated(
     """
     total_result = await db.execute(count_stmt)
     total = total_result.scalar() or 0
-    data_result = await db.execute(stmt.order_by(order_by).offset(offset).limit(limit))
+    if isinstance(order_by, (list, tuple)):
+        stmt = stmt.order_by(*order_by)
+    else:
+        stmt = stmt.order_by(order_by)
+    data_result = await db.execute(stmt.offset(offset).limit(limit))
     return total, data_result.scalars().all()
 
 
@@ -169,6 +173,8 @@ async def get_workspace(
 async def resolve_workspace(
     workspace_id: str | None,
     db: AsyncSession,
+    *,
+    allow_create: bool | None = None,
 ) -> uuid.UUID:
     """按名称或 UUID 字符串解析 workspace，返回其 UUID。
 
@@ -179,6 +185,9 @@ async def resolve_workspace(
     validate_path_component，否则会出现"DB 有行、MD 永远写不出去、且经
     _workspaces.json 随重建复活"的三层存储永久不对称（400 拒绝）。
     已存在的工作区不复查名称——历史脏名行仍可读写，由 /workspaces/hygiene 治理。
+
+    *allow_create*：未知名称是否自动建区。默认取 ``memory.auto_create_workspace``；
+    机器来源（hook 捕获，名称由 cwd 派生）显式传 True，避免新项目丢采集数据。
     """
     if not workspace_id:
         workspace_id = "default"
@@ -207,6 +216,22 @@ async def resolve_workspace(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={"code": "invalid_workspace_name", "name": workspace_id, "reason": str(exc)},
         ) from exc
+
+    if allow_create is None:
+        allow_create = settings.auto_create_workspace
+    if not allow_create and workspace_id != "default":
+        # 拼写错误/历史脏名不再静默建区（曾出现 18 个区仅 7 个有记忆）
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "code": "unknown_workspace",
+                "name": workspace_id,
+                "hint": (
+                    "工作区不存在。请先在 Web 控制台或 POST /v1/workspaces 创建，"
+                    "或确认 workspace_name 与项目目录名一致。"
+                ),
+            },
+        )
 
     new_ws = Workspace(name=workspace_id)
     db.add(new_ws)

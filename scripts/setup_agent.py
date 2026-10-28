@@ -149,10 +149,10 @@ def install_claude(home: Path, dry_run: bool) -> None:
         "UserPromptSubmit": (None, ["user-prompt-submit"]),
         "PreToolUse": ("mcp__.*", ["pre-tool-use"]),
         "PostCompact": (None, ["post-compact"]),
-        "PostToolUseFailure": (None, ["post-tool-use-failure"]),
+        "PostToolUseFailure": (None, ["post-tool-failure"]),
         "SessionEnd": (None, ["session-end", "drain"]),
     }
-    async_commands = {"post-compact", "post-tool-use-failure", "session-end"}
+    async_commands = {"post-compact", "post-tool-failure", "session-end"}
     for event, (matcher, commands) in events.items():
         addition = {
             **({"matcher": matcher} if matcher else {}),

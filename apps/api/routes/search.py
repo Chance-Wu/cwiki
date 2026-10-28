@@ -141,6 +141,7 @@ async def search(
         insufficient_reason=(
             "无相关性候选，以下为按重要度排序的兜底结果" if ranked["fallback"] else None
         ),
+        degraded=ranked.get("degraded", []),
     )
     _search_cache[cache_key] = (time.monotonic(), response)
     _evict_search_cache()

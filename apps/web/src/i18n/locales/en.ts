@@ -243,6 +243,7 @@ const en = {
     healthHealthy: 'Healthy',
     healthReview: 'Review',
     healthSuspicious: 'Suspicious',
+    healthConflicted: 'Conflicted',
     utilityScore: 'Utility Score',
     matchScore: 'Match score (weighted signals or similarity for search results)',
     reasonStrengths: 'Strengths: {items}',

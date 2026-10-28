@@ -1,3 +1,7 @@
+---
+description: 查看 cwiki 集成状态：服务连接、队列积压、今日统计
+---
+
 # Memory Status
 
 Check the current status of cwiki integration.
@@ -20,4 +24,4 @@ Today:
   Candidates: 12
   Approved: 7
 
-Run `cwiki-doctor` for detailed diagnostics.
+Run `python scripts/setup.py --check` for detailed diagnostics.

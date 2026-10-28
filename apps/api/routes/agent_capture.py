@@ -94,7 +94,9 @@ async def capture_agent_records(
             )
             continue
 
-        resolved_ws_id = await resolve_workspace(record.workspace, db)
+        # 捕获是机器来源（workspace 由宿主 cwd 派生）：新项目也自动建区，
+        # 严格模式只约束用户/Agent 显式传入的名称
+        resolved_ws_id = await resolve_workspace(record.workspace, db, allow_create=True)
         session_id = _session_uuid(body.host, record.workspace, record.session_id)
         if first_session_id is None:
             first_session_id = session_id

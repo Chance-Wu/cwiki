@@ -87,7 +87,8 @@ def fail(msg: str) -> NoReturn:
 
 
 def read_json(path: Path) -> dict[str, Any]:
-    data: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+    # 宿主与 Windows 工具写出的 JSON 可能带 BOM；utf-8-sig 同时兼容无 BOM
+    data: dict[str, Any] = json.loads(path.read_text(encoding="utf-8-sig"))
     return data
 
 
@@ -210,8 +211,14 @@ def ensure_global_mcp_json() -> None:
     if global_mcp.is_file():
         try:
             data = read_json(global_mcp)
-        except (OSError, UnicodeError, ValueError):
-            data = {}
+        except (OSError, UnicodeError, ValueError) as exc:
+            # 解析失败绝不能以空配置覆盖：那会清掉用户其它 MCP server
+            backup = global_mcp.with_name(global_mcp.name + ".corrupt")
+            try:
+                shutil.copy2(global_mcp, backup)
+            except OSError:
+                backup = global_mcp
+            fail(f"全局 mcp.json 解析失败（{exc}），已备份到 {backup}；修复后重跑 setup.py")
     else:
         data = {}
     servers = data.setdefault("mcpServers", {})
@@ -250,16 +257,30 @@ def patch_plugin_hooks(agent_key: str) -> None:
     info(f"插件缓存 hooks.json 已生成 (python={exe}, PYTHONPATH={PROJECT_ROOT})")
 
 
+def _prune_old_plugin_versions() -> None:
+    """清理同名的旧版本缓存目录，避免宿主继续按旧快照加载。"""
+    base = PLUGINS_DIR / "cache" / "local" / PLUGIN_NAME
+    current = plugin_cache_dir()
+    if not base.is_dir():
+        return
+    for child in base.iterdir():
+        if child.is_dir() and child.name != current.name:
+            shutil.rmtree(child, ignore_errors=True)
+            info(f"已清理旧版插件缓存：{child.name}")
+
+
 def ensure_plugin_installed(agent_key: str) -> None:
     """确保本地插件已安装到 Qoder 插件缓存，缺失时调用 qodercli 安装。
 
     本地插件由 `qodercli plugins install <源目录>` 安装到
     ~/.qoder/plugins/cache/local/<name>/<version>/ 并注册为 <name>@local。
-    未安装 qodercli 时只告警（fail-open），其余配置照常完成。
+    未安装 qodercli 时只告警（fail-open），其余配置照常完成；
+    但 qodercli 存在却安装失败属于真实故障，直接报错，避免 hooks 静默失效。
     """
     mcp_json = plugin_cache_dir() / ".mcp.json"
     if mcp_json.is_file():
         info(f"本地插件已安装：{plugin_cache_dir()}")
+        _prune_old_plugin_versions()
         return
 
     exe = shutil.which("qodercli")
@@ -277,18 +298,24 @@ def ensure_plugin_installed(agent_key: str) -> None:
         # CreateProcess 无法直接执行 .cmd/.bat，需经命令解释器。
         cmd = [os.environ.get("COMSPEC", "cmd.exe"), "/c", *cmd]
     if run(cmd) != 0:
-        warn(f"qodercli 安装插件失败，请手动运行：qodercli plugins install {PLUGIN_SOURCE_DIR}")
-        return
+        fail(
+            "qodercli 安装插件失败。请手动执行后重跑 setup.py："
+            f"qodercli plugins install {PLUGIN_SOURCE_DIR}"
+        )
     if mcp_json.is_file():
         info(f"本地插件已安装：{plugin_cache_dir()}")
+        _prune_old_plugin_versions()
     else:
-        warn(f"qodercli 执行后仍未找到插件缓存，请检查插件源目录：{PLUGIN_SOURCE_DIR}")
+        fail(f"qodercli 执行成功但未生成插件缓存，请检查插件源目录：{PLUGIN_SOURCE_DIR}")
 
 
 # ── 插件（缓存内容）──────────────────────────────────────────────────
 
 # 安装后可被源码修改的内容项：按字节比对，差异即复制进缓存
 PLUGIN_SYNC_CONTENT = ("skills", "commands", "README.md", ".qoder-plugin")
+# MCP 配置含安装期注入的 command/cwd/PYTHONPATH：按剥离注入字段后的结构比对，
+# 结构漂移才从模板刷新，避免覆盖旧安装注入的绝对路径
+PLUGIN_SYNC_MCP = (".mcp.json",)
 # 含安装期注入绝对路径的配置项：与模板规范化比对（剥离注入字段后），
 # 不一致（旧快照缺事件/结构漂移）即从模板刷新，随后由 patch_plugin_hooks 重新注入
 PLUGIN_SYNC_SEED = ("hooks",)
@@ -328,6 +355,96 @@ def _seed_file_diverged(source: Path, target: Path) -> bool:
     return _normalize_hooks_config(cached) != _normalize_hooks_config(template)
 
 
+def _normalize_mcp_config(data: dict[str, Any]) -> dict[str, Any]:
+    """剥离安装期注入的 command/cwd/PYTHONPATH，得到可比对结构。"""
+    data = copy.deepcopy(data)
+    servers = data.get("mcpServers")
+    if isinstance(servers, dict):
+        for server in servers.values():
+            if not isinstance(server, dict):
+                continue
+            server.pop("command", None)
+            server.pop("cwd", None)
+            env = server.get("env")
+            if isinstance(env, dict):
+                env.pop("PYTHONPATH", None)
+    return data
+
+
+def _mcp_config_diverged(source: Path, target: Path) -> bool:
+    """缓存 .mcp.json 是否与模板结构性不一致（需要刷新）。"""
+    if not source.is_file():
+        return False
+    if not target.is_file():
+        return True
+    try:
+        return _normalize_mcp_config(read_json(target)) != _normalize_mcp_config(read_json(source))
+    except (OSError, UnicodeError, ValueError):
+        return True
+
+
+def _iter_content_files(rel: str) -> list[Path]:
+    """列出源码内容项下的全部文件（兼容单文件与目录）。"""
+    source = PLUGIN_SOURCE_DIR / rel
+    if source.is_file():
+        return [source]
+    if source.is_dir():
+        return [p for p in source.rglob("*") if p.is_file()]
+    return []
+
+
+def _plugin_cache_divergence(cache: Path) -> list[str]:
+    """比较缓存与源码内容项，返回不一致项（缺失、字节差异或残留文件）。"""
+    diverged: list[str] = []
+    for rel in PLUGIN_SYNC_CONTENT:
+        source_files = _iter_content_files(rel)
+        if not source_files:
+            continue
+        for file in source_files:
+            rel_path = file.relative_to(PLUGIN_SOURCE_DIR).as_posix()
+            target_file = cache / rel_path
+            try:
+                if not target_file.is_file() or target_file.read_bytes() != file.read_bytes():
+                    diverged.append(rel_path)
+            except OSError:
+                diverged.append(rel_path)
+        target = cache / rel
+        if target.is_dir():
+            source_rel = {f.relative_to(PLUGIN_SOURCE_DIR).as_posix() for f in source_files}
+            for cached in target.rglob("*"):
+                if cached.is_file():
+                    rel_path = cached.relative_to(cache).as_posix()
+                    if rel_path not in source_rel:
+                        diverged.append(rel_path)
+    for rel in PLUGIN_SYNC_SEED:
+        source = PLUGIN_SOURCE_DIR / rel
+        if source.exists() and _seed_file_diverged(source, cache / rel):
+            diverged.append(rel)
+    for rel in PLUGIN_SYNC_MCP:
+        source = PLUGIN_SOURCE_DIR / rel
+        if _mcp_config_diverged(source, cache / rel):
+            diverged.append(rel)
+    return diverged
+
+
+def _dir_divergence(source: Path, target: Path) -> list[str]:
+    """逐文件比较两个目录，返回不一致的相对路径；目标缺失视为未安装。"""
+    if not target.is_dir():
+        return ["(未安装)"]
+    diffs: list[str] = []
+    for file in source.rglob("*"):
+        if not file.is_file():
+            continue
+        rel = file.relative_to(source).as_posix()
+        target_file = target / rel
+        try:
+            if not target_file.is_file() or target_file.read_bytes() != file.read_bytes():
+                diffs.append(rel)
+        except OSError:
+            diffs.append(rel)
+    return diffs
+
+
 def sync_plugin_cache(agent_key: str) -> None:
     """把源码内容同步进插件缓存，修复“安装后修改不生效”的旧快照问题。
 
@@ -344,10 +461,7 @@ def sync_plugin_cache(agent_key: str) -> None:
 
     synced = 0
     for rel in PLUGIN_SYNC_CONTENT:
-        source = PLUGIN_SOURCE_DIR / rel
-        if not source.exists():
-            continue
-        files = [source] if source.is_file() else [p for p in source.rglob("*") if p.is_file()]
+        files = _iter_content_files(rel)
         for file in files:
             target = cache / file.relative_to(PLUGIN_SOURCE_DIR)
             if target.is_file() and target.read_bytes() == file.read_bytes():
@@ -355,6 +469,28 @@ def sync_plugin_cache(agent_key: str) -> None:
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(file, target)
             synced += 1
+
+    # 剪枝：缓存里源码已删除的残留文件会让宿主继续加载旧内容
+    pruned = 0
+    for rel in PLUGIN_SYNC_CONTENT:
+        source = PLUGIN_SOURCE_DIR / rel
+        target = cache / rel
+        if not source.is_dir() or not target.is_dir():
+            continue
+        keep = {f.relative_to(PLUGIN_SOURCE_DIR).as_posix() for f in _iter_content_files(rel)}
+        for cached in [p for p in target.rglob("*") if p.is_file()]:
+            if cached.relative_to(cache).as_posix() not in keep:
+                cached.unlink()
+                pruned += 1
+        for directory in sorted(
+            (p for p in target.rglob("*") if p.is_dir()),
+            key=lambda p: len(p.parts),
+            reverse=True,
+        ):
+            try:
+                directory.rmdir()
+            except OSError:
+                pass
 
     seeded = 0
     refreshed = 0
@@ -377,10 +513,21 @@ def sync_plugin_cache(agent_key: str) -> None:
             shutil.copytree(source, target) if source.is_dir() else shutil.copy2(source, target)
             refreshed += 1
 
-    if synced or seeded or refreshed:
+    mcp_refreshed = 0
+    for rel in PLUGIN_SYNC_MCP:
+        source = PLUGIN_SOURCE_DIR / rel
+        target = cache / rel
+        if not source.is_file():
+            continue
+        if not target.is_file() or _mcp_config_diverged(source, target):
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, target)
+            mcp_refreshed += 1
+
+    if synced or seeded or refreshed or mcp_refreshed or pruned:
         info(
             f"插件缓存内容已同步（更新 {synced} 个文件，补齐 {seeded} 项，"
-            f"刷新 {refreshed} 项配置）：{cache}"
+            f"刷新 {refreshed + mcp_refreshed} 项配置，清理 {pruned} 个残留文件）：{cache}"
         )
     else:
         info(f"插件缓存内容已是最新：{cache}")
@@ -802,44 +949,38 @@ def check_installation(agent_key: str) -> dict[str, Any]:
         result["instructions_current"] = False
         errors.append("无法读取全局 AGENTS")
 
-    source = agent["skill_source"] / "SKILL.md"
-    installed = agent["skills_dir"] / "cwiki-save" / "SKILL.md"
+    source = agent["skill_source"]
+    installed = agent["skills_dir"] / "cwiki-save"
     try:
-        result["skill_current"] = source.read_bytes() == installed.read_bytes()
-        result["skill_symlink"] = installed.parent.is_symlink()
-        if not result["skill_current"]:
-            errors.append("已安装 skill 与项目源文件不同")
+        skill_diffs = _dir_divergence(source, installed)
+        result["skill_current"] = not skill_diffs
+        result["skill_symlink"] = installed.is_symlink()
+        if skill_diffs:
+            errors.append("已安装 skill 与项目源文件不同：" + "、".join(skill_diffs[:5]))
     except OSError:
         result["skill_current"] = False
         errors.append("无法读取项目或已安装的 cwiki-save skill")
 
     cache = plugin_cache_dir()
-    diverged: list[str] = []
-    try:
-        if cache.is_dir():
-            for rel in PLUGIN_SYNC_CONTENT:
-                source_file = PLUGIN_SOURCE_DIR / rel
-                if not source_file.is_file():
-                    continue
-                target_file = cache / rel
-                if (
-                    not target_file.is_file()
-                    or source_file.read_bytes() != target_file.read_bytes()
-                ):
-                    diverged.append(rel)
-    except OSError:
-        diverged.append("(unreadable)")
+    if not cache.is_dir():
+        diverged = ["(插件缓存缺失)"]
+    else:
+        try:
+            diverged = _plugin_cache_divergence(cache)
+        except OSError:
+            diverged = ["(unreadable)"]
     result["plugin_cache_current"] = not diverged
     if diverged:
         warnings.append(
             "插件缓存与源码不一致："
-            + "、".join(diverged)
+            + "、".join(diverged[:8])
+            + ("等" if len(diverged) > 8 else "")
             + "；运行 setup.py --sync-instructions 刷新"
         )
 
     settings_server: dict[str, Any] = {}
     try:
-        config = json.loads(agent["settings_file"].read_text(encoding="utf-8-sig"))
+        config = read_json(agent["settings_file"])
         result["plugin_enabled"] = bool(
             config.get("enabledPlugins", {}).get(f"{PLUGIN_NAME}@local")
         )
@@ -863,7 +1004,7 @@ def check_installation(agent_key: str) -> dict[str, Any]:
     registry_file = PLUGINS_DIR / "installed_plugins_v2.json"
     try:
         if registry_file.is_file():
-            reg = json.loads(registry_file.read_text(encoding="utf-8"))
+            reg = read_json(registry_file)
             reg_plugins = reg.get("plugins", {})
             local_reg_key = f"{PLUGIN_NAME}@local"
             # 所有非 @local 的键均为残留
@@ -883,7 +1024,7 @@ def check_installation(agent_key: str) -> dict[str, Any]:
     plugin_cache = plugin_cache_dir() / ".mcp.json"
     plugin_server: dict[str, Any] = {}
     try:
-        plugin_mcp = json.loads(plugin_cache.read_text(encoding="utf-8"))
+        plugin_mcp = read_json(plugin_cache)
         plugin_server = plugin_mcp.get("mcpServers", {}).get("cwiki", {})
     except (OSError, UnicodeError, ValueError, AttributeError, TypeError):
         plugin_server = {}
@@ -893,7 +1034,7 @@ def check_installation(agent_key: str) -> dict[str, Any]:
     mcp_json_server: dict[str, Any] = {}
     if global_mcp.is_file():
         try:
-            gmcp = json.loads(global_mcp.read_text(encoding="utf-8"))
+            gmcp = read_json(global_mcp)
             mcp_json_server = gmcp.get("mcpServers", {}).get("cwiki", {})
         except (OSError, UnicodeError, ValueError, AttributeError, TypeError):
             mcp_json_server = {}

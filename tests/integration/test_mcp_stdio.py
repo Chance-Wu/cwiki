@@ -999,6 +999,59 @@ async def test_save_invalid_type_falls_back_without_rejection(memory_server, bad
     assert kwargs["workspace_id"] == "typed-ws"
 
 
+async def test_save_oversize_content_rejected_without_outbox(memory_server):
+    oversized = "x" * (mcp_server.SAVE_CONTENT_MAX_BYTES + 1)
+    result = await memory_server._handle_tool(
+        "memory_save",
+        {"title": "超大正文", "content": oversized, "workspace_name": "ws"},
+    )
+    assert "上限" in result["error"]
+    memory_server.client.submit_candidate.assert_not_awaited()
+    assert memory_server.outbox.load_all("ws") == []
+
+
+async def test_import_oversize_payload_rejected(memory_server):
+    memory_server.client.import_data = AsyncMock()
+    big = "x" * (mcp_server.IMPORT_PAYLOAD_MAX_BYTES + 1024)
+    result = await memory_server._handle_tool(
+        "memory_import", {"workspace_name": "ws", "data": {"memories": [big]}}
+    )
+    assert "上限" in result["error"]
+    memory_server.client.import_data.assert_not_awaited()
+
+
+async def test_save_write_id_includes_title_and_keeps_legacy_key(memory_server):
+    await memory_server._handle_tool(
+        "memory_save",
+        {"title": "标题甲", "content": VALID_MEMORY_CONTENT, "workspace_name": "ws"},
+    )
+    first = memory_server.client.submit_candidate.await_args.kwargs
+    await memory_server._handle_tool(
+        "memory_save",
+        {"title": "标题乙", "content": VALID_MEMORY_CONTENT, "workspace_name": "ws"},
+    )
+    second = memory_server.client.submit_candidate.await_args.kwargs
+
+    # 改标题 → 新幂等键（旧版只哈希正文，会命中旧候选）
+    assert first["client_write_id"] != second["client_write_id"]
+    # 旧键只含正文，两次一致，供服务端兼容升级前候选
+    assert first["legacy_client_write_id"] == second["legacy_client_write_id"]
+    assert first["legacy_client_write_id"] != first["client_write_id"]
+
+
+async def test_save_dedup_hit_reports_deduplicated(memory_server):
+    memory_server.client.submit_candidate.return_value = {
+        "candidate": {"id": "existing"},
+        "created": False,
+    }
+    result = await memory_server._handle_tool(
+        "memory_save",
+        {"title": "重复标题", "content": VALID_MEMORY_CONTENT, "workspace_name": "ws"},
+    )
+    assert result["status"] == "deduplicated"
+    assert result["created"] is False
+
+
 async def test_update_security_error_is_visible_in_rpc(memory_server):
     response = await memory_server.handle_message(
         {

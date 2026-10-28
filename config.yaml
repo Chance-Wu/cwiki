@@ -23,6 +23,8 @@ memory:
   relation_merge_threshold: 0.95
   relation_update_threshold: 0.8
   similarity_threshold: 0.7
+  # 未知工作区名默认拒绝（不静默建区）：新项目接入前需先创建对应工作区
+  auto_create_workspace: false
   # 相似度计算策略：jaccard（词面）| embedding（语义）| hybrid（加权融合）
   similarity_strategy: hybrid
   # 混合策略权重（仅 hybrid 生效，归一化为 1.0）

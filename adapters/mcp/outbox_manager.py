@@ -149,6 +149,8 @@ class OutboxManager:
         kwargs: dict[str, Any] = {"source": "memory_save"} if tool == "memory_save" else {}
         if tool == "memory_save" and args.get("tags"):
             kwargs["tags"] = args["tags"]
+        if tool == "memory_save" and args.get("legacy_client_write_id"):
+            kwargs["legacy_client_write_id"] = args["legacy_client_write_id"]
         if tool == "memory_save" and args.get("is_permanent") is True:
             kwargs["is_permanent"] = True
             if isinstance(args.get("permanent_reason"), str):

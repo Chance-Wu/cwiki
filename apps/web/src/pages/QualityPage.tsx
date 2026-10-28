@@ -1,9 +1,8 @@
 import { useMemo } from 'react'
 import { motion } from 'framer-motion'
-import { BarChart3, Loader2 } from 'lucide-react'
+import { BarChart3 } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/api'
-import { useTranslation } from '../i18n/I18nProvider'
 import { useDefaultWorkspace } from '../hooks/useDashboard'
 import PageShell from '../components/PageShell'
 import PageTitle from '../components/PageTitle'
@@ -11,17 +10,23 @@ import ErrorAlert from '../components/ErrorAlert'
 import LoadingWrapper from '../components/LoadingWrapper'
 import { CardSkeleton } from '../components/Skeleton'
 
-function BarChart({ data, color, labels }: { data: Record<string, number>; color: string; labels?: Record<string, string> }) {
+function BarChart({
+  data,
+  color,
+  labels,
+}: {
+  data: Record<string, number>
+  color: string
+  labels?: Record<string, string>
+}) {
   const max = Math.max(...Object.values(data), 1)
   const entries = Object.entries(data)
-  
+
   return (
     <div className="space-y-2">
       {entries.map(([key, value]) => (
         <div key={key} className="flex items-center gap-3">
-          <div className="w-20 text-sm text-[var(--text-secondary)]">
-            {labels?.[key] || key}
-          </div>
+          <div className="w-20 text-sm text-[var(--text-secondary)]">{labels?.[key] || key}</div>
           <div className="flex-1 h-6 bg-[var(--bg-secondary)] rounded overflow-hidden">
             <motion.div
               className="h-full rounded"
@@ -38,7 +43,15 @@ function BarChart({ data, color, labels }: { data: Record<string, number>; color
   )
 }
 
-function StatCard({ label, value, subtext }: { label: string; value: string | number; subtext?: string }) {
+function StatCard({
+  label,
+  value,
+  subtext,
+}: {
+  label: string
+  value: string | number
+  subtext?: string
+}) {
   return (
     <div className="glass-card p-4 rounded-xl">
       <div className="text-sm text-[var(--text-secondary)] mb-1">{label}</div>
@@ -49,9 +62,8 @@ function StatCard({ label, value, subtext }: { label: string; value: string | nu
 }
 
 export default function QualityPage() {
-  const { t } = useTranslation()
   const workspaceQuery = useDefaultWorkspace()
-  
+
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['quality-distribution', workspaceQuery.data],
     queryFn: () => api.getQualityDistribution(workspaceQuery.data!),
@@ -93,10 +105,7 @@ export default function QualityPage() {
       {isError ? (
         <ErrorAlert message="加载质量分布失败" onRetry={() => refetch()} />
       ) : (
-        <LoadingWrapper
-          loading={isLoading}
-          skeleton={<CardSkeleton cols={2} />}
-        >
+        <LoadingWrapper loading={isLoading} skeleton={<CardSkeleton cols={2} />}>
           {data && stats && (
             <div className="space-y-6">
               {/* Summary Stats */}
@@ -110,9 +119,9 @@ export default function QualityPage() {
               {/* Confidence Distribution */}
               <div className="glass-card rounded-xl p-6">
                 <h3 className="text-lg font-semibold mb-4">置信度分布</h3>
-                <BarChart 
-                  data={data.confidence_distribution} 
-                  color="#3b82f6" 
+                <BarChart
+                  data={data.confidence_distribution}
+                  color="#3b82f6"
                   labels={confidenceLabels}
                 />
               </div>
@@ -120,9 +129,9 @@ export default function QualityPage() {
               {/* Importance Distribution */}
               <div className="glass-card rounded-xl p-6">
                 <h3 className="text-lg font-semibold mb-4">重要度分布</h3>
-                <BarChart 
-                  data={data.importance_distribution} 
-                  color="#8b5cf6" 
+                <BarChart
+                  data={data.importance_distribution}
+                  color="#8b5cf6"
                   labels={importanceLabels}
                 />
               </div>
@@ -130,21 +139,13 @@ export default function QualityPage() {
               {/* Usage Distribution */}
               <div className="glass-card rounded-xl p-6">
                 <h3 className="text-lg font-semibold mb-4">使用频率分布</h3>
-                <BarChart 
-                  data={data.usage_distribution} 
-                  color="#22c55e" 
-                  labels={usageLabels}
-                />
+                <BarChart data={data.usage_distribution} color="#22c55e" labels={usageLabels} />
               </div>
 
               {/* Decay Distribution */}
               <div className="glass-card rounded-xl p-6">
                 <h3 className="text-lg font-semibold mb-4">衰减分布（基于最后使用时间）</h3>
-                <BarChart 
-                  data={data.decay_distribution} 
-                  color="#f59e0b" 
-                  labels={decayLabels}
-                />
+                <BarChart data={data.decay_distribution} color="#f59e0b" labels={decayLabels} />
               </div>
             </div>
           )}

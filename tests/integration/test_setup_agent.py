@@ -55,6 +55,31 @@ def test_install_claude_merges_and_is_idempotent(tmp_path):
     assert (home / ".claude" / "skills" / "cwiki-save" / "SKILL.md").exists()
 
 
+def test_install_claude_hook_commands_are_known_runtime_events(tmp_path):
+    """写入的 hook 命令必须能被 adapters/hooks/cli.py 执行。
+
+    曾经写 post-tool-use-failure（cli 只认 post-tool-failure），导致失败捕获永不触发。
+    """
+    from adapters.hooks.cli import EVENTS
+
+    home = tmp_path / "home"
+    install_claude(home, dry_run=False)
+
+    settings = json.loads((home / ".claude" / "settings.json").read_text(encoding="utf-8"))
+    commands = [
+        hook["command"]
+        for groups in settings["hooks"].values()
+        for group in groups
+        for hook in group.get("hooks", [])
+    ]
+    event_tokens = {
+        command.split()[-1] for command in commands if "adapters.hooks claude" in command
+    }
+    assert event_tokens
+    assert event_tokens <= EVENTS
+    assert "post-tool-failure" in event_tokens
+
+
 def test_install_cursor_writes_global_mcp(tmp_path):
     home = tmp_path / "home"
 

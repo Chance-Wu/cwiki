@@ -6,7 +6,7 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.auth import AgentIdentity
@@ -62,6 +62,7 @@ async def create_candidate_endpoint(
             importance=body.importance or 0.5,
             project_id=body.project_id,
             client_write_id=body.client_write_id,
+            legacy_client_write_id=body.legacy_client_write_id,
         )
     except ContentFormatError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
@@ -100,6 +101,7 @@ async def create_candidate_endpoint(
         candidate=CandidateMemoryRead.model_validate(candidate),
         similar_items=similar_items_response,
         hint=hint,
+        created=created,
     )
 
 
@@ -134,9 +136,14 @@ async def list_candidates(
         conditions.append(CandidateMemory.project_id == project_id)
     stmt, count_stmt = apply_optional_filters(stmt, count_stmt, conditions)
 
-    total, candidates = await execute_paginated(
-        db, stmt, count_stmt, CandidateMemory.created_at.desc(), offset, limit
+    # 收件箱按审核优先级排序（低分 = 高优先级），未评分的排在后面，
+    # 同优先级按提交时间倒序；旧行为纯 created_at 会让高分垃圾堵住低分重要候选
+    order_by = (
+        case((CandidateMemory.review_priority.is_(None), 1), else_=0),
+        CandidateMemory.review_priority.asc(),
+        CandidateMemory.created_at.desc(),
     )
+    total, candidates = await execute_paginated(db, stmt, count_stmt, order_by, offset, limit)
 
     # 批量取 workspace 名称用于展示
     workspace_ids = {c.workspace_id for c in candidates}

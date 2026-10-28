@@ -375,15 +375,16 @@ def init_database(dry_run: bool) -> bool:
     else:
         db_path = PROJECT_ROOT / "cwiki-data" / "cwiki.db"
 
-    if db_path.exists():
-        info(f"数据库已存在：{db_path}")
-        return True
-
+    existed = db_path.exists()
     if dry_run:
-        print_message(f"  [dry-run] 初始化数据库：{db_path}")
+        action = "升级数据库到最新 schema" if existed else "初始化数据库"
+        print_message(f"  [dry-run] {action}：{db_path}")
         return True
 
-    print_message("  运行 Alembic 迁移初始化数据库...")
+    if existed:
+        print_message(f"  数据库已存在，升级到最新 schema：{db_path}")
+    else:
+        print_message(f"  运行 Alembic 迁移初始化数据库：{db_path}")
     # 经 run_alembic.py 包装，绕过加密软件损坏 entry_points.txt 导致的导入失败
     alembic_wrapper = PROJECT_ROOT / "scripts" / "run_alembic.py"
     rc = run([sys.executable, str(alembic_wrapper), "upgrade", "head"], cwd=PROJECT_ROOT)
@@ -391,7 +392,7 @@ def init_database(dry_run: bool) -> bool:
         warn(f"Alembic 迁移失败（exit {rc}）")
         print_message("    重试命令: python scripts/run_alembic.py upgrade head")
         return False
-    info(f"数据库已初始化：{db_path}")
+    info("数据库已是最新 schema" if existed else f"数据库已初始化：{db_path}")
     return True
 
 

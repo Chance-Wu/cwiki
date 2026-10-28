@@ -68,7 +68,7 @@ class TestContextCache:
             max_tokens=1000,
         )
         key = _cache_key(body)
-        assert key == f"{ws}:{agent}:hello:5:1000:semantic"
+        assert key == f"{ws}|{agent}|{session}||hello|5|1000|semantic||50|True|True"
 
     def test_cache_key_empty_query(self):
         import uuid
@@ -88,7 +88,7 @@ class TestContextCache:
             max_tokens=2000,
         )
         key = _cache_key(body)
-        assert key == f"{ws}:{agent}::10:2000:semantic"
+        assert key == f"{ws}|{agent}|{session}|||10|2000|semantic||50|True|True"
 
     def test_invalidate_clears_cache(self):
         from apps.api.routes.context import _context_cache, invalidate_context_cache

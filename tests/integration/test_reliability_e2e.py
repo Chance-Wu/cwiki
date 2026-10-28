@@ -393,12 +393,13 @@ class TestIdempotency:
         assert result1.get("status") == "created"
         candidate_id_1 = result1.get("candidate_id")
 
-        # 用相同内容（同一 write_id）提交第二次
+        # 用相同内容（同一 write_id）提交第二次：幂等命中，明确回显 deduplicated
         result2 = await server._handle_tool(
             "memory_save",
             {"workspace_name": workspace_id, "title": title, "content": content},
         )
-        assert result2.get("status") == "created"
+        assert result2.get("status") == "deduplicated"
+        assert result2.get("created") is False
         candidate_id_2 = result2.get("candidate_id")
 
         # 应是同一个候选

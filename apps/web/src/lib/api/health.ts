@@ -59,7 +59,7 @@ export const getHealthSummary = () =>
   request<{
     total: number
     avg_score: number
-    distribution: { healthy: number; needs_review: number; suspicious: number }
+    distribution: { healthy: number; needs_review: number; suspicious: number; conflicted: number }
   }>('/health-summary')
 
 export const getCandidateQuality = () =>

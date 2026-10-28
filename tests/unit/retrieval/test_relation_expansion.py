@@ -86,6 +86,24 @@ async def test_neighbor_boost_includes_decayed_strength(expansion_env) -> None:
     assert boosts[str(env.b.id)] == pytest.approx(0.15)
 
 
+async def test_contradicts_relation_does_not_boost(expansion_env) -> None:
+    """矛盾关系不能当作正相关给邻居加分。"""
+    env = expansion_env
+    env.db.add(
+        MemoryRelation(
+            source_memory_id=env.a.id,
+            target_memory_id=env.d.id,
+            relation_type="contradicts",
+            confidence=1.0,
+        )
+    )
+    await env.db.commit()
+
+    boosts = await env.engine._relation_neighbor_boosts(env.db, [env.a.id])
+
+    assert str(env.d.id) not in boosts
+
+
 async def test_trace_reinforces_relations_and_usage(expansion_env, monkeypatch) -> None:
     from packages.domain.config import parasitic_evolution_config
     from packages.retrieval.query.analyzer import analyze_query

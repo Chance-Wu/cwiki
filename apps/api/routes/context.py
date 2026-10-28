@@ -44,7 +44,23 @@ def _evict_context_cache() -> None:
 
 
 def _cache_key(body: ContextRequest) -> str:
-    return f"{body.workspace_id}:{body.agent_id}:{body.keyword or ''}:{body.max_items}:{body.max_tokens}:{body.mode}"
+    # 所有影响结果的请求字段都进键：不同 project/session/过滤条件不能串味
+    return "|".join(
+        [
+            body.workspace_id,
+            str(body.agent_id),
+            str(body.session_id),
+            str(body.project_id) if body.project_id else "",
+            body.keyword or "",
+            str(body.max_items),
+            str(body.max_tokens),
+            body.mode,
+            ",".join(body.event_types or []),
+            str(body.limit),
+            str(body.include_memories),
+            str(body.include_entities),
+        ]
+    )
 
 
 def invalidate_context_cache() -> None:
@@ -515,6 +531,7 @@ async def get_context(
         total=result.get("total", len(items)),
         keyword=body.keyword,
         latency_ms=int(result.get("latency_ms", 0)),
+        degraded=result.get("degraded", []),
     )
     _context_cache[key] = (time.monotonic(), response)
     _context_cache.move_to_end(key)

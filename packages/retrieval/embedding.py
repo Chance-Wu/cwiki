@@ -212,6 +212,11 @@ class EmbeddingService:
         """当前 embedding 提供者：'local' 或 'hash'。"""
         return self._provider
 
+    async def warm_up(self) -> bool:
+        """预加载本地模型；返回 True 表示本地模型可用（False 表示哈希兜底）。"""
+        await asyncio.to_thread(self._ensure_local_model)
+        return not self.is_fallback
+
     async def generate_embedding(self, text: str) -> list[float] | None:
         """为给定文本生成向量。"""
         results = await self.generate_embeddings_batch([text])
@@ -256,7 +261,8 @@ class EmbeddingService:
                 self._unique_texts.add(t)
 
         # 每次调用尝试确保模型可用（成功后为快速路径；失败后按冷却间隔重试）
-        self._ensure_local_model()
+        # 首次加载可能要等 30s，必须放到线程池，不能阻塞事件循环
+        await asyncio.to_thread(self._ensure_local_model)
 
         if self._local_model is not None:
             # 本地 ONNX 推理——同步 embed() 放入线程池，避免阻塞事件循环

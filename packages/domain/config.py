@@ -187,6 +187,8 @@ class Settings:
         self.similarity_threshold = memory_cfg.get(
             "similarity_threshold", _DEFAULT_MEMORY_THRESHOLDS["similarity"]
         )
+        # 未知工作区名是否自动建区；false 时拒绝并提示先创建（防拼写错误产生垃圾区）
+        self.auto_create_workspace: bool = bool(memory_cfg.get("auto_create_workspace", True))
         self.relation_merge_threshold = memory_cfg.get(
             "relation_merge_threshold", _DEFAULT_MEMORY_THRESHOLDS["relation_merge"]
         )

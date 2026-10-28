@@ -65,6 +65,10 @@ class SearchResponse(BaseModel):
         default=None,
         description="insufficient 为 true 时的原因说明",
     )
+    degraded: list[str] = Field(
+        default_factory=list,
+        description="检索降级标记：embedding_fallback（语义向量不可用）等",
+    )
 
 
 class ContextRequest(BaseModel):
@@ -107,6 +111,10 @@ class ContextResponse(BaseModel):
     total: int = 0
     keyword: str | None = None
     latency_ms: int = 0
+    degraded: list[str] = Field(
+        default_factory=list,
+        description="检索降级标记：embedding_fallback / vector_search_failed",
+    )
 
 
 class ProactivePushRequest(BaseModel):

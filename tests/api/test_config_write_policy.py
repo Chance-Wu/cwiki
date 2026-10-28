@@ -14,6 +14,8 @@ from packages.domain.config import settings
 @pytest.fixture
 def isolated_config(tmp_path, monkeypatch: pytest.MonkeyPatch):
     """把 config.yaml 指向临时文件，并确保测试后恢复全局配置。"""
+    real_config = domain_config.CONFIG_PATH
+    real_local = domain_config.LOCAL_CONFIG_PATH
     target = tmp_path / "config.yaml"
     target.write_text("{}\n", encoding="utf-8")
     monkeypatch.setattr(domain_config, "CONFIG_PATH", target)
@@ -24,7 +26,16 @@ def isolated_config(tmp_path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(settings, "write_policy", settings.write_policy)
     domain_config.reload_yaml_config()
     settings.reload()
-    return target
+    try:
+        yield target
+    finally:
+        # 路由 PUT 会把临时配置 reload 进全局单例（如 debug=False）；
+        # 先指回真实配置并重载，否则会泄漏到后续用例
+        domain_config.CONFIG_PATH = real_config
+        domain_config.LOCAL_CONFIG_PATH = real_local
+        config_routes.CONFIG_PATH = real_config
+        domain_config.reload_yaml_config()
+        settings.reload()
 
 
 def _payload() -> dict:

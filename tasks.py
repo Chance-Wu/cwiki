@@ -124,6 +124,18 @@ def _ensure_db() -> None:
         sys.exit(1)
 
 
+def _ensure_schema() -> None:
+    """启动前应用未执行的迁移（幂等）。
+
+    旧 schema 启动会在写入/审核路径触发 500，故迁移失败直接拒绝启动。
+    """
+    print("[sync] alembic upgrade head ...")
+    rc = _py(str(ROOT / "scripts" / "run_alembic.py"), "upgrade", "head")
+    if rc != 0:
+        print("[sync] migration failed — refusing to start with stale schema")
+        sys.exit(1)
+
+
 def _ensure_index() -> None:
     """向量索引文件缺失/不完整时，仅重建索引。
 
@@ -394,6 +406,7 @@ def start():
     _git_pull_rebase()
     _ensure_db()
     _ensure_index()
+    _ensure_schema()
     return _py("start.py")
 
 
@@ -401,6 +414,7 @@ def start():
 def restart():
     """强制重启全部服务（先拉取代码仓库）。"""
     _git_pull_rebase()
+    _ensure_schema()
     return _py("start.py", "--restart")
 
 

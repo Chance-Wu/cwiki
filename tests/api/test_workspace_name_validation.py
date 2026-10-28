@@ -39,10 +39,14 @@ async def test_resolve_rejects_windows_reserved_and_separators(db_session):
         assert exc.value.status_code == 400, evil
 
 
-async def test_resolve_creates_valid_names_including_cjk(db_session):
+async def test_resolve_creates_valid_names_including_cjk(db_session, monkeypatch):
     from sqlalchemy import select
 
+    from packages.domain.config import settings
     from packages.domain.models import Workspace
+
+    # 默认严格模式（config.yaml auto_create_workspace=false）下需显式开启才自动建区
+    monkeypatch.setattr(settings, "auto_create_workspace", True)
 
     for name in ("alpha-ws", "中文工作区", "a.b_c-d"):
         ws_id = await resolve_workspace(name, db_session)
@@ -50,6 +54,18 @@ async def test_resolve_creates_valid_names_including_cjk(db_session):
             await db_session.execute(select(Workspace).where(Workspace.id == ws_id))
         ).scalar_one()
         assert row.name == name
+
+
+async def test_resolve_rejects_unknown_name_when_auto_create_disabled(db_session, monkeypatch):
+    """严格模式：拼写错误的工作区名不再静默建区。"""
+    from packages.domain.config import settings
+
+    monkeypatch.setattr(settings, "auto_create_workspace", False)
+
+    with pytest.raises(HTTPException) as exc:
+        await resolve_workspace("未注册的工作区", db_session)
+    assert exc.value.status_code == 400
+    assert exc.value.detail["code"] == "unknown_workspace"
 
 
 async def test_resolve_existing_dirty_name_still_reads(db_session):

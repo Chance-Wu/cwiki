@@ -1,5 +1,6 @@
 import io
 import json
+import shutil
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -241,7 +242,7 @@ def test_ensure_plugin_installed_warns_without_qodercli(
     assert "plugins install" in out
 
 
-def test_ensure_plugin_installed_warns_when_qodercli_fails(
+def test_ensure_plugin_installed_fails_when_qodercli_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.setattr(setup, "PLUGINS_DIR", tmp_path / "plugins")
@@ -249,10 +250,12 @@ def test_ensure_plugin_installed_warns_when_qodercli_fails(
     with (
         patch.object(setup.shutil, "which", return_value="/usr/local/bin/qodercli"),
         patch.object(setup, "run", return_value=1),
+        pytest.raises(SystemExit) as exc,
     ):
         setup.ensure_plugin_installed("qoder")
 
-    assert "手动运行" in capsys.readouterr().out
+    assert exc.value.code == 1
+    assert "手动执行" in capsys.readouterr().out
 
 
 def _write_sync_source(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
@@ -370,7 +373,8 @@ def test_sync_plugin_cache_refreshes_stale_hooks_snapshot(
     refreshed = json.loads((cache / "hooks" / "hooks.json").read_text(encoding="utf-8"))
     assert "UserPromptSubmit" in refreshed["hooks"]
     assert "adapters.qoder.hooks" not in json.dumps(refreshed)
-    assert "刷新 1 项配置" in capsys.readouterr().out
+    # hooks 旧快照刷新 + 缺失的 .mcp.json 从模板补齐
+    assert "刷新 2 项配置" in capsys.readouterr().out
 
     # 刷新后 patch 重新注入绝对路径：模拟真实 setup 顺序（sync → patch）
     setup.patch_plugin_hooks("qoder")
@@ -422,6 +426,75 @@ def test_sync_plugin_cache_skips_missing_cache(
 
     assert "跳过内容同步" in capsys.readouterr().out
     assert not (tmp_path / "plugins").exists()
+
+
+def test_plugin_cache_divergence_detects_missing_content_and_residue(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cache = _write_sync_source(tmp_path, monkeypatch)
+    assert setup._plugin_cache_divergence(cache)
+
+    (cache / "skills" / "memory-recall").mkdir(parents=True)
+    (cache / "skills" / "memory-recall" / "SKILL.md").write_text("new skill", encoding="utf-8")
+    (cache / "README.md").write_text("same readme", encoding="utf-8")
+    (cache / ".qoder-plugin").mkdir()
+    (cache / ".qoder-plugin" / "plugin.json").write_bytes(
+        (setup.PLUGIN_SOURCE_DIR / ".qoder-plugin" / "plugin.json").read_bytes()
+    )
+    (cache / "hooks").mkdir()
+    (cache / "hooks" / "hooks.json").write_text('{"hooks": {}}', encoding="utf-8")
+    (cache / ".mcp.json").write_bytes((setup.PLUGIN_SOURCE_DIR / ".mcp.json").read_bytes())
+    assert setup._plugin_cache_divergence(cache) == []
+
+    (cache / "skills" / "memory-recall" / "stale.md").write_text("stale", encoding="utf-8")
+    assert setup._plugin_cache_divergence(cache) == ["skills/memory-recall/stale.md"]
+
+
+def test_sync_plugin_cache_prunes_residue_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cache = _write_sync_source(tmp_path, monkeypatch)
+    (cache / "skills" / "memory-recall").mkdir(parents=True)
+    (cache / "skills" / "memory-recall" / "SKILL.md").write_text("new skill", encoding="utf-8")
+    (cache / "skills" / "memory-recall" / "stale.md").write_text("stale", encoding="utf-8")
+    (cache / "README.md").write_text("same readme", encoding="utf-8")
+    (cache / ".qoder-plugin").mkdir()
+    (cache / ".qoder-plugin" / "plugin.json").write_bytes(
+        (setup.PLUGIN_SOURCE_DIR / ".qoder-plugin" / "plugin.json").read_bytes()
+    )
+    (cache / "hooks").mkdir()
+    (cache / "hooks" / "hooks.json").write_text('{"hooks": {}}', encoding="utf-8")
+    (cache / ".mcp.json").write_bytes((setup.PLUGIN_SOURCE_DIR / ".mcp.json").read_bytes())
+
+    setup.sync_plugin_cache("qoder")
+
+    assert not (cache / "skills" / "memory-recall" / "stale.md").exists()
+    assert "清理 1 个残留文件" in capsys.readouterr().out
+
+
+def test_check_installation_flags_missing_cache_dir(
+    agents_md_path: Path,
+    skill_paths: tuple[Path, Path],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    setup.ensure_agents_md("qoder")
+    source_dir, skills_dir = skill_paths
+    installed = skills_dir / "cwiki-save"
+    installed.mkdir(parents=True)
+    (installed / "SKILL.md").write_bytes((source_dir / "SKILL.md").read_bytes())
+    settings_file = agents_md_path.parent / "settings.json"
+    settings_file.write_text(
+        json.dumps({"enabledPlugins": {f"{setup.PLUGIN_NAME}@local": True}}),
+        encoding="utf-8",
+    )
+    monkeypatch.setitem(setup.AGENTS["qoder"], "settings_file", settings_file)
+    monkeypatch.setattr(setup, "PLUGINS_DIR", tmp_path / "plugins")
+
+    report = setup.check_installation("qoder")
+
+    assert report["plugin_cache_current"] is False
+    assert any("插件缓存缺失" in item for item in report["warnings"])
 
 
 def test_ensure_plugin_enabled_cleans_stale_keys_and_sets_local(
@@ -840,7 +913,18 @@ def test_check_installation_is_read_only_and_never_claims_host_loaded(
     settings_file = agents_md_path.parent / "settings.json"
     token = "test-token-must-not-appear-in-output"
     settings_file.write_text(
-        json.dumps({"enabledPlugins": {f"{setup.PLUGIN_NAME}@local": True}}),
+        json.dumps(
+            {
+                "enabledPlugins": {f"{setup.PLUGIN_NAME}@local": True},
+                "mcpServers": {
+                    "cwiki": {
+                        "command": setup.sys.executable,
+                        "args": ["-m", setup.MCP_MODULE],
+                        "env": {"CWIKI_AGENT_TOKEN": token},
+                    }
+                },
+            }
+        ),
         encoding="utf-8",
     )
     monkeypatch.setitem(setup.AGENTS["qoder"], "settings_file", settings_file)
@@ -848,23 +932,14 @@ def test_check_installation_is_read_only_and_never_claims_host_loaded(
         tmp_path / "plugins" / "cache" / "local" / setup.PLUGIN_NAME / setup.plugin_version()
     )
     plugin_cache.mkdir(parents=True)
+    for rel in ("skills", "commands", ".qoder-plugin", "hooks"):
+        source_dir = setup.PLUGIN_SOURCE_DIR / rel
+        if source_dir.is_dir():
+            shutil.copytree(source_dir, plugin_cache / rel)
     (plugin_cache / "README.md").write_bytes(
         (setup.PLUGIN_SOURCE_DIR / "README.md").read_bytes()
     )
-    (plugin_cache / ".mcp.json").write_text(
-        json.dumps(
-            {
-                "mcpServers": {
-                    "cwiki": {
-                        "command": setup.sys.executable,
-                        "args": ["-m", setup.MCP_MODULE],
-                        "env": {"CWIKI_AGENT_TOKEN": token},
-                    }
-                }
-            }
-        ),
-        encoding="utf-8",
-    )
+    (plugin_cache / ".mcp.json").write_bytes((setup.PLUGIN_SOURCE_DIR / ".mcp.json").read_bytes())
     monkeypatch.setattr(setup, "PLUGINS_DIR", tmp_path / "plugins")
     project_root = tmp_path / "不存在的项目"
     project_root.mkdir(parents=True)
@@ -1145,19 +1220,14 @@ def doctor_environment(
         tmp_path / "plugins" / "cache" / "local" / setup.PLUGIN_NAME / setup.plugin_version()
     )
     plugin_cache.mkdir(parents=True)
+    for rel in ("skills", "commands", ".qoder-plugin", "hooks"):
+        source_dir = setup.PLUGIN_SOURCE_DIR / rel
+        if source_dir.is_dir():
+            shutil.copytree(source_dir, plugin_cache / rel)
     (plugin_cache / "README.md").write_bytes(
         (setup.PLUGIN_SOURCE_DIR / "README.md").read_bytes()
     )
-    (plugin_cache / ".mcp.json").write_text(
-        json.dumps(
-            {
-                "mcpServers": {
-                    "cwiki": {"command": setup.sys.executable, "args": ["-m", setup.MCP_MODULE]}
-                }
-            }
-        ),
-        encoding="utf-8",
-    )
+    (plugin_cache / ".mcp.json").write_bytes((setup.PLUGIN_SOURCE_DIR / ".mcp.json").read_bytes())
     monkeypatch.setattr(setup, "PLUGINS_DIR", tmp_path / "plugins")
     project_root = tmp_path / "不存在的项目"
     project_root.mkdir(parents=True)
