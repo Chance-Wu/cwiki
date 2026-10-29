@@ -322,6 +322,10 @@ export interface ConfigData {
     auto_merge_enabled: boolean
     auto_merge_threshold: number
     episodic_retrieval_enabled: boolean
+    auto_relation_enabled: boolean
+    auto_relation_threshold: number
+    auto_relation_max_per_memory: number
+    relation_auto_edge_ttl_days: number
   }
   memory: {
     title_max_length: number
@@ -333,6 +337,11 @@ export interface ConfigData {
     priority_discard_threshold: number
     priority_low_threshold: number
     priority_high_threshold: number
+    auto_create_workspace: boolean
+    duplicate_exact_threshold: number
+    duplicate_possible_threshold: number
+    submit_dedup_scan_limit: number
+    submit_dedup_cross_workspace: boolean
   }
   performance: {
     context_cache_ttl: number
@@ -354,6 +363,14 @@ export interface ConfigData {
     reranker_usage_weight: number
     reranker_intent_weight: number
     reranker_key_term_bonus: number
+  }
+  mcp: {
+    max_retries: number
+    retry_backoff_seconds: number
+  }
+  scheduler: {
+    auto_relation_interval_hours: number
+    relation_ttl_check_interval_hours: number
   }
   system_info: {
     embedding_model: string

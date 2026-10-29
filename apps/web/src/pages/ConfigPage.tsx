@@ -5,9 +5,11 @@ import {
   BookOpen,
   Check,
   ChevronRight,
+  Clock,
   Gauge,
   Info,
   Loader2,
+  Plug,
   RotateCcw,
   Save,
   Search as SearchIcon,
@@ -37,8 +39,9 @@ import type { ConfigData } from '../lib/api'
 
 // ── Schema types ────────────────────────────────────────────
 
-type ConfigSection = 'app' | 'parasitic_evolution' | 'memory' | 'performance' | 'retrieval'
-type UnitKey = 'chars' | 'seconds' | 'items' | 'tokens' | 'score' | 'weight' | 'bonus'
+type ConfigSection =
+  'app' | 'parasitic_evolution' | 'memory' | 'performance' | 'retrieval' | 'mcp' | 'scheduler'
+type UnitKey = 'chars' | 'seconds' | 'items' | 'tokens' | 'score' | 'weight' | 'bonus' | 'hours'
 
 const EDITABLE_SECTIONS: ConfigSection[] = [
   'app',
@@ -46,6 +49,8 @@ const EDITABLE_SECTIONS: ConfigSection[] = [
   'memory',
   'performance',
   'retrieval',
+  'mcp',
+  'scheduler',
 ]
 
 const UNIT_KEYS: Record<UnitKey, string> = {
@@ -56,6 +61,7 @@ const UNIT_KEYS: Record<UnitKey, string> = {
   score: 'unitScore',
   weight: 'unitWeight',
   bonus: 'unitBonus',
+  hours: 'unitHours',
 }
 
 interface EditableField {
@@ -87,6 +93,7 @@ const NAV_ITEMS = [
   { id: 'features', labelKey: 'navFeatures' },
   { id: 'thresholds', labelKey: 'navThresholds' },
   { id: 'performance', labelKey: 'navPerformance' },
+  { id: 'runtime', labelKey: 'navRuntime' },
   { id: 'advanced', labelKey: 'navAdvanced' },
 ]
 
@@ -217,6 +224,44 @@ featureFlagFields.push({
   max: 1,
 })
 
+featureFlagFields.push(
+  {
+    key: 'auto_relation_enabled',
+    type: 'boolean',
+    nameKey: 'flagDescAutoRelationEnabled',
+    descKey: 'flagDetailAutoRelationEnabled',
+  },
+  {
+    key: 'auto_relation_threshold',
+    type: 'number',
+    nameKey: 'flagDescAutoRelationThreshold',
+    descKey: 'flagDetailAutoRelationThreshold',
+    step: '0.01',
+    unit: 'score',
+    min: 0,
+    max: 1,
+  },
+  {
+    key: 'auto_relation_max_per_memory',
+    type: 'number',
+    nameKey: 'flagDescAutoRelationMaxPerMemory',
+    descKey: 'flagDetailAutoRelationMaxPerMemory',
+    step: '1',
+    unit: 'items',
+    min: 1,
+    max: 100,
+  },
+  {
+    key: 'relation_auto_edge_ttl_days',
+    type: 'number',
+    nameKey: 'flagDescRelationAutoEdgeTtlDays',
+    descKey: 'flagDetailRelationAutoEdgeTtlDays',
+    step: '1',
+    min: 0,
+    max: 3650,
+  },
+)
+
 const memoryFields: EditableField[] = [
   { key: 'title_max_length', step: '1' },
   { key: 'consolidate_threshold' },
@@ -236,6 +281,51 @@ const memoryFields: EditableField[] = [
   min: f.key === 'title_max_length' ? 1 : 0,
   max: f.key === 'title_max_length' ? 500 : 1,
 }))
+
+memoryFields.push(
+  {
+    key: 'auto_create_workspace',
+    type: 'boolean',
+    nameKey: 'memAutoCreateWorkspace',
+    descKey: 'memAutoCreateWorkspaceDesc',
+  },
+  {
+    key: 'duplicate_exact_threshold',
+    type: 'number',
+    nameKey: 'memDuplicateExactThreshold',
+    descKey: 'memDuplicateExactThresholdDesc',
+    step: '0.01',
+    unit: 'score',
+    min: 0,
+    max: 1,
+  },
+  {
+    key: 'duplicate_possible_threshold',
+    type: 'number',
+    nameKey: 'memDuplicatePossibleThreshold',
+    descKey: 'memDuplicatePossibleThresholdDesc',
+    step: '0.01',
+    unit: 'score',
+    min: 0,
+    max: 1,
+  },
+  {
+    key: 'submit_dedup_scan_limit',
+    type: 'number',
+    nameKey: 'memSubmitDedupScanLimit',
+    descKey: 'memSubmitDedupScanLimitDesc',
+    step: '100',
+    unit: 'items',
+    min: 1,
+    max: 100_000,
+  },
+  {
+    key: 'submit_dedup_cross_workspace',
+    type: 'boolean',
+    nameKey: 'memSubmitDedupCrossWorkspace',
+    descKey: 'memSubmitDedupCrossWorkspaceDesc',
+  },
+)
 
 const performanceFields: EditableField[] = [
   'context_cache_ttl',
@@ -280,6 +370,52 @@ const retrievalFields: EditableField[] = [
   }
 })
 
+const mcpFields: EditableField[] = [
+  {
+    key: 'max_retries',
+    type: 'number',
+    nameKey: 'mcpMaxRetries',
+    descKey: 'mcpMaxRetriesDesc',
+    step: '1',
+    unit: 'items',
+    min: 0,
+    max: 10,
+  },
+  {
+    key: 'retry_backoff_seconds',
+    type: 'number',
+    nameKey: 'mcpRetryBackoffSeconds',
+    descKey: 'mcpRetryBackoffSecondsDesc',
+    step: '0.1',
+    unit: 'seconds',
+    min: 0,
+    max: 60,
+  },
+]
+
+const schedulerFields: EditableField[] = [
+  {
+    key: 'auto_relation_interval_hours',
+    type: 'number',
+    nameKey: 'schedulerAutoRelationIntervalHours',
+    descKey: 'schedulerAutoRelationIntervalHoursDesc',
+    step: '1',
+    unit: 'hours',
+    min: 0,
+    max: 720,
+  },
+  {
+    key: 'relation_ttl_check_interval_hours',
+    type: 'number',
+    nameKey: 'schedulerRelationTtlCheckIntervalHours',
+    descKey: 'schedulerRelationTtlCheckIntervalHoursDesc',
+    step: '1',
+    unit: 'hours',
+    min: 0,
+    max: 720,
+  },
+]
+
 const NUMERIC_FIELDS: Array<EditableField & { section: ConfigSection }> = [
   ...featureFlagFields
     .filter((field) => field.type === 'number')
@@ -290,6 +426,8 @@ const NUMERIC_FIELDS: Array<EditableField & { section: ConfigSection }> = [
   ...memoryFields.map((field) => ({ ...field, section: 'memory' as const })),
   ...performanceFields.map((field) => ({ ...field, section: 'performance' as const })),
   ...retrievalFields.map((field) => ({ ...field, section: 'retrieval' as const })),
+  ...mcpFields.map((field) => ({ ...field, section: 'mcp' as const })),
+  ...schedulerFields.map((field) => ({ ...field, section: 'scheduler' as const })),
 ]
 
 // ── Section themes ──────────────────────────────────────────
@@ -348,6 +486,28 @@ const retrievalTheme: SectionTheme = {
   accentFrom: 'from-success/60',
   accentTo: 'to-success',
   subtitle: 'retrievalDesc',
+}
+
+const mcpTheme: SectionTheme = {
+  title: 'mcpConfig',
+  icon: Plug,
+  iconGradient: 'bg-gradient-to-br from-info/18 to-info/8',
+  iconRing: 'ring-info/30',
+  iconColor: 'text-info-fg',
+  accentFrom: 'from-info/60',
+  accentTo: 'to-info',
+  subtitle: 'mcpConfigDesc',
+}
+
+const schedulerTheme: SectionTheme = {
+  title: 'schedulerConfig',
+  icon: Clock,
+  iconGradient: 'bg-gradient-to-br from-warning/18 to-warning/8',
+  iconRing: 'ring-warning/30',
+  iconColor: 'text-warning-fg',
+  accentFrom: 'from-warning/60',
+  accentTo: 'to-warning',
+  subtitle: 'schedulerConfigDesc',
 }
 
 // ── Sub-components ──────────────────────────────────────────
@@ -914,6 +1074,36 @@ export default function ConfigPage() {
                 localConfig={cfg}
                 onFieldChange={handleConfigChange}
                 delay={0.25}
+              />
+            </div>
+          </SectionGroup>
+
+          <SectionGroup
+            id="runtime"
+            accentFrom={mcpTheme.accentFrom}
+            accentTo={mcpTheme.accentTo}
+            title={copy.groupRuntime}
+          >
+            <div className="grid items-start gap-4 xl:grid-cols-2">
+              <ConfigCard
+                theme={mcpTheme}
+                subtitle={mcpTheme.subtitle}
+                columns={1}
+                fields={mcpFields}
+                section="mcp"
+                localConfig={cfg}
+                onFieldChange={handleConfigChange}
+                delay={0.28}
+              />
+              <ConfigCard
+                theme={schedulerTheme}
+                subtitle={schedulerTheme.subtitle}
+                columns={1}
+                fields={schedulerFields}
+                section="scheduler"
+                localConfig={cfg}
+                onFieldChange={handleConfigChange}
+                delay={0.3}
               />
             </div>
           </SectionGroup>

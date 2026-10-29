@@ -16,6 +16,7 @@ from packages.domain.config import (
     agent_policy_config,
     parasitic_evolution_config,
     reload_yaml_config,
+    scheduler_config,
     settings,
 )
 from packages.domain.write_decisions import (
@@ -55,6 +56,11 @@ class ParasiticEvolutionConfigModel(BaseModel):
     auto_merge_enabled: bool
     auto_merge_threshold: float = Field(ge=0.0, le=1.0)
     episodic_retrieval_enabled: bool
+    # 自动关系发现与老化
+    auto_relation_enabled: bool
+    auto_relation_threshold: float = Field(ge=0.0, le=1.0)
+    auto_relation_max_per_memory: int = Field(ge=1, le=100)
+    relation_auto_edge_ttl_days: float = Field(ge=0.0, le=3650.0)
 
 
 class MemoryConfigModel(BaseModel):
@@ -67,6 +73,22 @@ class MemoryConfigModel(BaseModel):
     priority_discard_threshold: float = Field(ge=0.0, le=1.0)
     priority_low_threshold: float = Field(ge=0.0, le=1.0)
     priority_high_threshold: float = Field(ge=0.0, le=1.0)
+    # 工作区与提交查重
+    auto_create_workspace: bool
+    duplicate_exact_threshold: float = Field(ge=0.0, le=1.0)
+    duplicate_possible_threshold: float = Field(ge=0.0, le=1.0)
+    submit_dedup_scan_limit: int = Field(ge=1, le=100_000)
+    submit_dedup_cross_workspace: bool
+
+
+class McpConfigModel(BaseModel):
+    max_retries: int = Field(ge=0, le=10)
+    retry_backoff_seconds: float = Field(ge=0.0, le=60.0)
+
+
+class SchedulerConfigModel(BaseModel):
+    auto_relation_interval_hours: float = Field(ge=0.0, le=720.0)
+    relation_ttl_check_interval_hours: float = Field(ge=0.0, le=720.0)
 
 
 class PerformanceConfigModel(BaseModel):
@@ -108,6 +130,8 @@ class ConfigData(BaseModel):
     memory: MemoryConfigModel
     performance: PerformanceConfigModel
     retrieval: RetrievalConfigModel
+    mcp: McpConfigModel
+    scheduler: SchedulerConfigModel
     system_info: SystemInfoModel
 
 
@@ -119,6 +143,8 @@ class ConfigPatchBody(BaseModel):
     memory: MemoryConfigModel | None = None
     performance: PerformanceConfigModel | None = None
     retrieval: RetrievalConfigModel | None = None
+    mcp: McpConfigModel | None = None
+    scheduler: SchedulerConfigModel | None = None
 
 
 class ConfigPatchResult(BaseModel):
@@ -293,6 +319,8 @@ _SECTION_MODELS: dict[str, type[BaseModel]] = {
     "performance": PerformanceConfigModel,
     "memory": MemoryConfigModel,
     "retrieval": RetrievalConfigModel,
+    "mcp": McpConfigModel,
+    "scheduler": SchedulerConfigModel,
 }
 
 
@@ -521,6 +549,10 @@ async def get_config() -> ConfigData:
             auto_merge_enabled=parasitic_evolution_config.auto_merge_enabled,
             auto_merge_threshold=parasitic_evolution_config.auto_merge_threshold,
             episodic_retrieval_enabled=parasitic_evolution_config.episodic_retrieval_enabled,
+            auto_relation_enabled=parasitic_evolution_config.auto_relation_enabled,
+            auto_relation_threshold=parasitic_evolution_config.auto_relation_threshold,
+            auto_relation_max_per_memory=parasitic_evolution_config.auto_relation_max_per_memory,
+            relation_auto_edge_ttl_days=parasitic_evolution_config.relation_auto_edge_ttl_days,
         ),
         memory=MemoryConfigModel(
             title_max_length=settings.memory_title_max_length,
@@ -532,6 +564,11 @@ async def get_config() -> ConfigData:
             priority_discard_threshold=settings.priority_discard_threshold,
             priority_low_threshold=settings.priority_low_threshold,
             priority_high_threshold=settings.priority_high_threshold,
+            auto_create_workspace=settings.auto_create_workspace,
+            duplicate_exact_threshold=settings.duplicate_exact_threshold,
+            duplicate_possible_threshold=settings.duplicate_possible_threshold,
+            submit_dedup_scan_limit=settings.submit_dedup_scan_limit,
+            submit_dedup_cross_workspace=settings.submit_dedup_cross_workspace,
         ),
         performance=PerformanceConfigModel(
             context_cache_ttl=settings.context_cache_ttl,
@@ -553,6 +590,14 @@ async def get_config() -> ConfigData:
             reranker_usage_weight=settings.reranker_usage_weight,
             reranker_intent_weight=settings.reranker_intent_weight,
             reranker_key_term_bonus=settings.reranker_key_term_bonus,
+        ),
+        mcp=McpConfigModel(
+            max_retries=settings.mcp_max_retries,
+            retry_backoff_seconds=settings.mcp_retry_backoff_seconds,
+        ),
+        scheduler=SchedulerConfigModel(
+            auto_relation_interval_hours=scheduler_config.auto_relation_interval_hours,
+            relation_ttl_check_interval_hours=scheduler_config.relation_ttl_check_interval_hours,
         ),
         system_info=SystemInfoModel(
             embedding_model=settings.embedding_model,
@@ -603,5 +648,6 @@ async def patch_config(
         reload_yaml_config()
         settings.reload()
         parasitic_evolution_config.reload()
+        scheduler_config.reload()
 
     return ConfigPatchResult(applied=bool(changed_fields), changed_fields=changed_fields)

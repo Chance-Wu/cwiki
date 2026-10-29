@@ -122,16 +122,16 @@ class Settings:
         # 建议 token 写在 config.local.yaml（随设备、不入代码仓库）
         self.api_auth_token: str = app_cfg.get("auth_token", "")
 
-        # MCP 适配器调用后端时的重试策略（连接失败/503/429 指数退避）
-        mcp_cfg = _yaml_config.get("mcp", {})
-        self.mcp_max_retries: int = int(mcp_cfg.get("max_retries", 2))
-        self.mcp_retry_backoff_seconds: float = float(mcp_cfg.get("retry_backoff_seconds", 1.0))
-
         self._load_runtime_fields()
 
     def _load_runtime_fields(self) -> None:
         """加载检索与记忆相关字段，供 __init__ 和 reload 共用。"""
         retrieval_cfg = _yaml_config.get("retrieval", {})
+
+        # MCP 适配器调用后端时的重试策略（连接失败/503/429 指数退避）
+        mcp_cfg = _yaml_config.get("mcp", {})
+        self.mcp_max_retries: int = int(mcp_cfg.get("max_retries", 2))
+        self.mcp_retry_backoff_seconds: float = float(mcp_cfg.get("retry_backoff_seconds", 1.0))
         self.bm25_weight = retrieval_cfg.get("bm25_weight", 0.4)
         self.vector_weight = retrieval_cfg.get("vector_weight", 0.6)
         self.reranker_rrf_weight = retrieval_cfg.get(
@@ -416,6 +416,9 @@ class SchedulerConfig:
     """周期调度器间隔配置（小时）。"""
 
     def __init__(self) -> None:
+        self.reload()
+
+    def reload(self) -> None:
         cfg = _yaml_config.get("scheduler", {})
         self.auto_consolidate_interval_hours: float = cfg.get("auto_consolidate_interval_hours", 6)
         self.review_reminders_interval_hours: float = cfg.get("review_reminders_interval_hours", 24)
