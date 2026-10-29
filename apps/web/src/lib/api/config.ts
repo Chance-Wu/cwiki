@@ -1,6 +1,7 @@
 import { request } from './base'
 import type {
   ConfigData,
+  IntegrityReport,
   ConfigPatchResult,
   WriteDecisionData,
   WriteDecisionPreview,
@@ -39,3 +40,5 @@ export const previewWriteDecisions = (body: WriteDecisionPreviewRequest) =>
 
 export const restartService = () =>
   request<{ restarting: boolean; message: string }>('/system/restart', { method: 'POST' })
+
+export const getSystemIntegrity = () => request<IntegrityReport>('/system/integrity')

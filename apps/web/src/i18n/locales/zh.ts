@@ -801,6 +801,13 @@ const zh: TranslationKeys = {
     groupPreference: '偏好',
     groupData: '数据',
     groupSystem: '系统',
+    integrityTitle: '数据一致性',
+    integrityDesc: 'DB / Markdown / _meta / 索引 / 向量 对账，与 doctor 同源',
+    integrityOk: '一致',
+    integrityIssues: '发现 {n} 类异常',
+    integrityRefresh: '巡检',
+    integrityFixHint: '修复：python tasks.py doctor --fix（仅补齐工作区 meta，其余按提示处理）',
+    integrityUnavailable: '巡检不可用',
   },
   config: {
     title: '运行时配置',

@@ -306,6 +306,29 @@ export interface AgentStats {
   total_memory_submissions: number
 }
 
+export interface IntegrityIssue {
+  kind: string
+  count: number
+  sample: string[]
+  hint: string
+}
+
+export interface IntegrityReport {
+  ok: boolean
+  error?: string
+  counts?: {
+    db_total: number
+    db_active: number
+    workspaces_db: number
+    markdown: number
+    meta: number
+    index: number
+    vectors: number
+    workspaces_meta: number
+  }
+  issues?: IntegrityIssue[]
+}
+
 export interface ConfigData {
   app: { debug: boolean }
   parasitic_evolution: {

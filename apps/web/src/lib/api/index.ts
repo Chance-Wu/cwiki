@@ -133,6 +133,7 @@ import {
 } from './skills'
 import {
   getConfig,
+  getSystemIntegrity,
   getWriteDecisions,
   getWritePolicy,
   patchConfig,
@@ -243,6 +244,7 @@ export const api = {
   updateWriteDecisions,
   previewWriteDecisions,
   restartService,
+  getSystemIntegrity,
   exportData,
   exportMarkdown,
   importData,

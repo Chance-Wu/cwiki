@@ -23,6 +23,7 @@ import SectionGroup from '../components/SectionGroup'
 import { Button } from '../components/ui/Button'
 import { Card } from '../components/ui/Card'
 import RuntimeMonitor from '../components/settings/RuntimeMonitor'
+import IntegrityCard from '../components/settings/IntegrityCard'
 import { useHealth, useConfig } from '../hooks/useSettings'
 import { useTheme } from '../theme/ThemeProvider'
 
@@ -416,6 +417,15 @@ export default function SettingsPage() {
               transition={{ ...spring.snappy, delay: 0.25 }}
             >
               <RuntimeMonitor />
+            </motion.div>
+
+            {/* 数据一致性：只读巡检（与 tasks.py doctor 同源） */}
+            <motion.div
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ ...spring.snappy, delay: 0.3 }}
+            >
+              <IntegrityCard />
             </motion.div>
 
             {/* 关于 / 环境：版本与只读运行环境信息（配置页参数之外的部分） */}

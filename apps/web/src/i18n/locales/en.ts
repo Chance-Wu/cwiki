@@ -803,6 +803,14 @@ const en = {
     groupPreference: 'Preferences',
     groupData: 'Data',
     groupSystem: 'System',
+    integrityTitle: 'Data Integrity',
+    integrityDesc: 'Reconcile DB / Markdown / _meta / index / vectors (same source as doctor)',
+    integrityOk: 'Consistent',
+    integrityIssues: '{n} issue groups found',
+    integrityRefresh: 'Check',
+    integrityFixHint:
+      'Fix: python tasks.py doctor --fix (workspace meta only; follow hints for the rest)',
+    integrityUnavailable: 'Integrity check unavailable',
   },
   config: {
     title: 'Runtime Configuration',
@@ -1064,13 +1072,15 @@ const en = {
     groupRuntime: 'Runtime & Scheduling',
     navRuntime: 'Runtime & Scheduling',
     mcpConfig: 'MCP Connection Retries',
-    mcpConfigDesc: 'Retry policy for the MCP adapter calling the API; restart the MCP adapter to apply',
+    mcpConfigDesc:
+      'Retry policy for the MCP adapter calling the API; restart the MCP adapter to apply',
     mcpMaxRetries: 'Max retries',
     mcpMaxRetriesDesc: 'Retries on connection failure / 503 / 429',
     mcpRetryBackoffSeconds: 'Backoff base',
     mcpRetryBackoffSecondsDesc: 'Base seconds for exponential backoff (1s, 2s, 4s…)',
     schedulerConfig: 'Periodic Task Intervals',
-    schedulerConfigDesc: 'Intervals for relation discovery and aging sweeps; restart the service to apply',
+    schedulerConfigDesc:
+      'Intervals for relation discovery and aging sweeps; restart the service to apply',
     schedulerAutoRelationIntervalHours: 'Relation discovery interval',
     schedulerAutoRelationIntervalHoursDesc: 'Hours; 0 disables scheduling',
     schedulerRelationTtlCheckIntervalHours: 'Relation aging interval',
@@ -1082,9 +1092,11 @@ const en = {
     flagDescAutoRelationMaxPerMemory: 'Edges per memory',
     flagDetailAutoRelationMaxPerMemory: 'Total degree cap for auto edges per memory',
     flagDescRelationAutoEdgeTtlDays: 'Auto edge TTL (days)',
-    flagDetailRelationAutoEdgeTtlDays: 'Prune low-confidence auto edges never reinforced after N days; 0 disables',
+    flagDetailRelationAutoEdgeTtlDays:
+      'Prune low-confidence auto edges never reinforced after N days; 0 disables',
     memAutoCreateWorkspace: 'Auto-create unknown workspaces',
-    memAutoCreateWorkspaceDesc: 'When off, unknown workspace names are rejected (capture endpoint exempt)',
+    memAutoCreateWorkspaceDesc:
+      'When off, unknown workspace names are rejected (capture endpoint exempt)',
     memDuplicateExactThreshold: 'Exact duplicate threshold',
     memDuplicateExactThresholdDesc: 'combined_score at or above this is an exact duplicate',
     memDuplicatePossibleThreshold: 'Possible duplicate threshold',
@@ -1092,7 +1104,8 @@ const en = {
     memSubmitDedupScanLimit: 'Submit dedup scan limit',
     memSubmitDedupScanLimitDesc: 'Max memories/candidates compared per direction on submit',
     memSubmitDedupCrossWorkspace: 'Cross-workspace dedup',
-    memSubmitDedupCrossWorkspaceDesc: 'Compare against memories in other workspaces when submitting',
+    memSubmitDedupCrossWorkspaceDesc:
+      'Compare against memories in other workspaces when submitting',
     workflowTitle: 'Configuration flow',
     workflowHint:
       'The first two steps decide whether content can be written and how it takes effect. The rest tune retrieval and background jobs. The first two cards save independently; the bottom bar saves only the parameters below.',
