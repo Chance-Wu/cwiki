@@ -35,7 +35,7 @@ cwiki 是个人知识工作台与 Agent 记忆基础设施。核心闭环：**�
 
 ## 开发命令
 
-所有命令通过 `python tasks.py <命令>` 跨平台运行。常用：`start`/`restart`（全栈）、`serve`/`web`（单端）、`preview`（前端生产模式，日常浏览用）、`test`/`lint`/`format`、`install`、`setup`。迁移：`migrate-init`/`migrate-up`/`migrate-down`/`migrate-create "描述"`。数据维护：`migrate-to-git`、`rebuild-db`、`recompute`。数据同步由数据仓库自管：`python cwiki-data/sync.py`。完整列表：`python tasks.py help`。
+所有命令通过 `python tasks.py <命令>` 跨平台运行。常用：`start`/`restart`（全栈）、`serve`/`web`（单端）、`preview`（前端生产模式，日常浏览用）、`test`/`lint`/`format`、`install`、`setup`。迁移：`migrate-init`/`migrate-up`/`migrate-down`/`migrate-create "描述"`。数据维护：`migrate-to-git`、`rebuild-db`、`recompute`、`doctor`（三层一致性巡检）。数据同步由数据仓库自管：`python cwiki-data/sync.py`。完整列表：`python tasks.py help`。
 
 > `restart` 强制释放端口后重启（端口被占用时使用）。服务热重启：`curl -X POST http://127.0.0.1:5172/v1/system/restart`
 

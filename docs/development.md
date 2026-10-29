@@ -244,6 +244,8 @@ python tasks.py rebuild-db         # 从 MD + _meta 重建数据库（索引文�
 python tasks.py rebuild-db --force-index   # 强制重建向量索引（即使索引文件已存在且一致）
 python tasks.py rebuild-db --index-only    # 只重建向量索引（不重建 DB，用于索引缺失自愈）
 python tasks.py recompute          # 重算派生字段（SM-2 调度等，无条件执行）
+python tasks.py doctor             # 三层存储一致性巡检（DB / MD / _meta / 索引 / 向量），异常退出码 1
+python tasks.py doctor --fix       # 仅补齐 _workspaces.json 缺失工作区（只增不删）
 ```
 
 > 详见 [Git 同步指南](git-sync.md)。数据同步由数据仓库自带的 `cwiki-data/sync.py` 管理（随数据仓库版本化），代码侧不再提供同步入口；`sync.py` 在独立数据仓库中提交 `cwiki-data/` 全部内容（MD + `_meta/` + `cwiki.db` + 索引文件）。DB 为二进制不可合并，冲突时可删除后经 `rebuild-db` 从 MD + `_meta/` 重建。

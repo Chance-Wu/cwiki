@@ -82,7 +82,7 @@ graph TB
 ### 读路径与降级
 
 - `memory_search`（含 `curated`）与 hook 的 `UserPromptSubmit` 召回优先读取 `cwiki-data/cwiki.db`（`mode=ro`），在进程内构建 BM25 索引，不依赖 API。
-- **本地优先**：本地结果覆盖率 ≥ `STRONG_COVERAGE (0.6)` 视为强命中，直接返回；弱命中/空结果才请求 API 走完整混合检索（语义 + RRF + 重排）。`mode=semantic` 是显式语义请求，保持 API 优先。
+- **本地优先**：本地结果覆盖率 ≥ `STRONG_COVERAGE (0.6)` 视为强命中，直接返回；弱命中/空结果才请求 API 走完整混合检索（语义 + RRF + 重排）。`mode=semantic` 走统一 `/v1/search`（仅向量路，过滤/重排与 hybrid 一致），仍需 API；API 不可用时同样回落本地关键词并标记降级。
 - API 连接失败或 5xx 时回落本地关键词检索，响应带 `degraded: true` 与 `warnings`；4xx 属于请求错误，原样返回，不触发降级。
 - 本地检索使用二元组分词（不加载 jieba，避免 hook 超时）与 IDF 覆盖率门控（`MIN_COVERAGE 0.5`）抑制误召回；写入仍必须经 API + outbox。
 

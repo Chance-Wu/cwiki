@@ -287,6 +287,9 @@ python tasks.py start
 # 手动重建数据库 / 重算派生字段（rebuild-db 完成后自动 recompute）
 python tasks.py rebuild-db
 python tasks.py recompute
+
+# 三层存储一致性巡检（DB / MD / _meta / 索引 / 向量）；--fix 仅补齐 _workspaces.json
+python tasks.py doctor
 ```
 
 冲突处理兜底：Markdown 走 git 原生合并；`cwiki.db` 为二进制不可合并，冲突时可任选一端，或删除本地 DB 与索引后经 `rebuild-db` 从 MD + `_meta/` 重建（可再用 `python scripts/verify_rebuild.py` 校验三方一致）。旧单仓库设备的一次性迁移见 [Git 同步指南](docs/git-sync.md)「从单仓库迁移」。

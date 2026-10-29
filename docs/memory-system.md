@@ -184,6 +184,7 @@ workspace 是**宿主当前绑定项目**的知识容器，也是唯一的组织
 - **来源**：宿主绑定项目推导。优先级：安装器显式写入的 `CWIKI_WORKSPACE` > 项目目录 env（`CWIKI_WORKSPACE_DIR`/`CWIKI_PROJECT_DIR`/`QODER_PROJECT_DIR`…）> 进程 CWD；CWD 等于 cwiki 仓库或 home 时视为"宿主未传项目"，回落 `default`。dsh 不下发 roots、也不导出项目目录 env，其归属只能靠安装器写入。
 - **清洗规则**：目录名只保留 `A-Za-z0-9._-`；以下形态一律拒绝并回落 `default`——8 位十六进制哈希名（如 `179cf7e8`，Qoder 会话 ID 截断误传）、路径编码名（`C--Users-…`、`--Users-…--`，宿主把会话路径当目录名传入）、含折叠连字符的名字、首字符非字母数字的名字（`.`/`..`/`.hidden`）。判据集中在 `adapters/hooks/profiles.clean_workspace_name`，由 hook、MCP 核心与安装器三处同源复用，不再产生垃圾工作区。
 - **历史治理**：`GET /v1/workspaces/hygiene/preview` 预览脏名工作区，`POST /v1/workspaces/hygiene/merge` 一次性归并（迁移记忆/笔记/会话后删除源工作区）。
+- **严格模式**：`memory.auto_create_workspace`（仓库 config.yaml 默认 `false`）为 false 时，未知名称直接返回 400 `unknown_workspace` 并附创建指引，不再静默建区；`default` 与 hook 捕获端点（`/v1/integrations/agent/capture`，名称由 cwd 派生）例外，仍可自动创建。
 
 ## 多标签系统
 
@@ -381,6 +382,8 @@ utility = 0.30 × retrieval_success   # 检索成功率（used / retrieved）
 
 新鲜度：从未使用为 0.3；最近使用在 1 / 7 / 30 / 90 天内分别为 1.0 / 0.9 / 0.7 / 0.5，超过 90 天为 0.2。开启掌握度耦合衰减后，上述天数按 `1 + ln(max(ease_factor, 1.3))` 放大。
 
+**使用流水 stage 语义**：`/v1/search` 命中记 `retrieved`；`/v1/context`（curated 交付）记 `used`；`POST /v1/feedback` 且 `feedback_type=useful` 时补记 `cited`。`retrieval_success` 与 `agent_usage` 由此获得真实分母/分子。`evidence_strength` 统一取 `evidence` 表计数（与列表页、健康摘要同口径）。
+
 ### 健康状态
 
 健康评估不写回记忆状态，查询时实时计算。存在 open 冲突时直接返回 `conflicted`：分数从 0.2 起，每多一个冲突再减 0.05，下限 0.05。
@@ -405,3 +408,21 @@ utility = 0.30 × retrieval_success   # 检索成功率（used / retrieved）
 | 🟡 `needs_review` | 0.4 – 0.7 | 需要关注 |
 | 🔴 `suspicious` | < 0.4 | 可疑，建议审核 |
 | 🟣 `conflicted` | 硬性拦截 | 状态为 conflicted 或存在 open 冲突 |
+
+## 配置速查（P0–P3 打磨新增）
+
+| 配置 | 默认 | 作用 |
+|------|------|------|
+| `memory.auto_create_workspace` | 代码 true / 仓库 false | 未知工作区是否自动建区；capture 端点例外 |
+| `memory.duplicate_exact_threshold` / `duplicate_possible_threshold` | 0.85 / 0.6 | 重复分类阈值（运行时读取，改配置即生效） |
+| `memory.submit_dedup_scan_limit` / `submit_dedup_cross_workspace` | 1000 / false | 提交时查重的扫描范围与是否跨工作区 |
+| `mcp.max_retries` / `mcp.retry_backoff_seconds` | 2 / 1.0 | MCP 适配器调用后端时的重试次数与退避基数 |
+| `parasitic_evolution.relation_auto_edge_ttl_days` | 0（关闭） | auto 边超过 N 天且从未强化、低置信时由巡检任务清理 |
+| `scheduler.relation_ttl_check_interval_hours` | 24 | 关系老化巡检间隔 |
+
+相关能力：
+
+- `python tasks.py doctor`：DB / Markdown / `_meta` / 索引 / 向量一致性巡检（见开发指南）。
+- `POST /v1/memories/merge-suggestions/dismiss`：忽略合并建议，状态存 `~/.cwiki/state/consolidation_dismissed.json`（可用 `CWIKI_STATE_DIR` 重定位）。
+- `memory_search mode=semantic`：仅向量路，过滤/重排与 hybrid 一致；`curated=true` 的 limit 超过 50 会夹紧到 50。
+- 质量分布页分箱可下钻：`/memories?usage=…&decay=…&min_confidence=…&min_importance=…`。
