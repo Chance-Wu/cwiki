@@ -546,12 +546,12 @@ def test_agents_md_new_file_uses_global_defaults(
     assert content.count(setup.CWIKI_AGENTS_START) == 1
     assert content.count(setup.CWIKI_AGENTS_END) == 1
     assert _cwiki_agents_block() in content
-    assert "会话开始" in content
     assert "memory_search" in content
     assert "memory_save" in content
     assert "memory_update" in content
-    assert "无真实信号跳过" in content
-    assert "workspace_name" in content
+    assert "cwiki-save" in content
+    assert "不写入" in content
+    assert "记忆不可用" in content
     assert "mwk_agent_" not in content
     assert "标题可选" not in content
     assert "至少 5 个字符" not in content
