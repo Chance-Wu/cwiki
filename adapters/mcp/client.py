@@ -174,6 +174,7 @@ class CwikiClient:
         filters: dict[str, Any] | None = None,
         limit: int = 10,
         tags: list[str] | None = None,
+        mode: str | None = None,
     ) -> dict[str, Any]:
         body: dict[str, Any] = {
             "keyword": query,
@@ -185,6 +186,8 @@ class CwikiClient:
             body["filters"] = filters
         if tags:
             body["tags"] = tags
+        if mode:
+            body["mode"] = mode
         return await self._request(
             "POST", f"{API_V1_PREFIX}/search", json_body=body, timeout=self.search_timeout
         )

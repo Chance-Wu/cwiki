@@ -36,9 +36,15 @@ benchmarks/
 | Precision@K | Top-K 中相关 Memory 的占比 |
 | MRR | 第一个相关结果的排名倒数 |
 | NDCG@10 | 考虑等级排序的归一化折损累积增益 |
-| Useful@10 | Top-10 中 relevance >= 2 的 Memory 占比 |
+| Useful@10 | Top-10 中 relevance >= 2 的 Memory 占比（密度指标，分母固定为 10） |
+| Useful@10 理论上限 | 每条查询 `min(10, 相关条目数)/10` 的均值；语料相关条目少时上限天然低于 1 |
+| Useful@10 达成率 | Useful@10 ÷ 理论上限，跨数据集可比的回归门槛 |
 
 相关性等级：0 = 不相关，1 = 弱相关，2 = 相关，3 = 直接有用。
+
+> **阅读提示**：eval-fixture 每条查询只有 1–5 条相关记忆，Useful@10 的理论上限约 **0.2386**，
+> 实测 0.189 已是上限的 79%。因此不要把 Useful@10 的原始密度当绝对目标；
+> 回归与目标请使用 **Recall@10** 与 **Useful@10 达成率**。
 
 ### 上下文组装（context_runner）
 
@@ -116,7 +122,7 @@ W3 回归报告（rerank 归一化修复与相关性下限过滤的定值依据�
 
 ```
 Recall@10 >= 0.80
-Useful@10 >= 0.60
+Useful@10 达成率 >= 0.75（full_pipeline 实测 0.79；原始 Useful@10 上限 0.2386，不作为绝对目标）
 p95 retrieval < 700ms（10K 规模 SLA；实测全管线 p95 约 4ms）
 ```
 

@@ -207,6 +207,20 @@ export const updateMemoryRelation = (
     body: JSON.stringify(patch),
   })
 
+export const dismissMergeSuggestion = (
+  workspaceId: string | undefined,
+  sourceId: string,
+  targetId: string,
+) =>
+  request<{ status: string }>('/memories/merge-suggestions/dismiss', {
+    method: 'POST',
+    body: JSON.stringify({
+      workspace_id: workspaceId,
+      source_id: sourceId,
+      target_id: targetId,
+    }),
+  })
+
 export const getMergeSuggestions = (workspaceId: string, limit = 10) =>
   request<{
     items: MergeSuggestion[]

@@ -94,6 +94,7 @@ async def search(
         str(sorted(body.filters.items())) if body.filters else "",
         str(body.session_id) if body.session_id else "",
         "trace" if body.record_trace else "no-trace",
+        body.mode,
     )
     cached = _search_cache.get(cache_key)
     if cached is not None and time.monotonic() - cached[0] < _SEARCH_CACHE_TTL:
@@ -114,6 +115,7 @@ async def search(
         session_id=body.session_id,
         record_trace=body.record_trace,
         tags=body.tags,
+        mode=body.mode,
     )
 
     page = ranked["memories"][body.offset : body.offset + body.limit]

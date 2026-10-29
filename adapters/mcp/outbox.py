@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import tempfile
 import time
@@ -18,6 +19,8 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, BinaryIO, TypeVar
+
+logger = logging.getLogger(__name__)
 
 _IS_WINDOWS = os.name == "nt"
 if _IS_WINDOWS:
@@ -82,7 +85,22 @@ def _atomic_write_json(path: Path, data: list[dict[str, Any]]) -> None:
 def _load_json(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
-    data = json.loads(path.read_text(encoding="utf-8"))
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        # 坏分片隔离：改名备份后返回空列表，避免 retry/drain 因单个文件整体失败
+        quarantine = path.with_name(f"{path.name}.corrupt-{time.strftime('%Y%m%d%H%M%S')}")
+        try:
+            os.replace(path, quarantine)
+            logger.warning(
+                "Outbox shard %s corrupted (%s), moved to %s",
+                path.name,
+                type(exc).__name__,
+                quarantine.name,
+            )
+        except OSError:
+            logger.warning("Outbox shard %s corrupted and could not be quarantined", path.name)
+        return []
     if isinstance(data, list):
         return data
     return []

@@ -233,3 +233,31 @@ class TestFormatReport:
         assert "test" in md
         assert "Recall@10" in md
         assert "MRR" in md
+
+
+class TestUsefulCeiling:
+    def test_ceiling_caps_small_relevant_pool(self):
+        judgment = QueryJudgment(
+            query_id="q1", query="x", judgments={"m1": 3, "m2": 2, "m3": 1, "m4": 0}
+        )
+        qm = evaluate_query(RetrievalResult(query_id="q1", ranked_memory_ids=["m1"]), judgment)
+        # 只有 2 条相关：密度上限 = 2/10，召回 1 条即 0.1
+        assert qm.useful_at_10 == 0.1
+        assert qm.useful_at_10_ceiling == 0.2
+
+    def test_report_exposes_ratio(self):
+        huge = QueryJudgment(
+            query_id="q1",
+            query="x",
+            judgments={f"m{i}": 2 for i in range(12)},
+        )
+        small = QueryJudgment(query_id="q2", query="y", judgments={"n1": 2, "n2": 1})
+        qm1 = evaluate_query(RetrievalResult("q1", [f"m{i}" for i in range(12)]), huge)
+        qm2 = evaluate_query(RetrievalResult("q2", ["n1"]), small)
+        report = aggregate_report("p", [qm1, qm2])
+
+        assert report.useful_at_10_ceiling == (1.0 + 0.1) / 2
+        assert (
+            abs(report.useful_at_10_ratio - report.useful_at_10 / report.useful_at_10_ceiling)
+            < 1e-9
+        )

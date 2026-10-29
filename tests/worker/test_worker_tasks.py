@@ -46,10 +46,10 @@ class TestJaccardFromSets:
 
 
 class TestRegisterTasks:
-    def test_registers_all_ten_tasks(self):
+    def test_registers_all_eleven_tasks(self):
         queue = MagicMock()
         register_tasks(queue)
-        assert queue.register.call_count == 10
+        assert queue.register.call_count == 11
 
     def test_registers_expected_task_names(self):
         queue = MagicMock()
@@ -66,6 +66,7 @@ class TestRegisterTasks:
             "check_review_reminders",
             "periodic_meta_export",
             "auto_discover_relations",
+            "prune_stale_relations",
         ]
         assert registered_names == expected
 
@@ -344,3 +345,104 @@ class TestAutoConsolidateMerge:
             assert untouched.status == "active"
         finally:
             await engine.dispose()
+
+
+class TestPruneStaleRelations:
+    @pytest.fixture
+    async def env(self, tmp_path, monkeypatch):
+        from datetime import UTC, datetime, timedelta
+
+        from sqlalchemy import select
+        from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+        from apps.worker.tasks import maintenance
+        from packages.domain.database import Base
+        from packages.domain.models import Memory, MemoryRelation, Workspace
+
+        engine = create_async_engine(f"sqlite+aiosqlite:///{(tmp_path / 'db.sqlite').as_posix()}")
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        sessions = async_sessionmaker(engine, expire_on_commit=False)
+        monkeypatch.setattr(maintenance, "async_session_maker", sessions)
+        monkeypatch.setattr(
+            maintenance.parasitic_evolution_config, "relation_auto_edge_ttl_days", 30
+        )
+        monkeypatch.setattr(maintenance.parasitic_evolution_config, "auto_relation_threshold", 0.75)
+
+        async with sessions() as db:
+            ws = Workspace(name="aging-ws")
+            db.add(ws)
+            await db.flush()
+            mems = [
+                Memory(workspace_id=ws.id, title=f"M{i}", content="内容" * 10, type="fact")
+                for i in range(4)
+            ]
+            db.add_all(mems)
+            await db.flush()
+            now = datetime.now(UTC).replace(tzinfo=None)
+            old = now - timedelta(days=60)
+            db.add_all(
+                [
+                    # 应删除：auto、旧、低置信、从未强化
+                    MemoryRelation(
+                        source_memory_id=mems[0].id,
+                        target_memory_id=mems[1].id,
+                        relation_type="related",
+                        confidence=0.6,
+                        created_by="auto",
+                        created_at=old,
+                    ),
+                    # 保留：被强化过
+                    MemoryRelation(
+                        source_memory_id=mems[1].id,
+                        target_memory_id=mems[2].id,
+                        relation_type="related",
+                        confidence=0.6,
+                        strength=0.5,
+                        last_reinforced_at=old,
+                        created_by="auto",
+                        created_at=old,
+                    ),
+                    # 保留：人工边（即便很旧）
+                    MemoryRelation(
+                        source_memory_id=mems[2].id,
+                        target_memory_id=mems[3].id,
+                        relation_type="related",
+                        confidence=0.6,
+                        created_by="manual",
+                        created_at=old,
+                    ),
+                    # 保留：未到 TTL
+                    MemoryRelation(
+                        source_memory_id=mems[3].id,
+                        target_memory_id=mems[0].id,
+                        relation_type="related",
+                        confidence=0.6,
+                        created_by="auto",
+                        created_at=now,
+                    ),
+                ]
+            )
+            await db.commit()
+
+        yield maintenance, sessions, select, MemoryRelation
+        await engine.dispose()
+
+    async def test_deletes_only_stale_auto_edges(self, env):
+        maintenance, sessions, select, MemoryRelation = env
+        result = await maintenance.task_prune_stale_relations({})
+
+        assert result["status"] == "completed"
+        assert result["deleted"] == 1
+        async with sessions() as db:
+            rows = (await db.execute(select(MemoryRelation))).scalars().all()
+        assert len(rows) == 3
+        assert {rel.created_by for rel in rows} == {"auto", "manual"}
+
+    async def test_ttl_zero_disables_task(self, env, monkeypatch):
+        maintenance, _sessions, _select, _rel = env
+        monkeypatch.setattr(
+            maintenance.parasitic_evolution_config, "relation_auto_edge_ttl_days", 0
+        )
+        result = await maintenance.task_prune_stale_relations({})
+        assert result["status"] == "disabled"

@@ -69,16 +69,16 @@ async def test_weak_local_hit_degrades_when_api_down(server):
 
 async def test_semantic_search_stays_api_first(server):
     instance, client = server
-    client.recall.return_value = {"results": [{"id": "api-1"}], "total": 1}
+    client.search.return_value = {"results": [{"id": "api-1"}], "total": 1}
     with patch("adapters.mcp.mcp_server.search_local", return_value=_local(True)) as local:
         await instance._handle_tool("memory_search", {"keyword": "redis", "mode": "semantic"})
     local.assert_not_called()
-    client.recall.assert_called_once()
+    assert client.search.call_args.kwargs["mode"] == "semantic"
 
 
 async def test_semantic_search_falls_back_to_local(server):
     instance, client = server
-    client.recall.side_effect = httpx.ReadTimeout("timeout")
+    client.search.side_effect = httpx.ReadTimeout("timeout")
     with patch("adapters.mcp.mcp_server.search_local", return_value=_local(True)):
         result = await instance._handle_tool(
             "memory_search", {"keyword": "redis", "mode": "semantic"}

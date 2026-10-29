@@ -214,3 +214,21 @@ async def test_search_no_candidates_marks_insufficient(filter_env, monkeypatch):
     assert body["insufficient_reason"]
     assert body["results"]
     assert all(row["score"] == 0.0 for row in body["results"])
+
+
+async def test_semantic_mode_applies_filters(filter_env):
+    """semantic 模式与 hybrid 共用过滤链（仅向量路召回）。"""
+    env = filter_env
+    response = await env.http.post(
+        "/v1/search",
+        json={"keyword": KEYWORD, "mode": "semantic", "memory_type": "lesson", "limit": 10},
+    )
+    assert response.status_code == 200, response.text
+    ids = {row["id"] for row in response.json()["results"]}
+    assert ids == {env.lesson}
+
+
+async def test_invalid_mode_rejected(filter_env):
+    env = filter_env
+    response = await env.http.post("/v1/search", json={"keyword": KEYWORD, "mode": "vector"})
+    assert response.status_code == 422

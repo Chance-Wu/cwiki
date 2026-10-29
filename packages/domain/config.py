@@ -302,6 +302,8 @@ class ParasiticEvolutionConfig:
         self.auto_relation_enabled: bool = cfg.get("auto_relation_enabled", False)
         self.auto_relation_threshold: float = float(cfg.get("auto_relation_threshold", 0.75))
         self.auto_relation_max_per_memory: int = int(cfg.get("auto_relation_max_per_memory", 10))
+        # 自动关系老化：auto 边超过 TTL 且从未强化、置信低于阈值时清理（0=关闭，默认关）
+        self.relation_auto_edge_ttl_days: float = float(cfg.get("relation_auto_edge_ttl_days", 0.0))
         self.agent_profile_enabled: bool = cfg.get("agent_profile_enabled", False)
         self.memory_version_tracking_enabled: bool = cfg.get(
             "memory_version_tracking_enabled", False
@@ -419,6 +421,9 @@ class SchedulerConfig:
         self.review_reminders_interval_hours: float = cfg.get("review_reminders_interval_hours", 24)
         self.meta_export_interval_hours: float = cfg.get("meta_export_interval_hours", 12)
         self.auto_relation_interval_hours: float = cfg.get("auto_relation_interval_hours", 6)
+        self.relation_ttl_check_interval_hours: float = cfg.get(
+            "relation_ttl_check_interval_hours", 24
+        )
 
 
 scheduler_config = SchedulerConfig()

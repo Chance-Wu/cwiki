@@ -34,6 +34,12 @@ class SearchRequest(BaseModel):
     session_id: UUID | None = None
     # 自动召回等隐私敏感场景可关闭 trace；默认记录，保持现有诊断能力
     record_trace: bool = Field(default=True, description="是否记录检索 trace")
+    # hybrid：BM25 + 向量双路（默认）；semantic：仅向量路，共享同一套过滤与重排
+    mode: str = Field(
+        default="hybrid",
+        pattern="^(hybrid|semantic)$",
+        description="hybrid=双路召回；semantic=仅语义向量路（过滤/重排仍生效）",
+    )
 
 
 class SearchResult(BaseModel):

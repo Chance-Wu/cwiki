@@ -155,6 +155,12 @@ export default function QualityPage() {
                 <StatCard label="平均使用次数" value={stats.avgUsage} />
               </div>
 
+              {data.truncated && (
+                <div className="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] px-3 py-2 text-xs text-[var(--text-secondary)]">
+                  统计截断：单次最多扫描 5000 条，当前仅覆盖 {data.total} 条，结果可能不完整。
+                </div>
+              )}
+
               {/* Confidence Distribution */}
               <div className="glass-card rounded-xl p-6">
                 <h3 className="text-lg font-semibold mb-4">置信度分布</h3>

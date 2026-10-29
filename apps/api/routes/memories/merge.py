@@ -150,6 +150,29 @@ async def get_merge_suggestions_embedding(
     }
 
 
+class DismissSuggestionBody(BaseModel):
+    source_id: uuid.UUID
+    target_id: uuid.UUID
+    workspace_id: str | None = None
+
+
+@router.post("/merge-suggestions/dismiss")
+async def dismiss_merge_suggestion(
+    body: DismissSuggestionBody,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _identity: Annotated[AgentIdentity | None, Depends(require_scope("reviews:write"))] = None,
+) -> dict[str, Any]:
+    """忽略一条合并建议：记录后不再出现在建议列表（只增不删）。"""
+    from packages.memory.merge_suggestions import dismiss_pair
+
+    resolved_ws_id = await resolve_workspace(body.workspace_id, db)
+    await asyncio.to_thread(
+        dismiss_pair, str(resolved_ws_id), str(body.source_id), str(body.target_id)
+    )
+    _merge_suggestions_cache.clear()
+    return {"status": "ok"}
+
+
 @router.post("/consolidate")
 async def trigger_consolidate(
     _identity: Annotated[AgentIdentity | None, Depends(get_current_agent)] = None,

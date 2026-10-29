@@ -255,6 +255,8 @@ parasitic_evolution:
   auto_relation_enabled: true
   auto_relation_threshold: 0.75
   auto_relation_max_per_memory: 10
+  # 自动关系老化：auto 边超过 N 天且从未强化、置信低于阈值时清理（0=关闭）
+  relation_auto_edge_ttl_days: 0
   memory_version_tracking_enabled: true
   proactive_push_enabled: true
   review_reminders_enabled: true
@@ -265,6 +267,7 @@ scheduler:
   review_reminders_interval_hours: 24
   meta_export_interval_hours: 12
   auto_relation_interval_hours: 6
+  relation_ttl_check_interval_hours: 24
 retrieval:
   bm25_weight: 0.6
   vector_weight: 0.4

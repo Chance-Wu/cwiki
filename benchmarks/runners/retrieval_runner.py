@@ -323,6 +323,8 @@ def save_report(report: BenchmarkReport, output_dir: Path, prefix: str = "") -> 
         "mrr": report.mrr,
         "ndcg_at_10": report.ndcg_at_10,
         "useful_at_10": report.useful_at_10,
+        "useful_at_10_ceiling": report.useful_at_10_ceiling,
+        "useful_at_10_ratio": report.useful_at_10_ratio,
         "avg_latency_ms": report.avg_latency_ms,
         "negative_probes": report.negative_probes,
         "negative_fp_rate_at_10": report.negative_fp_rate_at_10,
@@ -334,6 +336,7 @@ def save_report(report: BenchmarkReport, output_dir: Path, prefix: str = "") -> 
                 "mrr": qm.rr,
                 "ndcg_at_10": qm.ndcg_at_10,
                 "useful_at_10": qm.useful_at_10,
+                "useful_at_10_ceiling": qm.useful_at_10_ceiling,
                 "relevant_count": qm.relevant_count,
                 "is_negative_probe": qm.is_negative_probe,
                 "negative_fp_at_10": qm.negative_fp_at_10,
@@ -455,10 +458,11 @@ async def main(
 
     if workspace_id is None and workspace_name:
         async with session_maker() as db:
-            ws_id = await _get_workspace_by_name(db, workspace_name)
-            if ws_id is None:
+            found_id = await _get_workspace_by_name(db, workspace_name)
+            if found_id is None:
                 logger.error("Workspace '%s' not found", workspace_name)
                 return []
+            ws_id = found_id
     elif workspace_id is None:
         async with session_maker() as db:
             from packages.domain.models import Workspace

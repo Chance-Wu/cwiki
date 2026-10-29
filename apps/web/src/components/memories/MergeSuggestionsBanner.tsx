@@ -15,6 +15,7 @@ interface MergeSuggestionsBannerProps {
   onConsolidate: () => void
   onOpenMerge: (s: MergeSuggestion) => void
   onBatchMerge?: (suggestions: MergeSuggestion[]) => void
+  onDismissSuggestion?: (s: MergeSuggestion) => void
 }
 
 /** 合并建议横幅：展示相似记忆对，可整条关闭（纯 UI 状态内聚在此）。 */
@@ -26,6 +27,7 @@ export default function MergeSuggestionsBanner({
   onConsolidate,
   onOpenMerge,
   onBatchMerge,
+  onDismissSuggestion,
 }: MergeSuggestionsBannerProps) {
   const { t } = useTranslation()
   const [dismissed, setDismissed] = useState(false)
@@ -262,6 +264,22 @@ export default function MergeSuggestionsBanner({
                   >
                     {t.memories.mergeAction}
                   </Button>
+
+                  {/* Dismiss Button */}
+                  {onDismissSuggestion && (
+                    <Button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onDismissSuggestion(s)
+                      }}
+                      variant="icon"
+                      size="xs"
+                      title="忽略此建议（不再提示）"
+                      className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
+                    >
+                      <X size={14} aria-hidden="true" />
+                    </Button>
+                  )}
                 </motion.div>
               )
             })}
@@ -300,11 +318,7 @@ export default function MergeSuggestionsBanner({
                 </div>
               </div>
               <div className="flex gap-2 justify-end">
-                <Button
-                  onClick={() => setShowBatchConfirm(false)}
-                  variant="secondary"
-                  size="sm"
-                >
+                <Button onClick={() => setShowBatchConfirm(false)} variant="secondary" size="sm">
                   {t.common.cancel}
                 </Button>
                 <Button onClick={confirmBatchMerge} variant="warning" size="sm">

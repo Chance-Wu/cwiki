@@ -17,7 +17,7 @@ import argparse
 import json
 from pathlib import Path
 
-METRICS = ["recall_at_10", "mrr", "ndcg_at_10", "useful_at_10"]
+METRICS = ["recall_at_10", "mrr", "ndcg_at_10", "useful_at_10", "useful_at_10_ratio"]
 DEFAULT_BASELINE = Path(__file__).parent.parent / "reports" / "baseline.json"
 
 

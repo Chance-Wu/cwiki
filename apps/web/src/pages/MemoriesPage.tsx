@@ -347,6 +347,20 @@ export default function MemoriesPage() {
     }
   }
 
+  const handleDismissSuggestion = async (suggestion: MergeSuggestion) => {
+    try {
+      await api.dismissMergeSuggestion(
+        workspaceId ?? undefined,
+        suggestion.source_id,
+        suggestion.target_id,
+      )
+      toast('已忽略该合并建议', 'success')
+      mergeSuggestionsQuery.refetch()
+    } catch {
+      toast('忽略建议失败，请重试', 'error')
+    }
+  }
+
   const openMemory = useCallback((m: MemoryRecord) => {
     // 列表项（/v1/memories DB 视图）缺 file_path/workspace 名/tags 等文件视图字段，
     // 先用列表数据立即打开弹窗，再异步拉取详情合并补全；失败时保留列表数据
@@ -658,6 +672,7 @@ export default function MemoriesPage() {
         strategy={mergeSuggestionsQuery.data?.strategy}
         onConsolidate={() => consolidateMutation.mutate()}
         onOpenMerge={handleOpenMerge}
+        onDismissSuggestion={handleDismissSuggestion}
         onBatchMerge={async (selected) => {
           // 批量合并：拉取全文后依次执行每个合并，跟踪进度与成功/失败数
           let successCount = 0

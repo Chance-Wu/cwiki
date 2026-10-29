@@ -324,6 +324,12 @@ def migrate_to_git():
     return _py("scripts/migrate_to_git.py")
 
 
+@task("doctor")
+def doctor():
+    """三层存储一致性巡检：DB / Markdown / _meta / 索引 / 向量（--fix 补齐工作区 meta）。"""
+    return _py("scripts/check_integrity.py", *sys.argv[2:])
+
+
 @task("setup-dsh")
 def setup_dsh():
     """为 DeepSeek Harness 注册 cwiki MCP 并绑定当前项目工作区。"""

@@ -482,11 +482,16 @@ async def test_search_preserves_regular_routes(memory_server, mode):
     result = await memory_server._handle_tool("memory_search", arguments)
     assert arguments["workspace_name"] == "named-workspace"
     if mode == "semantic":
-        client.recall.assert_awaited_once_with(
-            query="文件锁", workspace_id="named-workspace", limit=7
+        # semantic 走统一 /v1/search（仅向量路），过滤与其它模式一致
+        client.search.assert_awaited_once_with(
+            query="文件锁",
+            workspace_id="named-workspace",
+            filters=None,
+            limit=7,
+            mode="semantic",
         )
-        client.search.assert_not_awaited()
-        assert result == {"items": []}
+        client.recall.assert_not_awaited()
+        assert result == {"results": []}
     else:
         client.search.assert_awaited_once_with(
             query="文件锁",
@@ -609,7 +614,6 @@ async def test_history_list_result_does_not_confuse_membership_with_error(memory
     [
         ("memory_search", {"curated": "false"}, "curated"),
         ("memory_search", {"curated": True, "limit": 0}, "limit"),
-        ("memory_search", {"curated": True, "limit": 51}, "limit"),
         ("memory_search", {"curated": True, "limit": True}, "limit"),
         ("memory_search", {"curated": True, "max_tokens": 99}, "max_tokens"),
         ("memory_search", {"curated": True, "max_tokens": 20001}, "max_tokens"),

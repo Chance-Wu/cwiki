@@ -9,9 +9,12 @@
 
 from __future__ import annotations
 
+import json
 import logging
+import os
 import uuid
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import select
@@ -34,6 +37,49 @@ logger = logging.getLogger(__name__)
 
 # 默认阈值：建议最终由人工裁决，阈值取高以压低误报（可由配置覆盖）
 DEFAULT_SIMILARITY_THRESHOLD = 0.85
+
+
+def _state_path() -> Path:
+    root = Path(os.environ.get("CWIKI_STATE_DIR", "~/.cwiki/state")).expanduser()
+    return root / "consolidation_dismissed.json"
+
+
+def _pair_key(a: str, b: str) -> str:
+    return "|".join(sorted((str(a), str(b))))
+
+
+def load_dismissed(workspace_id: str) -> set[str]:
+    """读取该工作区被忽略的合并建议对（无序对键）。"""
+    path = _state_path()
+    if not path.is_file():
+        return set()
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return set()
+    workspaces = data.get("workspaces") if isinstance(data, dict) else None
+    pairs = workspaces.get(workspace_id) if isinstance(workspaces, dict) else None
+    return {str(key) for key in pairs} if isinstance(pairs, list) else set()
+
+
+def dismiss_pair(workspace_id: str, source_id: str, target_id: str) -> None:
+    """记录一条被忽略的合并建议；只增不删，避免重复提示。"""
+    path = _state_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data: dict[str, Any] = {}
+    if path.is_file():
+        try:
+            loaded = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                data = loaded
+        except (OSError, ValueError):
+            data = {}
+    workspaces = data.setdefault("workspaces", {})
+    pairs = workspaces.setdefault(workspace_id, [])
+    key = _pair_key(source_id, target_id)
+    if key not in pairs:
+        pairs.append(key)
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
 @dataclass
@@ -122,6 +168,7 @@ async def find_merge_candidates(
     )
     resolved_strategy = strategy or settings.similarity_strategy
     weights = HybridWeights(**settings.similarity_hybrid_weights)
+    dismissed = load_dismissed(str(workspace_id))
     memory_items = [
         {"id": str(mem_id), "title": title, "content": content, "embedding": emb}
         for mem_id, title, content, emb in memories
@@ -155,6 +202,8 @@ async def find_merge_candidates(
             if score < threshold:
                 continue
             j = i + 1 + offset
+            if _pair_key(memory_items[i]["id"], memory_items[j]["id"]) in dismissed:
+                continue
             suggestions.append(
                 MergeSuggestion(
                     memory_id_a=memory_items[i]["id"],

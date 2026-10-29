@@ -40,6 +40,9 @@ class QueryMetrics:
     rr: float = 0.0
     ndcg_at_10: float = 0.0
     useful_at_10: float = 0.0
+    # 该查询 Useful@10 的理论上限 = min(10, 相关条目数) / 10；
+    # 密度指标分母固定为 10，语料中相关条目少时上限天然低于 1
+    useful_at_10_ceiling: float = 0.0
     relevant_count: int = 0
     # 负例探针：无任何 ≥2 分（相关）判定的查询，衡量"应答'无'"的失败。
     # 误召回 = top-10 出现 ≥1 分（弱相关）结果，困难负例的弱相关干扰项在此生效。
@@ -59,6 +62,9 @@ class BenchmarkReport:
     mrr: float = 0.0
     ndcg_at_10: float = 0.0
     useful_at_10: float = 0.0
+    # Useful@10 的平均理论上限与达成率（useful / ceiling），跨数据集可比
+    useful_at_10_ceiling: float = 0.0
+    useful_at_10_ratio: float = 0.0
     avg_latency_ms: float = 0.0
     per_query: list[QueryMetrics] = field(default_factory=list)
     # 负例探针汇总（探针不进主指标平均，避免"全 0 查询"稀释分数）
@@ -142,6 +148,7 @@ def evaluate_query(
         rr=reciprocal_rank(result.ranked_memory_ids, relevant),
         ndcg_at_10=ndcg_at_k(result.ranked_memory_ids, judgment.judgments, 10),
         useful_at_10=useful_at_k(result.ranked_memory_ids, judgment.judgments, 10),
+        useful_at_10_ceiling=min(len(relevant), 10) / 10,
     )
     # 负例探针：无任何 ≥2 分判定时视为探针（困难负例可含 1 分干扰项），
     # top-10 出现 ≥1 分结果记误召回
@@ -187,6 +194,12 @@ def aggregate_report(
     report.mrr = sum(qm.rr for qm in mains) / m
     report.ndcg_at_10 = sum(qm.ndcg_at_10 for qm in mains) / m
     report.useful_at_10 = sum(qm.useful_at_10 for qm in mains) / m
+    report.useful_at_10_ceiling = sum(qm.useful_at_10_ceiling for qm in mains) / m
+    report.useful_at_10_ratio = (
+        report.useful_at_10 / report.useful_at_10_ceiling
+        if report.useful_at_10_ceiling > 0
+        else 0.0
+    )
 
     if latencies:
         report.avg_latency_ms = sum(latencies) / len(latencies)
@@ -212,6 +225,8 @@ def format_report_md(report: BenchmarkReport) -> str:
         f"| MRR | {report.mrr:.4f} |",
         f"| NDCG@10 | {report.ndcg_at_10:.4f} |",
         f"| Useful@10 | {report.useful_at_10:.4f} |",
+        f"| Useful@10 理论上限 | {report.useful_at_10_ceiling:.4f} |",
+        f"| Useful@10 达成率 | {report.useful_at_10_ratio:.4f} |",
         f"| Avg Latency (ms) | {report.avg_latency_ms:.1f} |",
         "",
     ]

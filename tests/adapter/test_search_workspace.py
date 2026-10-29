@@ -47,18 +47,18 @@ async def test_hybrid_search_workspace_id_alias_is_scoped(server):
 
 async def test_semantic_search_without_workspace_is_global(server):
     instance, client = server
-    client.recall.return_value = {"results": [], "total": 0}
+    client.search.return_value = {"results": [], "total": 0}
     await instance._handle_tool("memory_search", {"keyword": "跨库召回", "mode": "semantic"})
-    assert client.recall.call_args.kwargs["workspace_id"] is None
+    assert client.search.call_args.kwargs["workspace_id"] is None
 
 
 async def test_semantic_search_workspace_name_is_scoped(server):
     instance, client = server
-    client.recall.return_value = {"results": [], "total": 0}
+    client.search.return_value = {"results": [], "total": 0}
     await instance._handle_tool(
         "memory_search", {"keyword": "跨库召回", "mode": "semantic", "workspace_name": "cwiki"}
     )
-    assert client.recall.call_args.kwargs["workspace_id"] == "cwiki"
+    assert client.search.call_args.kwargs["workspace_id"] == "cwiki"
 
 
 async def test_curated_without_workspace_falls_back_to_default(server):

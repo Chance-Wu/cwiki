@@ -758,3 +758,19 @@ class TestEmptyFileCleanup:
         outbox.mark_success("ws-1", e1["id"])
         assert (tmp_path / "ws-1.json").exists()
         assert len(outbox.load_all("ws-1")) == 1
+
+
+def test_corrupt_shard_is_quarantined_and_others_load(tmp_path: Path) -> None:
+    """单个坏分片不应让 retry/drain 整体失败：隔离坏文件后继续读其它分片。"""
+    outbox = WriteAheadOutbox(state_dir=tmp_path)
+    outbox.log_pending("ws-good", "memory_save", {"content": "ok"}, "ms:good")
+    bad_path = outbox._path("ws-bad")  # type: ignore[attr-defined]
+    bad_path.parent.mkdir(parents=True, exist_ok=True)
+    bad_path.write_text("{not valid json", encoding="utf-8")
+
+    retryable = outbox.load_retryable()
+
+    assert "ws-good" in retryable and len(retryable["ws-good"]) == 1
+    assert not bad_path.exists()
+    quarantined = list(tmp_path.rglob("*.corrupt-*"))
+    assert quarantined and quarantined[0].read_text(encoding="utf-8") == "{not valid json"

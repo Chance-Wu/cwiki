@@ -80,6 +80,8 @@ class _SearchParams:
     session_id: uuid.UUID | None = None
     record_trace: bool = True
     tags: list[str] | None = None
+    # hybrid=BM25+向量双路；semantic=仅向量路
+    mode: str = "hybrid"
     # 本次检索发生的降级标记（向量检索失败等），随结果透出
     degraded: set[str] = field(default_factory=set)
 
@@ -301,12 +303,13 @@ class RetrievalEngine:
         session_id: uuid.UUID | None = None,
         record_trace: bool = True,
         tags: list[str] | None = None,
+        mode: str = "hybrid",
     ) -> dict[str, Any]:
         """执行完整语义检索管线，返回排序后的记忆列表（不做上下文组装）。
 
         双路召回 → RRF 融合 → 多信号重排 → 图扩展 → 候选过滤 → 多样性
-        → 效用分。/v1/search 与 retrieve() 共用本方法，保证两条入口的
-        排序行为一致。
+        → 效用分。mode="semantic" 时跳过 BM25 路（仅向量召回），
+        过滤、重排与其余阶段保持一致。/v1/search 与 retrieve() 共用本方法。
         """
         start_time = time.time()
         params = _SearchParams(
@@ -321,6 +324,7 @@ class RetrievalEngine:
             session_id=session_id,
             record_trace=record_trace,
             tags=tags,
+            mode=mode,
         )
 
         # 规范化标签过滤
@@ -455,34 +459,38 @@ class RetrievalEngine:
         vector_query = preprocess_query_for_embedding(query, analyzed)
         embedding_task = asyncio.create_task(embedding_svc.generate_embedding(vector_query))
 
-        # BM25 检索
-        bm25_results = index.search(search_query, top_k=50)
-        for rank, (doc_id, score) in enumerate(bm25_results, 1):
-            entry = _ensure_candidate(candidates, doc_id)
-            entry["bm25_score"] = score
-            entry["bm25_rank"] = rank
+        # semantic 模式只走向量路：跳过 BM25 与短语/同义词扩展
+        if params.mode != "semantic":
+            # BM25 检索
+            bm25_results = index.search(search_query, top_k=50)
+            for rank, (doc_id, score) in enumerate(bm25_results, 1):
+                entry = _ensure_candidate(candidates, doc_id)
+                entry["bm25_score"] = score
+                entry["bm25_rank"] = rank
 
-        # 短语命中加成：得分 x1.2、名次 +30
-        if analyzed.phrases:
-            for phrase in analyzed.phrases[:3]:
-                phrase_results = index.search(phrase, top_k=20)
-                for rank, (doc_id, score) in enumerate(phrase_results, 1):
+            # 短语命中加成：得分 x1.2、名次 +30
+            if analyzed.phrases:
+                for phrase in analyzed.phrases[:3]:
+                    phrase_results = index.search(phrase, top_k=20)
+                    for rank, (doc_id, score) in enumerate(phrase_results, 1):
+                        entry = _ensure_candidate(candidates, doc_id)
+                        boost = score * 1.2
+                        if entry["bm25_score"] < boost:
+                            entry["bm25_score"] = boost
+                            entry["bm25_rank"] = min(
+                                entry["bm25_rank"] or _FALLBACK_RANK, rank + 30
+                            )
+
+            # 同义词扩展命中打折（x0.7、名次 +50）
+            if analyzed.expanded_terms:
+                expanded_query = query + " " + " ".join(analyzed.expanded_terms[:5])
+                expanded_results = index.search(expanded_query, top_k=30)
+                for rank, (doc_id, score) in enumerate(expanded_results, 1):
                     entry = _ensure_candidate(candidates, doc_id)
-                    boost = score * 1.2
+                    boost = score * 0.7
                     if entry["bm25_score"] < boost:
                         entry["bm25_score"] = boost
-                        entry["bm25_rank"] = min(entry["bm25_rank"] or _FALLBACK_RANK, rank + 30)
-
-        # 同义词扩展命中打折（x0.7、名次 +50）
-        if analyzed.expanded_terms:
-            expanded_query = query + " " + " ".join(analyzed.expanded_terms[:5])
-            expanded_results = index.search(expanded_query, top_k=30)
-            for rank, (doc_id, score) in enumerate(expanded_results, 1):
-                entry = _ensure_candidate(candidates, doc_id)
-                boost = score * 0.7
-                if entry["bm25_score"] < boost:
-                    entry["bm25_score"] = boost
-                    entry["bm25_rank"] = min(entry["bm25_rank"] or _FALLBACK_RANK, rank + 50)
+                        entry["bm25_rank"] = min(entry["bm25_rank"] or _FALLBACK_RANK, rank + 50)
 
         # 等待 embedding 并执行向量检索
         query_embedding = await embedding_task

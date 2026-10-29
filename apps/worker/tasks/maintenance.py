@@ -5,15 +5,15 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from packages.domain.config import parasitic_evolution_config
 from packages.domain.database import async_session_maker
-from packages.domain.models import Memory
+from packages.domain.models import Memory, MemoryRelation
 from packages.domain.models.memory import ReviewSchedule
 
 logger = logging.getLogger(__name__)
@@ -201,3 +201,43 @@ async def task_auto_discover_relations(ctx: dict[str, Any]) -> dict[str, Any]:
             "threshold": threshold,
             "details": workspace_stats,
         }
+
+
+async def task_prune_stale_relations(ctx: dict[str, Any]) -> dict[str, Any]:
+    """清理长期未强化的自动关系边。
+
+    条件：created_by='auto'、从未被强化（strength<=0 且无强化时间）、
+    置信低于 auto_relation_threshold、创建时间超过 relation_auto_edge_ttl_days。
+    TTL 配置为 0（默认）时不执行，人工/审核/合并产生的边永不清理。
+    """
+    ttl_days = parasitic_evolution_config.relation_auto_edge_ttl_days
+    if ttl_days <= 0:
+        return {"status": "disabled"}
+
+    threshold = parasitic_evolution_config.auto_relation_threshold
+    cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=ttl_days)
+    async with async_session_maker() as db_session:
+        result = await db_session.execute(
+            delete(MemoryRelation).where(
+                MemoryRelation.created_by == "auto",
+                MemoryRelation.confidence < threshold,
+                MemoryRelation.strength <= 0,
+                MemoryRelation.last_reinforced_at.is_(None),
+                MemoryRelation.created_at < cutoff,
+            )
+        )
+        await db_session.commit()
+
+    deleted = int(getattr(result, "rowcount", 0) or 0)
+    logger.info(
+        "Relation aging: deleted %d auto edges older than %.0f days (threshold=%.2f)",
+        deleted,
+        ttl_days,
+        threshold,
+    )
+    return {
+        "status": "completed",
+        "deleted": deleted,
+        "ttl_days": ttl_days,
+        "threshold": threshold,
+    }

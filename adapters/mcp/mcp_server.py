@@ -844,10 +844,12 @@ class MCPServer:
         if curated:
             limit = arguments.get("limit", 10)
             max_tokens = arguments.get("max_tokens", 5000)
-            if type(limit) is not int or not 1 <= limit <= 50:
-                return {"error": "curated=true 时 limit 必须是 1–50 的整数"}
+            if type(limit) is not int or limit < 1:
+                return {"error": "limit 必须是大于等于 1 的整数（curated 超出 50 会夹紧到 50）"}
             if type(max_tokens) is not int or not 100 <= max_tokens <= 20000:
                 return {"error": "max_tokens 必须是 100–20000 的整数"}
+            # curated 后端上限 50：schema 允许到 100 是给普通检索的，这里夹紧而非报错
+            arguments["limit"] = min(limit, 50)
         else:
             limit = arguments.get("limit", 10)
             if type(limit) is not int or not 1 <= limit <= 100:
@@ -881,17 +883,19 @@ class MCPServer:
                 filters = {k: v for k, v in filters.items() if k != "tags"}
                 arguments["filters"] = filters or None
         if mode == "semantic":
-            if arguments.get("filters"):
-                ignored.append("filters（semantic 模式不支持过滤，需要过滤请用 hybrid）")
-            if tags:
-                ignored.append("filters.tags（semantic 模式不支持标签过滤）")
-            # semantic 是显式语义请求：仍 API 优先，失败才降级本地关键词
+            # semantic = 仅向量路；过滤/标签与 hybrid 一致生效（统一 /v1/search）。
+            # API 优先：本地索引只有关键词能力，无法代表语义结果
+            semantic_kwargs: dict[str, Any] = {
+                "query": arguments["keyword"],
+                "workspace_id": workspace,
+                "filters": arguments.get("filters"),
+                "limit": arguments.get("limit", 10),
+                "mode": "semantic",
+            }
+            if tags is not None:
+                semantic_kwargs["tags"] = tags
             try:
-                result = await self.client.recall(
-                    query=arguments["keyword"],
-                    workspace_id=workspace,
-                    limit=arguments.get("limit", 10),
-                )
+                result = await self.client.search(**semantic_kwargs)
             except httpx.HTTPError as exc:
                 if not _api_unavailable(exc):
                     raise

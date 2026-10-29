@@ -63,7 +63,10 @@ def build_tool_definitions() -> list[dict[str, Any]]:
                     },
                     "mode": {
                         "type": "string",
-                        "description": "搜索模式",
+                        "description": (
+                            "搜索模式：hybrid=BM25+向量双路（默认）；"
+                            "semantic=仅语义向量路，过滤与重排仍生效"
+                        ),
                         "enum": ["hybrid", "semantic"],
                         "default": "hybrid",
                     },
