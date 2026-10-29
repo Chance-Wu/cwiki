@@ -84,8 +84,8 @@ python -m benchmarks.runners.retrieval_runner --dataset path/to/gold.jsonl
 # 上下文组装评测（直连组装器，验证选择/排除/预算/冲突四指标）
 python -m benchmarks.runners.context_runner
 
-# 性能基准（10K 规模 100 查询）
-python -m benchmarks.performance.perf_runner --scale 10000 --queries 100
+# 性能基准（10K 规模 100 查询；--corpus en|zh|mixed，CJK 走 jieba 分词）
+python -m benchmarks.performance.perf_runner --scale 10000 --queries 100 --corpus mixed
 ```
 
 ### 真实查询导出（人工标注）

@@ -53,6 +53,62 @@ SAMPLE_QUERIES = [
     "logging format standards",
 ]
 
+# CJK 语料：中文分词走 jieba，与英文按空格切分的开销不同，需单独覆盖
+CORPUS_CHOICES = ("en", "zh", "mixed")
+
+CJK_TOPICS = [
+    "数据库",
+    "认证",
+    "接口",
+    "测试",
+    "部署",
+    "配置",
+    "日志",
+    "异常处理",
+    "性能",
+    "安全",
+    "缓存",
+    "数据迁移",
+    "表结构",
+    "中间件",
+    "路由",
+    "参数校验",
+    "序列化",
+    "监控",
+]
+CJK_ACTIONS = ["如何配置", "如何实现", "需要避免", "确保", "优先使用", "禁止", "必须检查"]
+CJK_NOUNS = [
+    "连接池",
+    "令牌刷新",
+    "接口端点",
+    "测试用例",
+    "构建流水线",
+    "环境变量",
+    "日志级别",
+    "异常堆栈",
+    "执行计划",
+    "访问控制",
+    "缓存键",
+    "数据迁移脚本",
+    "表结构变更",
+    "请求处理器",
+    "入参校验",
+    "JSON 序列化",
+    "健康检查",
+]
+CJK_SAMPLE_QUERIES = [
+    "数据库连接池怎么配置",
+    "认证中间件如何接入",
+    "避免使用废弃接口",
+    "项目编码规范约定",
+    "部署流水线配置说明",
+    "异常处理最佳实践",
+    "记忆检索性能优化",
+    "测试覆盖率要求",
+    "接口限流规则",
+    "日志格式标准",
+]
+
 
 @dataclass
 class SyntheticMemory:
@@ -109,7 +165,11 @@ class ScaleResult:
         }
 
 
-def generate_synthetic_memories(count: int, seed: int = 42) -> list[SyntheticMemory]:
+def generate_synthetic_memories(
+    count: int, seed: int = 42, corpus: str = "en"
+) -> list[SyntheticMemory]:
+    if corpus not in CORPUS_CHOICES:
+        raise ValueError(f"Unknown corpus: {corpus}")
     rng = random.Random(seed)
     memories: list[SyntheticMemory] = []
 
@@ -167,12 +227,21 @@ def generate_synthetic_memories(count: int, seed: int = 42) -> list[SyntheticMem
 
     for i in range(count):
         mem_id = str(uuid.UUID(int=i))
-        topic = rng.choice(topics)
-        action = rng.choice(actions)
-        noun = rng.choice(nouns)
-        title = f"{action} {topic} {noun}"
-        words = [rng.choice(string.ascii_lowercase) for _ in range(rng.randint(20, 80))]
-        content = f"{topic} {noun} {' '.join(words)}"
+        use_zh = corpus == "zh" or (corpus == "mixed" and rng.random() < 0.5)
+        if use_zh:
+            topic = rng.choice(CJK_TOPICS)
+            action = rng.choice(CJK_ACTIONS)
+            noun = rng.choice(CJK_NOUNS)
+            title = f"{topic}{noun}{action}"
+            extra = " ".join(rng.choice(CJK_NOUNS) for _ in range(rng.randint(3, 8)))
+            content = f"{topic}相关说明：{noun}{action}。{extra}"
+        else:
+            topic = rng.choice(topics)
+            action = rng.choice(actions)
+            noun = rng.choice(nouns)
+            title = f"{action} {topic} {noun}"
+            words = [rng.choice(string.ascii_lowercase) for _ in range(rng.randint(20, 80))]
+            content = f"{topic} {noun} {' '.join(words)}"
 
         memories.append(
             SyntheticMemory(
@@ -189,10 +258,21 @@ def generate_synthetic_memories(count: int, seed: int = 42) -> list[SyntheticMem
     return memories
 
 
-def generate_queries(count: int, seed: int = 42) -> list[str]:
+def generate_queries(count: int, seed: int = 42, corpus: str = "en") -> list[str]:
+    if corpus not in CORPUS_CHOICES:
+        raise ValueError(f"Unknown corpus: {corpus}")
     rng = random.Random(seed)
     queries: list[str] = []
     for _ in range(count):
+        use_zh = corpus == "zh" or (corpus == "mixed" and rng.random() < 0.5)
+        if use_zh:
+            base = rng.choice(CJK_SAMPLE_QUERIES)
+            if rng.random() > 0.5:
+                suffix = rng.choice(["生产环境", "新项目", "预发环境", "带重试", "第二版"])
+                queries.append(f"{base} {suffix}")
+            else:
+                queries.append(base)
+            continue
         base = rng.choice(SAMPLE_QUERIES)
         if rng.random() > 0.5:
             suffix = rng.choice(
@@ -337,10 +417,11 @@ def run_scale_benchmark(
     scale: int,
     num_queries: int = 20,
     seed: int = 42,
+    corpus: str = "en",
 ) -> ScaleResult:
-    logger.info("Generating %d synthetic memories...", scale)
-    memories = generate_synthetic_memories(scale, seed=seed)
-    queries = generate_queries(num_queries, seed=seed)
+    logger.info("Generating %d synthetic memories (corpus=%s)...", scale, corpus)
+    memories = generate_synthetic_memories(scale, seed=seed, corpus=corpus)
+    queries = generate_queries(num_queries, seed=seed, corpus=corpus)
 
     result = ScaleResult(scale=scale, total_memories=len(memories), queries_run=num_queries)
 
@@ -401,6 +482,7 @@ def run_scale_benchmark(
 def run_all_scales(
     num_queries: int = 20,
     max_scale: int | None = None,
+    corpus: str = "en",
 ) -> list[ScaleResult]:
     scales = SCALES
     if max_scale:
@@ -408,8 +490,8 @@ def run_all_scales(
 
     results: list[ScaleResult] = []
     for scale in scales:
-        logger.info("=== Running benchmark at scale %d ===", scale)
-        result = run_scale_benchmark(scale, num_queries=num_queries)
+        logger.info("=== Running benchmark at scale %d (corpus=%s) ===", scale, corpus)
+        result = run_scale_benchmark(scale, num_queries=num_queries, corpus=corpus)
         results.append(result)
         logger.info(
             "  Full pipeline: p50=%.2fms p95=%.2fms p99=%.2fms",
@@ -421,22 +503,28 @@ def run_all_scales(
     return results
 
 
-def save_performance_report(results: list[ScaleResult], output_dir: Path | None = None) -> Path:
+def save_performance_report(
+    results: list[ScaleResult],
+    output_dir: Path | None = None,
+    corpus: str = "en",
+) -> Path:
     output_dir = output_dir or REPORTS_DIR
     output_dir.mkdir(parents=True, exist_ok=True)
 
     data = {
         "benchmark": "performance",
         "spec": "10.1-10.2",
+        "corpus": corpus,
         "scales_tested": [r.scale for r in results],
         "results": [r.to_dict() for r in results],
     }
 
-    json_path = output_dir / "performance-report.json"
+    suffix = "" if corpus == "en" else f"-{corpus}"
+    json_path = output_dir / f"performance-report{suffix}.json"
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
 
-    md_path = output_dir / "performance-report.md"
+    md_path = output_dir / f"performance-report{suffix}.md"
     with open(md_path, "w", encoding="utf-8") as f:
         f.write(_format_performance_md(results))
 
@@ -496,9 +584,15 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Performance benchmark runner")
     parser.add_argument("--scale", type=int, default=None, help="Max scale to test")
     parser.add_argument("--queries", type=int, default=20, help="Number of queries per scale")
+    parser.add_argument(
+        "--corpus",
+        choices=CORPUS_CHOICES,
+        default="en",
+        help="Synthetic corpus language: en / zh / mixed",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)
-    results = run_all_scales(num_queries=args.queries, max_scale=args.scale)
-    path = save_performance_report(results)
+    results = run_all_scales(num_queries=args.queries, max_scale=args.scale, corpus=args.corpus)
+    path = save_performance_report(results, corpus=args.corpus)
     logger.info("Report saved to %s", path)
