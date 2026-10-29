@@ -40,11 +40,25 @@ class BM25Index:
         self._postings: dict[str, list[int]] = {}
         self._tombstones: set[str] = set()
 
-    def add(self, doc_id: str, text: str, title: str | None = None) -> None:
-        """添加文档并增量更新索引统计。"""
-        tokens = self._tokenize(text)
+    def add(
+        self,
+        doc_id: str,
+        text: str,
+        title: str | None = None,
+        *,
+        tokens: list[str] | None = None,
+        title_tokens: list[str] | None = None,
+    ) -> None:
+        """添加文档并增量更新索引统计。
+
+        *tokens* / *title_tokens* 允许调用方复用已算好的分词结果
+        （如 local_index 快照构建需要同时保留 token 集合），避免重复分词。
+        """
+        if tokens is None:
+            tokens = self._tokenize(text)
         if title:
-            title_tokens = self._tokenize(title)
+            if title_tokens is None:
+                title_tokens = self._tokenize(title)
             tokens = title_tokens * _TITLE_BOOST_REPS + tokens
         if not tokens:
             return

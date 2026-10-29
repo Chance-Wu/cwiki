@@ -178,8 +178,17 @@ def _build_snapshot(
     tokens: dict[str, set[str]] = {}
     df: dict[str, int] = {}
     for memory_id, row in rows.items():
-        index.add(memory_id, row["content"], row["title"])
-        doc_tokens = set(_FastBM25._tokenize(f"{row['title']} {row['content']}"))
+        # 分词只做一次：同一份 token 既喂给 BM25，也用于覆盖率集合
+        title_tokens = _FastBM25._tokenize(row["title"])
+        content_tokens = _FastBM25._tokenize(row["content"])
+        index.add(
+            memory_id,
+            row["content"],
+            row["title"],
+            tokens=content_tokens,
+            title_tokens=title_tokens,
+        )
+        doc_tokens = set(title_tokens) | set(content_tokens)
         tokens[memory_id] = doc_tokens
         for token in doc_tokens:
             df[token] = df.get(token, 0) + 1

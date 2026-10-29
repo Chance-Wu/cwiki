@@ -122,3 +122,19 @@ class TestBM25Index:
         tokens = BM25Index._tokenize("数据库连接池")
         assert len(tokens) >= 2
         assert "数据库" in tokens
+
+
+def test_add_accepts_precomputed_tokens():
+    """预计算 token 与内部分词结果一致（local_index 复用分词的分支）。"""
+    manual = BM25Index()
+    manual.add("doc-1", "数据库 连接池 配置", "标题")
+    manual.build()
+
+    precomputed = BM25Index()
+    content_tokens = precomputed._tokenize("数据库 连接池 配置")
+    title_tokens = precomputed._tokenize("标题")
+    precomputed.add("doc-1", "", "标题", tokens=content_tokens, title_tokens=title_tokens)
+    precomputed.build()
+
+    assert precomputed._documents == manual._documents
+    assert precomputed.search("数据库", top_k=5) == manual.search("数据库", top_k=5)
