@@ -24,6 +24,7 @@ interface FocusModeOverlayProps {
   onClose: () => void
   isPending: boolean
   undoPending: boolean
+  mode: 'learn' | 'test'
 }
 
 export function FocusModeOverlay({
@@ -42,6 +43,7 @@ export function FocusModeOverlay({
   onClose,
   isPending,
   undoPending,
+  mode,
 }: FocusModeOverlayProps) {
   const { t, locale } = useTranslation()
 
@@ -95,6 +97,7 @@ export function FocusModeOverlay({
           t={t}
           locale={locale}
           maxHeight="max-h-[45vh]"
+          mode={mode}
         />
 
         {/* 跳过按钮 */}
@@ -182,7 +185,7 @@ export function FocusModeOverlay({
         )}
 
         {/* 质量打分按钮 */}
-        {!lastResult && showAnswer && (
+        {!lastResult && (mode === 'learn' || showAnswer) && (
           <motion.div
             className="mt-4"
             initial={{ opacity: 0, y: 10 }}
@@ -202,8 +205,8 @@ export function FocusModeOverlay({
 
       {/* 键盘快捷键提示 */}
       <div className="absolute bottom-4 left-1/2 -translate-x-1/2 text-xs text-white/30 font-medium">
-        ESC {t.review.exitFocus} · Space {t.review.showAnswer} · S {t.review.skip} · 0-5{' '}
-        {t.review.rateQuality}
+        ESC {t.review.exitFocus} · {mode === 'test' ? `Space ${t.review.showAnswer} · ` : ''}S{' '}
+        {t.review.skip} · 0-5 {t.review.rateQuality}
       </div>
     </motion.div>
   )

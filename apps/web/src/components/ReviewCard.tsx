@@ -45,6 +45,7 @@ export function ReviewCard({
   t,
   locale,
   maxHeight,
+  mode = 'learn',
 }: {
   item: ReviewItem
   showAnswer: boolean
@@ -52,7 +53,9 @@ export function ReviewCard({
   t: TranslationDict
   locale: string
   maxHeight?: string
+  mode?: 'learn' | 'test'
 }) {
+  const contentVisible = mode === 'learn' || showAnswer
   return (
     <Card className="overflow-hidden">
       <div className="px-6 py-5 border-b border-[var(--border-default)]">
@@ -81,7 +84,7 @@ export function ReviewCard({
 
       <div className={`px-6 py-5 overflow-y-auto scrollbar-thin ${maxHeight ?? 'max-h-64'}`}>
         <AnimatePresence mode="wait">
-          {showAnswer ? (
+          {contentVisible ? (
             <motion.div
               key="answer"
               initial={{ opacity: 0, rotateX: -15 }}

@@ -5,6 +5,7 @@ import { Badge } from '../ui/Badge'
 import { Button } from '../ui/Button'
 import { ReviewCard, QualityButtons } from '../ReviewCard'
 import { FocusModeOverlay } from '../FocusModeOverlay'
+import { SegmentedControl } from '../ui/SegmentedControl'
 import { MASTERY_COLORS } from '../../lib/labels'
 
 interface ReviewItem {
@@ -48,6 +49,8 @@ interface ReviewSessionProps {
   undoPending: boolean
   locale: string
   t: Record<string, unknown>
+  mode: 'learn' | 'test'
+  onModeChange: (mode: 'learn' | 'test') => void
 }
 
 export const ReviewSession = function ReviewSession({
@@ -69,6 +72,8 @@ export const ReviewSession = function ReviewSession({
   undoPending,
   locale,
   t,
+  mode,
+  onModeChange,
 }: ReviewSessionProps) {
   const tr = t.review as Record<string, string>
 
@@ -113,8 +118,16 @@ export const ReviewSession = function ReviewSession({
         </div>
       </div>
 
-      {/* 掌握度徽标 */}
-      <div className="flex justify-end mb-2 -mt-1">
+      {/* 模式切换 + 掌握度徽标 */}
+      <div className="flex items-center justify-between gap-2 mb-2 -mt-1">
+        <SegmentedControl
+          value={mode}
+          onChange={onModeChange}
+          options={[
+            { value: 'learn', label: tr.modeLearn },
+            { value: 'test', label: tr.modeTest },
+          ]}
+        />
         <Badge
           className={`font-semibold ${MASTERY_COLORS[currentItem.mastery_level] ?? 'bg-surface-elevated/40 text-[var(--text-secondary)] border border-[var(--border-default)]'}`}
         >
@@ -131,6 +144,7 @@ export const ReviewSession = function ReviewSession({
           onShowAnswer={() => setShowAnswer(true)}
           t={t as never}
           locale={locale}
+          mode={mode}
           maxHeight={focusMode ? 'max-h-[55vh]' : undefined}
         />
       </div>
@@ -227,7 +241,7 @@ export const ReviewSession = function ReviewSession({
       )}
 
       {/* 质量打分按钮 */}
-      {!lastResult && showAnswer && (
+      {!lastResult && (mode === 'learn' || showAnswer) && (
         <motion.div
           className="mt-5"
           initial={{ opacity: 0, y: 10 }}
@@ -256,6 +270,7 @@ export const ReviewSession = function ReviewSession({
           onClose={() => setFocusMode(false)}
           isPending={isPending}
           undoPending={undoPending}
+          mode={mode}
         />
       )}
     </div>

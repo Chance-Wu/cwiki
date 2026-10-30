@@ -36,6 +36,21 @@ export default function ReviewPage() {
   const [lastMemoryId, setLastMemoryId] = useState<string | null>(null)
   const [focusMode, setFocusMode] = useState(false)
   const [prevMastery, setPrevMastery] = useState<string | null>(null)
+  const [mode, setMode] = useState<'learn' | 'test'>(() => {
+    try {
+      return localStorage.getItem('review-mode') === 'test' ? 'test' : 'learn'
+    } catch {
+      return 'learn'
+    }
+  })
+  const handleModeChange = useCallback((next: 'learn' | 'test') => {
+    setMode(next)
+    try {
+      localStorage.setItem('review-mode', next)
+    } catch {
+      /* 忽略存储不可用 */
+    }
+  }, [])
   const restoredRef = useRef(false)
 
   const { data: items = [], isLoading, error, refetch } = useDueReviews()
@@ -196,7 +211,8 @@ export default function ReviewPage() {
 
       if (lastResult || filteredItems.length === 0 || currentIndex >= filteredItems.length) return
       const key = e.key
-      if (!showAnswer && (key === ' ' || key === 'Enter')) {
+      // 学习模式内容常显，无需翻面；仅测试模式响应空格/回车
+      if (mode === 'test' && !showAnswer && (key === ' ' || key === 'Enter')) {
         e.preventDefault()
         setShowAnswer(true)
         return
@@ -206,14 +222,14 @@ export default function ReviewPage() {
         handleSkip()
         return
       }
-      if (showAnswer && key >= '0' && key <= '5') {
+      if ((mode === 'learn' || showAnswer) && key >= '0' && key <= '5') {
         e.preventDefault()
         handleRate(parseInt(key, 10))
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [lastResult, filteredItems, currentIndex, handleRate, handleSkip, showAnswer, focusMode])
+  }, [lastResult, filteredItems, currentIndex, handleRate, handleSkip, showAnswer, focusMode, mode])
 
   // 切到下一张卡时重置翻面状态
   useEffect(() => {
@@ -358,6 +374,8 @@ export default function ReviewPage() {
               undoPending={undoMutation.isPending}
               locale={locale}
               t={t}
+              mode={mode}
+              onModeChange={handleModeChange}
             />
           )}
         </>
