@@ -1,8 +1,10 @@
 import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react'
 import { motion } from 'framer-motion'
-import { Network } from 'lucide-react'
+import { Folder, Network } from 'lucide-react'
+import { useTranslation } from '../i18n/I18nProvider'
 import { api, type FileMemory } from '../lib/api'
-import { useDefaultWorkspace } from '../hooks/useDashboard'
+import { useWorkspacesList } from '../hooks/useMemories'
+import { Select } from '../components/ui/Select'
 import PageShell from '../components/PageShell'
 import PageTitle from '../components/PageTitle'
 import ErrorAlert from '../components/ErrorAlert'
@@ -60,23 +62,6 @@ const TYPE_COLORS: Record<string, string> = {
   procedure: '#06b6d4',
 }
 
-const TYPE_LABELS: Record<string, string> = {
-  fact: '事实',
-  decision: '决策',
-  pattern: '模式',
-  lesson: '教训',
-  issue: '问题',
-  procedure: '流程',
-}
-
-const RELATION_LABELS: Record<string, string> = {
-  related: '关联',
-  supports: '支持',
-  contradicts: '矛盾',
-  supersedes: '取代',
-  refines: '细化',
-}
-
 const SIM_FRAMES = 240
 const KICK_FRAMES = 60
 const SETTLE_FRAMES = 45
@@ -99,7 +84,12 @@ const radiusOf = (node: GraphNode) => Math.min(7 + node.degree * 1.2, 26)
 const hitRadiusOf = (node: GraphNode) => radiusOf(node) + 5
 
 export default function GraphPage() {
-  const workspaceQuery = useDefaultWorkspace()
+  const { t } = useTranslation()
+  const g = t.graph
+  const typeLabels = g.type as Record<string, string>
+  const relationLabels = g.relation as Record<string, string>
+  const workspacesQuery = useWorkspacesList()
+  const [workspaceFilter, setWorkspaceFilter] = useState('all')
   const [canvasEl, setCanvasEl] = useState<HTMLCanvasElement | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const nodesRef = useRef<GraphNode[]>([])
@@ -127,10 +117,8 @@ export default function GraphPage() {
     truncated: false,
   })
 
-  const workspaceId = workspaceQuery.data
-
   useEffect(() => {
-    if (!workspaceId) return
+    const workspaceId = workspaceFilter === 'all' ? undefined : workspaceFilter
 
     const fetchGraph = async () => {
       try {
@@ -185,7 +173,7 @@ export default function GraphPage() {
     }
 
     fetchGraph()
-  }, [workspaceId])
+  }, [workspaceFilter])
 
   const attachCanvas = useCallback((el: HTMLCanvasElement | null) => {
     canvasRef.current = el
@@ -522,12 +510,21 @@ export default function GraphPage() {
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
         >
-          <PageTitle icon={<Network size={18} />} title="知识图谱" subtitle="工作区记忆关系全景" />
+          <PageTitle icon={<Network size={18} />} title={g.title} />
+          <Select
+            options={[
+              { value: 'all', label: t.inbox.workspaceAll },
+              ...(workspacesQuery.data ?? []).map((w) => ({ value: w.id, label: w.name })),
+            ]}
+            value={workspaceFilter}
+            onChange={setWorkspaceFilter}
+            icon={<Folder size={14} />}
+          />
         </motion.div>
       }
     >
       {error ? (
-        <ErrorAlert message="加载图谱失败" onRetry={() => window.location.reload()} />
+        <ErrorAlert message={g.loadFailed} onRetry={() => window.location.reload()} />
       ) : (
         <LoadingWrapper loading={loading} skeleton={<CardSkeleton cols={1} />}>
           <div className="space-y-4">
@@ -535,23 +532,27 @@ export default function GraphPage() {
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               {[
                 {
-                  label: '节点数',
+                  label: g.nodes,
                   value: stats.total,
-                  subtext: stats.truncated ? `共 ${stats.totalActive} 条记忆` : undefined,
+                  subtext: stats.truncated
+                    ? g.truncated.replace('{n}', String(stats.totalActive))
+                    : undefined,
                 },
-                { label: '关系数', value: stats.edges },
-                { label: '孤立节点', value: stats.isolated },
-                { label: '平均度数', value: stats.avgDegree },
+                { label: g.edges, value: stats.edges },
+                { label: g.isolated, value: stats.isolated },
+                { label: g.avgDegree, value: stats.avgDegree },
               ].map(({ label, value, subtext }) => (
                 <div
                   key={label}
-                  className="glass-card p-4 rounded-xl transition-transform duration-200 hover:-translate-y-0.5"
+                  className="glass-card p-4 rounded-2xl transition-transform duration-200 hover:-translate-y-0.5"
                 >
-                  <div className="text-sm text-[var(--text-secondary)]">{label}</div>
-                  <div className="text-2xl font-bold tabular-nums">{value}</div>
+                  <div className="text-xs font-medium text-[var(--text-secondary)]">{label}</div>
+                  <div className="mt-1.5 text-2xl font-bold tabular-nums text-[var(--text-primary)]">
+                    {value}
+                  </div>
                   {subtext && (
                     <div className="text-xs text-[var(--text-tertiary)] mt-1">
-                      展示 Top · {subtext}
+                      {g.topOnly} · {subtext}
                     </div>
                   )}
                 </div>
@@ -559,7 +560,7 @@ export default function GraphPage() {
             </div>
 
             {/* Canvas */}
-            <div className="glass-card rounded-xl p-4 relative overflow-hidden">
+            <div className="glass-card rounded-2xl p-4 relative overflow-hidden">
               <canvas
                 ref={attachCanvas}
                 className="w-full h-[600px] cursor-pointer block"
@@ -574,23 +575,23 @@ export default function GraphPage() {
                       className="mx-auto mb-2 text-[var(--text-tertiary)]"
                       aria-hidden
                     />
-                    <p className="text-sm text-[var(--text-secondary)]">暂无记忆关系</p>
-                    <p className="text-xs text-[var(--text-tertiary)] mt-1">
-                      记忆之间建立关系后，这里会展示知识图谱
-                    </p>
+                    <p className="text-sm text-[var(--text-secondary)]">{g.empty}</p>
+                    <p className="text-xs text-[var(--text-tertiary)] mt-1">{g.emptyHint}</p>
                   </div>
                 </div>
               )}
               {(hoveredNode || selectedNode) && (
                 <div className="absolute top-4 right-4 text-xs text-[var(--text-tertiary)] pointer-events-none">
-                  {selectedNode ? '点击空白处取消聚焦' : '点击节点查看详情与关系编辑'}
+                  {selectedNode ? g.cancelFocus : g.clickHint}
                 </div>
               )}
             </div>
 
             {/* Legend */}
-            <div className="glass-card rounded-xl p-4">
-              <div className="text-sm font-semibold mb-3">图例</div>
+            <div className="glass-card rounded-2xl p-4 md:p-5">
+              <div className="text-sm font-semibold mb-3 text-[var(--text-primary)]">
+                {g.legend}
+              </div>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-2.5 text-xs">
                 {Object.entries(TYPE_COLORS).map(([type, color]) => (
                   <div
@@ -602,13 +603,14 @@ export default function GraphPage() {
                       className="w-2.5 h-2.5 rounded-full shrink-0"
                       style={{ backgroundColor: color }}
                     />
-                    <span>{TYPE_LABELS[type] ?? type}</span>
-                    <span className="text-[var(--text-tertiary)]">{type}</span>
+                    <span>{typeLabels[type] ?? type}</span>
                   </div>
                 ))}
               </div>
-              <div className="mt-3 pt-3 border-t border-[var(--border-primary)]">
-                <div className="text-sm font-semibold mb-3">关系类型</div>
+              <div className="mt-3 pt-3 border-t border-[var(--border-default)]">
+                <div className="text-sm font-semibold mb-3 text-[var(--text-primary)]">
+                  {g.relationTypes}
+                </div>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-2.5 text-xs">
                   {Object.entries(RELATION_COLORS).map(([type, color]) => (
                     <div
@@ -620,8 +622,7 @@ export default function GraphPage() {
                         className="w-5 h-[3px] rounded-full shrink-0"
                         style={{ backgroundColor: color }}
                       />
-                      <span>{RELATION_LABELS[type] ?? type}</span>
-                      <span className="text-[var(--text-tertiary)]">{type}</span>
+                      <span>{relationLabels[type] ?? type}</span>
                     </div>
                   ))}
                 </div>

@@ -6,6 +6,8 @@ import {
   Globe,
   Info,
   Download,
+  Upload,
+  RefreshCw,
   Sun,
   Moon,
   Monitor,
@@ -167,7 +169,11 @@ export default function SettingsPage() {
             disabled={healthFetching}
             variant="secondary"
           >
-            <Loader2 size={14} className={healthFetching ? 'animate-spin' : ''} />
+            {healthFetching ? (
+              <Loader2 size={14} className="animate-spin" aria-hidden="true" />
+            ) : (
+              <RefreshCw size={14} aria-hidden="true" />
+            )}
             {t.common.refresh}
           </Button>
         </div>
@@ -257,11 +263,7 @@ export default function SettingsPage() {
                     ) : (
                       <Monitor size={14} aria-hidden="true" />
                     )}
-                    {theme === 'dark'
-                      ? t.settings.themeDark
-                      : theme === 'light'
-                        ? t.settings.themeLight
-                        : t.settings.themeSystem}
+                    {t.settings.switchTheme}
                   </Button>
                   <span className="text-xs text-[var(--text-secondary)] font-medium">
                     {t.settings.theme}:{' '}
@@ -357,7 +359,11 @@ export default function SettingsPage() {
                         disabled={exporting}
                         variant="secondary"
                       >
-                        <Loader2 size={14} className={exporting ? 'animate-spin' : ''} />
+                        {exporting ? (
+                          <Loader2 size={14} className="animate-spin" aria-hidden="true" />
+                        ) : (
+                          <Download size={14} aria-hidden="true" />
+                        )}
                         JSON
                       </Button>
                       <Button
@@ -386,7 +392,11 @@ export default function SettingsPage() {
                       <label
                         className={`cursor-pointer ${importing ? 'pointer-events-none opacity-50' : ''}`}
                       >
-                        <Loader2 size={14} className={importing ? 'animate-spin' : ''} />
+                        {importing ? (
+                          <Loader2 size={14} className="animate-spin" aria-hidden="true" />
+                        ) : (
+                          <Upload size={14} aria-hidden="true" />
+                        )}
                         {importing ? t.settings.importing : t.settings.importFile}
                         <input
                           type="file"

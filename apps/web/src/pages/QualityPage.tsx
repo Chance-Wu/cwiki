@@ -1,11 +1,13 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
-import { BarChart3, ClipboardCheck } from 'lucide-react'
+import { BarChart3, ClipboardCheck, Folder } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
+import { useTranslation } from '../i18n/I18nProvider'
 import { api } from '../lib/api'
-import { useDefaultWorkspace } from '../hooks/useDashboard'
+import { useWorkspacesList } from '../hooks/useMemories'
 import { Button } from '../components/ui/Button'
+import { Select } from '../components/ui/Select'
 import PageShell from '../components/PageShell'
 import PageTitle from '../components/PageTitle'
 import ErrorAlert from '../components/ErrorAlert'
@@ -44,11 +46,13 @@ function BarChart({
                 : undefined
             }
             className={`flex items-center gap-3 rounded px-1 -mx-1 ${
-              clickable ? 'cursor-pointer transition-colors hover:bg-[var(--bg-secondary)]' : ''
+              clickable ? 'cursor-pointer transition-colors hover:bg-[var(--hover-subtle)]' : ''
             }`}
           >
-            <div className="w-20 text-sm text-[var(--text-secondary)]">{labels?.[key] || key}</div>
-            <div className="flex-1 h-6 bg-[var(--bg-secondary)] rounded overflow-hidden">
+            <div className="w-24 shrink-0 text-xs text-[var(--text-secondary)]">
+              {labels?.[key] || key}
+            </div>
+            <div className="flex-1 h-6 bg-[var(--surface-inset)] rounded overflow-hidden">
               <motion.div
                 className="h-full rounded"
                 style={{ backgroundColor: color }}
@@ -57,7 +61,9 @@ function BarChart({
                 transition={{ duration: 0.5 }}
               />
             </div>
-            <div className="w-12 text-right text-sm font-semibold">{value}</div>
+            <div className="w-12 shrink-0 text-right text-sm font-semibold tabular-nums">
+              {value}
+            </div>
           </div>
         )
       })}
@@ -75,22 +81,26 @@ function StatCard({
   subtext?: string
 }) {
   return (
-    <div className="glass-card p-4 rounded-xl">
-      <div className="text-sm text-[var(--text-secondary)] mb-1">{label}</div>
-      <div className="text-2xl font-bold">{value}</div>
+    <div className="glass-card p-4 rounded-2xl">
+      <div className="text-xs font-medium text-[var(--text-secondary)]">{label}</div>
+      <div className="mt-1.5 text-2xl font-bold tabular-nums text-[var(--text-primary)]">
+        {value}
+      </div>
       {subtext && <div className="text-xs text-[var(--text-tertiary)] mt-1">{subtext}</div>}
     </div>
   )
 }
 
 export default function QualityPage() {
-  const workspaceQuery = useDefaultWorkspace()
+  const { t } = useTranslation()
+  const [workspaceFilter, setWorkspaceFilter] = useState('all')
+  const workspacesQuery = useWorkspacesList()
   const navigate = useNavigate()
 
   const drill = (params: Record<string, string>) => {
     const q = new URLSearchParams({ status: 'active', ...params })
-    // 与质量分布同口径：限定到默认工作区且只看 active，避免全库计数与分箱数对不上
-    if (workspaceQuery.data) q.set('workspace', workspaceQuery.data)
+    // 与质量分布同口径：已选具体工作区时带过去，避免列表口径与分箱数对不上
+    if (workspaceFilter !== 'all') q.set('workspace', workspaceFilter)
     navigate(`/memories?${q.toString()}`)
   }
   const drillByRange = (field: 'confidence' | 'importance', key: string) => {
@@ -100,9 +110,9 @@ export default function QualityPage() {
   }
 
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['quality-distribution', workspaceQuery.data],
-    queryFn: () => api.getQualityDistribution(workspaceQuery.data!),
-    enabled: !!workspaceQuery.data,
+    queryKey: ['quality-distribution', workspaceFilter],
+    queryFn: () =>
+      api.getQualityDistribution(workspaceFilter === 'all' ? undefined : workspaceFilter),
   })
 
   const stats = useMemo(() => {
@@ -115,55 +125,73 @@ export default function QualityPage() {
     }
   }, [data])
 
-  const confidenceLabels = { low: '低 (<0.4)', medium: '中 (0.4-0.7)', high: '高 (≥0.7)' }
-  const importanceLabels = { low: '低 (<0.4)', medium: '中 (0.4-0.7)', high: '高 (≥0.7)' }
-  const usageLabels = { unused: '未使用', low: '低 (1-4)', medium: '中 (5-19)', high: '高 (≥20)' }
-  const decayLabels = { fresh: '新鲜 (<30天)', aging: '老化 (30-90天)', stale: '陈旧 (>90天)' }
+  const q = t.quality
+  const confidenceLabels = { low: q.rangeLow, medium: q.rangeMedium, high: q.rangeHigh }
+  const importanceLabels = { low: q.rangeLow, medium: q.rangeMedium, high: q.rangeHigh }
+  const usageLabels = {
+    unused: q.usageUnused,
+    low: q.usageLow,
+    medium: q.usageMedium,
+    high: q.usageHigh,
+  }
+  const decayLabels = { fresh: q.decayFresh, aging: q.decayAging, stale: q.decayStale }
 
   return (
     <PageShell
       maxWidth="max-w-6xl"
       header={
         <motion.div
-          className="flex items-center justify-between gap-3"
+          className="flex flex-wrap items-center justify-between gap-3"
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
         >
-          <PageTitle
-            icon={<BarChart3 size={18} />}
-            title="质量分布"
-            subtitle="记忆质量与衰减分析 · 点击分箱查看对应记忆"
-          />
-          <Button variant="secondary" onClick={() => navigate('/review')}>
-            <ClipboardCheck size={14} aria-hidden="true" />
-            审核待处理候选
-          </Button>
+          <PageTitle icon={<BarChart3 size={18} />} title={q.title} />
+          <div className="flex items-center gap-2">
+            <Select
+              options={[
+                { value: 'all', label: t.inbox.workspaceAll },
+                ...(workspacesQuery.data ?? []).map((w) => ({
+                  value: w.id,
+                  label: w.name,
+                })),
+              ]}
+              value={workspaceFilter}
+              onChange={setWorkspaceFilter}
+              icon={<Folder size={14} />}
+            />
+            <Button variant="secondary" onClick={() => navigate('/review')}>
+              <ClipboardCheck size={14} aria-hidden="true" />
+              <span className="hidden sm:inline">{q.reviewCandidates}</span>
+            </Button>
+          </div>
         </motion.div>
       }
     >
       {isError ? (
-        <ErrorAlert message="加载质量分布失败" onRetry={() => refetch()} />
+        <ErrorAlert message={q.loadFailed} onRetry={() => refetch()} />
       ) : (
         <LoadingWrapper loading={isLoading} skeleton={<CardSkeleton cols={2} />}>
           {data && stats && (
-            <div className="space-y-6">
+            <div className="space-y-5">
               {/* Summary Stats */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <StatCard label="总记忆数" value={stats.total} />
-                <StatCard label="平均置信度" value={stats.avgConfidence} />
-                <StatCard label="平均重要度" value={stats.avgImportance} />
-                <StatCard label="平均使用次数" value={stats.avgUsage} />
+                <StatCard label={q.total} value={stats.total} />
+                <StatCard label={q.avgConfidence} value={stats.avgConfidence} />
+                <StatCard label={q.avgImportance} value={stats.avgImportance} />
+                <StatCard label={q.avgUsage} value={stats.avgUsage} />
               </div>
 
               {data.truncated && (
-                <div className="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] px-3 py-2 text-xs text-[var(--text-secondary)]">
-                  统计截断：单次最多扫描 5000 条，当前仅覆盖 {data.total} 条，结果可能不完整。
+                <div className="rounded-lg border border-[var(--border-default)] bg-[var(--surface-subtle)] px-3 py-2 text-xs text-[var(--text-secondary)]">
+                  {q.truncated.replace('{n}', String(data.total))}
                 </div>
               )}
 
               {/* Confidence Distribution */}
-              <div className="glass-card rounded-xl p-6">
-                <h3 className="text-lg font-semibold mb-4">置信度分布</h3>
+              <div className="glass-card rounded-2xl p-5 md:p-6">
+                <h3 className="text-base font-semibold mb-4 text-[var(--text-primary)]">
+                  {q.confidenceDist}
+                </h3>
                 <BarChart
                   data={data.confidence_distribution}
                   color="#3b82f6"
@@ -173,8 +201,10 @@ export default function QualityPage() {
               </div>
 
               {/* Importance Distribution */}
-              <div className="glass-card rounded-xl p-6">
-                <h3 className="text-lg font-semibold mb-4">重要度分布</h3>
+              <div className="glass-card rounded-2xl p-5 md:p-6">
+                <h3 className="text-base font-semibold mb-4 text-[var(--text-primary)]">
+                  {q.importanceDist}
+                </h3>
                 <BarChart
                   data={data.importance_distribution}
                   color="#8b5cf6"
@@ -184,8 +214,10 @@ export default function QualityPage() {
               </div>
 
               {/* Usage Distribution */}
-              <div className="glass-card rounded-xl p-6">
-                <h3 className="text-lg font-semibold mb-4">使用频率分布</h3>
+              <div className="glass-card rounded-2xl p-5 md:p-6">
+                <h3 className="text-base font-semibold mb-4 text-[var(--text-primary)]">
+                  {q.usageDist}
+                </h3>
                 <BarChart
                   data={data.usage_distribution}
                   color="#22c55e"
@@ -195,8 +227,10 @@ export default function QualityPage() {
               </div>
 
               {/* Decay Distribution */}
-              <div className="glass-card rounded-xl p-6">
-                <h3 className="text-lg font-semibold mb-4">衰减分布（基于最后使用时间）</h3>
+              <div className="glass-card rounded-2xl p-5 md:p-6">
+                <h3 className="text-base font-semibold mb-4 text-[var(--text-primary)]">
+                  {q.decayDist}
+                </h3>
                 <BarChart
                   data={data.decay_distribution}
                   color="#f59e0b"

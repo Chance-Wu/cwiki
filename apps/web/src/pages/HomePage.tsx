@@ -7,6 +7,7 @@ import {
   FileText,
   LayoutDashboard,
   BookOpenCheck,
+  RefreshCw,
 } from 'lucide-react'
 import { spring } from '../lib/motion'
 import { useQueryClient } from '@tanstack/react-query'
@@ -125,13 +126,13 @@ export default function HomePage() {
           animate={{ opacity: 1, y: 0 }}
           transition={spring.bouncy}
         >
-          <PageTitle
-            icon={<LayoutDashboard size={18} />}
-            title={t.home.title}
-            subtitle={t.home.subtitle}
-          />
+          <PageTitle icon={<LayoutDashboard size={18} />} title={t.home.title} />
           <Button onClick={handleRefresh} disabled={loading || isRefetching} variant="secondary">
-            <Loader2 size={14} className={loading || isRefetching ? 'animate-spin' : ''} />
+            {loading || isRefetching ? (
+              <Loader2 size={14} className="animate-spin" aria-hidden="true" />
+            ) : (
+              <RefreshCw size={14} aria-hidden="true" />
+            )}
             {t.common.refresh}
           </Button>
         </motion.div>

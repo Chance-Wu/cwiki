@@ -54,6 +54,14 @@ const h = vi.hoisted(() => {
       reranker_intent_weight: 0.09,
       reranker_key_term_bonus: 0.08,
     },
+    mcp: {
+      max_retries: 3,
+      retry_backoff_seconds: 1,
+    },
+    scheduler: {
+      auto_relation_interval_hours: 6,
+      relation_ttl_check_interval_hours: 24,
+    },
     system_info: {
       embedding_model: 'bge-small-zh',
       embedding_dimensions: 512,

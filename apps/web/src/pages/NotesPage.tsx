@@ -51,11 +51,8 @@ export default function NotesPage() {
   return (
     <PageShell
       header={
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <PageTitle icon={<FileText size={18} />} title={t.notes.title} />
-            <p className="mt-1.5 text-sm text-[var(--text-secondary)]">{t.notes.subtitle}</p>
-          </div>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <PageTitle icon={<FileText size={18} />} title={t.notes.title} />
           <div className="w-56">
             <Select
               value={workspaceId}

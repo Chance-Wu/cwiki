@@ -206,7 +206,7 @@ export default function MergeSuggestionsBanner({
                     ...spring.gentle,
                     delay: Math.min(i * 0.05, 0.3),
                   }}
-                  className={`relative flex items-center gap-3 bg-white dark:bg-[var(--surface-default)] border rounded-lg px-3 py-2.5 transition-all duration-200 cursor-pointer group ${
+                  className={`relative flex items-center gap-3 bg-white dark:bg-[var(--surface-card)] border rounded-lg px-3 py-2.5 transition-all duration-200 cursor-pointer group ${
                     isSelected
                       ? 'border-warning/50 ring-2 ring-warning/30 shadow-warm-xs'
                       : 'border-warning/15 hover:border-warning/30 hover:shadow-warm-xs'
@@ -301,7 +301,7 @@ export default function MergeSuggestionsBanner({
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-[var(--surface-default)] border border-[var(--border-default)] rounded-lg shadow-warm-lg max-w-md w-full p-6"
+              className="bg-[var(--surface-card)] border border-[var(--border-default)] rounded-lg shadow-warm-lg max-w-md w-full p-6"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="flex items-start gap-3 mb-4">

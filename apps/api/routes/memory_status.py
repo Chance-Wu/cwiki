@@ -696,17 +696,19 @@ async def get_evolution_metrics(
 
 @router.get("/graph")
 async def get_knowledge_graph(
-    workspace_id: str,
     db: Annotated[AsyncSession, Depends(get_db)],
+    workspace_id: str | None = Query(
+        None, min_length=1, description="工作区（名称或 UUID），不传统计全部"
+    ),
     limit: int = Query(200, ge=10, le=1000),
     _identity: Annotated[AgentIdentity | None, Depends(get_current_agent)] = None,
 ) -> dict[str, Any]:
-    """返回工作区级知识图谱（节点+边）。
+    """返回知识图谱（节点+边），不传 workspace_id 时跨工作区汇总。
 
     节点 = active 记忆按度数降序的 TopN（同度数按创建时间，孤立点按顺序补位），
     limit 控制最大节点数；边只包含两端都在节点集内的关系。
     """
-    resolved_ws_id = await resolve_workspace(workspace_id, db)
+    resolved_ws_id = await resolve_workspace(workspace_id, db) if workspace_id else None
 
     # 相关子查询算度数：入边 + 出边
     degree_expr = (
@@ -720,21 +722,18 @@ async def get_knowledge_graph(
         .correlate(Memory)
         .scalar_subquery()
     )
+    node_stmt = select(Memory, degree_expr.label("degree")).where(Memory.status == "active")
+    count_stmt = select(func.count(Memory.id)).where(Memory.status == "active")
+    if resolved_ws_id is not None:
+        node_stmt = node_stmt.where(Memory.workspace_id == resolved_ws_id)
+        count_stmt = count_stmt.where(Memory.workspace_id == resolved_ws_id)
     node_stmt = (
-        select(Memory, degree_expr.label("degree"))
-        .where(Memory.workspace_id == resolved_ws_id, Memory.status == "active")
-        .options(defer(Memory.embedding))
+        node_stmt.options(defer(Memory.embedding))
         .order_by(degree_expr.desc(), Memory.created_at, Memory.id)
         .limit(limit)
     )
     rows = (await db.execute(node_stmt)).all()
-    total_active = (
-        await db.scalar(
-            select(func.count(Memory.id)).where(
-                Memory.workspace_id == resolved_ws_id, Memory.status == "active"
-            )
-        )
-    ) or 0
+    total_active = (await db.scalar(count_stmt)) or 0
 
     if not rows:
         return {
@@ -795,33 +794,29 @@ async def get_knowledge_graph(
 
 @router.get("/quality-distribution")
 async def get_quality_distribution(
-    workspace_id: str,
     db: Annotated[AsyncSession, Depends(get_db)],
+    workspace_id: str | None = Query(
+        None, min_length=1, description="工作区（名称或 UUID），不传统计全部"
+    ),
     _identity: Annotated[AgentIdentity | None, Depends(get_current_agent)] = None,
 ) -> dict[str, Any]:
-    """返回工作区记忆质量分布（置信度/重要度/使用频率/衰减）。"""
-    resolved_ws_id = await resolve_workspace(workspace_id, db)
-    cache_key = str(resolved_ws_id)
+    """返回记忆质量分布（置信度/重要度/使用频率/衰减），不传 workspace_id 时跨工作区汇总。"""
+    resolved_ws_id = await resolve_workspace(workspace_id, db) if workspace_id else None
+    cache_key = str(resolved_ws_id) if resolved_ws_id is not None else "all"
     cached = _quality_distribution_cache.get(cache_key)
     if cached is not None and (time.monotonic() - cached[0]) < _QUALITY_DIST_TTL:
         return cached[1]
 
-    total_active = (
-        await db.scalar(
-            select(func.count(Memory.id)).where(
-                Memory.workspace_id == resolved_ws_id, Memory.status == "active"
-            )
-        )
-    ) or 0
+    count_stmt = select(func.count(Memory.id)).where(Memory.status == "active")
+    stmt = select(Memory).where(Memory.status == "active")
+    if resolved_ws_id is not None:
+        count_stmt = count_stmt.where(Memory.workspace_id == resolved_ws_id)
+        stmt = stmt.where(Memory.workspace_id == resolved_ws_id)
+
+    total_active = (await db.scalar(count_stmt)) or 0
 
     # 单次最多扫描 5000 条；超出时回显 truncated，避免静默截断误导
-    stmt = (
-        select(Memory)
-        .where(Memory.workspace_id == resolved_ws_id, Memory.status == "active")
-        .options(defer(Memory.embedding))
-        .limit(5000)
-    )
-    result = await db.execute(stmt)
+    result = await db.execute(stmt.options(defer(Memory.embedding)).limit(5000))
     memories = result.scalars().all()
 
     if not memories:

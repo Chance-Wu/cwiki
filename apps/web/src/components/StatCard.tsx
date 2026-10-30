@@ -85,7 +85,7 @@ const StatCard = memo(function StatCard({
             >
               <Icon size={17} strokeWidth={2} aria-hidden="true" />
             </div>
-            <p className="text-xs text-[var(--text-tertiary)] font-medium truncate tracking-wide">
+            <p className="text-xs text-[var(--text-secondary)] font-medium truncate tracking-wide">
               {label}
             </p>
           </div>

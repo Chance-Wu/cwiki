@@ -354,10 +354,10 @@ export default function MemoriesPage() {
         suggestion.source_id,
         suggestion.target_id,
       )
-      toast('已忽略该合并建议', 'success')
+      toast(t.memories.mergeDismissSuccess, 'success')
       mergeSuggestionsQuery.refetch()
     } catch {
-      toast('忽略建议失败，请重试', 'error')
+      toast(t.memories.mergeDismissFailed, 'error')
     }
   }
 
@@ -567,11 +567,11 @@ export default function MemoriesPage() {
                 variant="secondary"
                 className="flex items-center gap-1.5"
               >
-                <RefreshCw
-                  size={14}
-                  className={rebuildMutation.isPending ? 'animate-spin' : ''}
-                  aria-hidden="true"
-                />
+                {rebuildMutation.isPending ? (
+                  <Loader2 size={14} className="animate-spin" aria-hidden="true" />
+                ) : (
+                  <Database size={14} aria-hidden="true" />
+                )}
                 <span className="hidden sm:inline">
                   {rebuildMutation.isPending ? t.common.rebuilding : t.common.rebuildIndex}
                 </span>
@@ -582,7 +582,11 @@ export default function MemoriesPage() {
                 variant="secondary"
                 className="flex items-center gap-1.5"
               >
-                <Loader2 size={14} className={loading ? 'animate-spin' : ''} aria-hidden="true" />
+                {loading ? (
+                  <Loader2 size={14} className="animate-spin" aria-hidden="true" />
+                ) : (
+                  <RefreshCw size={14} aria-hidden="true" />
+                )}
                 <span className="hidden sm:inline">
                   {loading ? t.common.loading : t.common.refresh}
                 </span>
@@ -634,21 +638,40 @@ export default function MemoriesPage() {
       />
 
       {hasQualityFilters && (
-        <div className="flex items-center justify-between rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] px-3 py-2 text-xs">
+        <div className="flex items-center justify-between rounded-lg border border-[var(--border-default)] bg-[var(--surface-subtle)] px-3 py-2 text-xs">
           <span className="text-[var(--text-secondary)]">
-            质量筛选：
+            {t.memories.qualityFilter}：
             {[
               qualityMinConfidence !== undefined || qualityMaxConfidence !== undefined
-                ? `置信度 ${qualityMinConfidence ?? 0} – ${qualityMaxConfidence ?? 1}`
+                ? translate(t.memories.qualityConfidenceRange, {
+                    min: qualityMinConfidence ?? 0,
+                    max: qualityMaxConfidence ?? 1,
+                  })
                 : null,
               qualityMinImportance !== undefined || qualityMaxImportance !== undefined
-                ? `重要度 ${qualityMinImportance ?? 0} – ${qualityMaxImportance ?? 1}`
+                ? translate(t.memories.qualityImportanceRange, {
+                    min: qualityMinImportance ?? 0,
+                    max: qualityMaxImportance ?? 1,
+                  })
                 : null,
               qualityUsage
-                ? `使用频率 ${{ unused: '未使用', low: '低', medium: '中', high: '高' }[qualityUsage]}`
+                ? translate(t.memories.qualityUsage, {
+                    level: {
+                      unused: t.memories.qualityLevelUnused,
+                      low: t.memories.qualityLevelLow,
+                      medium: t.memories.qualityLevelMedium,
+                      high: t.memories.qualityLevelHigh,
+                    }[qualityUsage],
+                  })
                 : null,
               qualityDecay
-                ? `衰减 ${{ fresh: '新鲜', aging: '老化', stale: '陈旧' }[qualityDecay]}`
+                ? translate(t.memories.qualityDecay, {
+                    level: {
+                      fresh: t.memories.qualityDecayFresh,
+                      aging: t.memories.qualityDecayAging,
+                      stale: t.memories.qualityDecayStale,
+                    }[qualityDecay],
+                  })
                 : null,
             ]
               .filter(Boolean)
@@ -659,7 +682,7 @@ export default function MemoriesPage() {
             onClick={clearQualityFilters}
             className="text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)]"
           >
-            清除
+            {t.memories.qualityClear}
           </button>
         </div>
       )}

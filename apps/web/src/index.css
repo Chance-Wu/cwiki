@@ -1438,6 +1438,16 @@ html.dark {
     box-shadow: var(--shadow-md);
   }
 
+  /* Stat / panel card — same surface as .glass, plus hover lift */
+  .glass-card {
+    background: var(--surface-card);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--shadow-sm);
+    position: relative;
+  }
+
   /* Sidebar shell glass — 侧边栏/底部导航容器 */
   .sidebar-glass {
     background:
@@ -1487,6 +1497,7 @@ html.dark {
 /* Fallback: no backdrop-filter → more opaque bg to compensate */
 @supports not (backdrop-filter: blur(1px)) {
   .glass,
+  .glass-card,
   .glass-heavy {
     background: var(--surface-card-solid, var(--surface-card));
   }

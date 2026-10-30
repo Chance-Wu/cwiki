@@ -72,3 +72,30 @@ async def test_graph_limit_keeps_highest_degree_nodes_and_marks_truncated(client
     ids = {node["id"] for node in data["nodes"]}
     assert str(memories[0].id) in ids
     assert str(memories[1].id) in ids
+
+
+async def test_graph_without_workspace_aggregates_all(client, db_session):
+    alpha = Workspace(name="graph-all-alpha")
+    beta = Workspace(name="graph-all-beta")
+    db_session.add_all([alpha, beta])
+    await db_session.flush()
+    a = Memory(workspace_id=alpha.id, title="A", content="知识内容" * 20, type="fact")
+    b = Memory(workspace_id=beta.id, title="B", content="知识内容" * 20, type="fact")
+    archived = Memory(
+        workspace_id=beta.id,
+        title="Archived",
+        content="知识内容" * 20,
+        type="fact",
+        status="archived",
+    )
+    db_session.add_all([a, b, archived])
+    await db_session.commit()
+
+    resp = await client.get("/v1/graph", params={"limit": 10})
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+
+    ids = {node["id"] for node in data["nodes"]}
+    assert ids == {str(a.id), str(b.id)}
+    assert data["total_active"] == 2
+    assert data["truncated"] is False

@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, lazy, Suspense, useDeferredValue } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Loader2, Search, Globe, Tag, X, Inbox, Undo2 } from 'lucide-react'
+import { Loader2, Search, Globe, Tag, X, Inbox, Undo2, RefreshCw } from 'lucide-react'
 import { useTranslation, translate } from '../i18n/I18nProvider'
 import { type Candidate, type FileMemory, api } from '../lib/api'
 import { ListSkeleton } from '../components/Skeleton'
@@ -408,7 +408,11 @@ export default function InboxPage() {
           variant="secondary"
           className="flex items-center gap-1.5"
         >
-          <Loader2 size={14} className={loading ? 'animate-spin' : ''} aria-hidden="true" />
+          {loading ? (
+            <Loader2 size={14} className="animate-spin" aria-hidden="true" />
+          ) : (
+            <RefreshCw size={14} aria-hidden="true" />
+          )}
           <span className="hidden sm:inline">{t.common.refresh}</span>
         </Button>
       </div>

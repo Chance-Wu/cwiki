@@ -27,7 +27,7 @@ function LostIllustration() {
       />
       <motion.path
         d="M40 70 L55 50 L70 65 L85 45"
-        stroke="var(--brand-400)"
+        stroke="rgb(var(--brand-rgb))"
         strokeWidth="2"
         strokeLinecap="round"
         strokeLinejoin="round"
@@ -39,7 +39,7 @@ function LostIllustration() {
         cx="85"
         cy="45"
         r="3"
-        fill="var(--brand-500)"
+        fill="rgb(var(--brand-rgb))"
         className="animate-pop-in"
         style={{ transformOrigin: '85px 45px', animationDelay: '1s' }}
       />

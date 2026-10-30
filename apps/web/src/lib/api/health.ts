@@ -76,8 +76,9 @@ export const getCandidateQuality = () =>
 
 // --- Knowledge Graph ---
 
-export const getKnowledgeGraph = (workspaceId: string, limit = 200) => {
-  const params = new URLSearchParams({ workspace_id: workspaceId, limit: String(limit) })
+export const getKnowledgeGraph = (workspaceId?: string, limit = 200) => {
+  const params = new URLSearchParams({ limit: String(limit) })
+  if (workspaceId) params.set('workspace_id', workspaceId)
   return request<{
     nodes: Array<{
       id: string
@@ -106,8 +107,10 @@ export const getKnowledgeGraph = (workspaceId: string, limit = 200) => {
 
 // --- Quality Distribution ---
 
-export const getQualityDistribution = (workspaceId: string) => {
-  const params = new URLSearchParams({ workspace_id: workspaceId })
+export const getQualityDistribution = (workspaceId?: string) => {
+  const params = new URLSearchParams()
+  if (workspaceId) params.set('workspace_id', workspaceId)
+  const qs = params.toString()
   return request<{
     total: number
     truncated: boolean
@@ -116,5 +119,5 @@ export const getQualityDistribution = (workspaceId: string) => {
     usage_distribution: { unused: number; low: number; medium: number; high: number }
     decay_distribution: { fresh: number; aging: number; stale: number }
     averages: { confidence: number; importance: number; usage_count: number }
-  }>(`/quality-distribution?${params.toString()}`)
+  }>(`/quality-distribution${qs ? `?${qs}` : ''}`)
 }

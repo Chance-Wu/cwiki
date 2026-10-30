@@ -130,8 +130,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       '/skills': t.nav.skills,
       '/config': t.nav.config,
       '/review': t.nav.review,
-      '/graph': '知识图谱',
-      '/quality': '质量分布',
+      '/graph': t.nav.graph,
+      '/quality': t.nav.quality,
       '/settings': t.nav.settings,
     }
     const label = labels[location.pathname]
@@ -153,11 +153,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       { to: '/skills', icon: Sparkles, label: t.nav.skills },
       { to: '/config', icon: Sliders, label: t.nav.config },
       { to: '/review', icon: BookOpenCheck, label: t.nav.review },
-      { to: '/graph', icon: Network, label: '知识图谱' },
-      { to: '/quality', icon: Monitor, label: '质量分布' },
+      { to: '/graph', icon: Network, label: t.nav.graph },
+      { to: '/quality', icon: Monitor, label: t.nav.quality },
       { to: '/settings', icon: Settings, label: t.nav.settings },
     ],
-    [t.nav.skills, t.nav.config, t.nav.review, t.nav.settings],
+    [t.nav.skills, t.nav.config, t.nav.review, t.nav.graph, t.nav.quality, t.nav.settings],
   )
 
   const toggleSidebar = useCallback(() => {
