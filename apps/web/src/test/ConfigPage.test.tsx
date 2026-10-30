@@ -21,6 +21,10 @@ const h = vi.hoisted(() => {
       auto_merge_enabled: false,
       auto_merge_threshold: 0.92,
       episodic_retrieval_enabled: false,
+      auto_relation_enabled: true,
+      auto_relation_threshold: 0.6,
+      auto_relation_max_per_memory: 5,
+      relation_auto_edge_ttl_days: 30,
     },
     memory: {
       title_max_length: 80,
@@ -32,6 +36,11 @@ const h = vi.hoisted(() => {
       priority_discard_threshold: 0.35,
       priority_low_threshold: 0.65,
       priority_high_threshold: 0.85,
+      auto_create_workspace: false,
+      duplicate_exact_threshold: 0.98,
+      duplicate_possible_threshold: 0.85,
+      submit_dedup_scan_limit: 1000,
+      submit_dedup_cross_workspace: false,
     },
     performance: {
       context_cache_ttl: 60,
@@ -166,7 +175,8 @@ describe('ConfigPage', () => {
       '功能开关',
       '记忆阈值',
       '性能与检索',
-      '系统信息',
+      '运行时与调度',
+      '高级',
     ]) {
       expect(screen.getByRole('link', { name: label })).toBeInTheDocument()
     }
@@ -177,7 +187,7 @@ describe('ConfigPage', () => {
 
     await user.click(screen.getByRole('button', { name: '术语说明' }))
 
-    expect(await screen.findByText('配置术语说明')).toBeInTheDocument()
+    expect(await screen.findByText('记忆概念速查')).toBeInTheDocument()
     expect(screen.getByText('准入（写入规则）')).toBeInTheDocument()
     expect(screen.getByText('RRF 排名融合')).toBeInTheDocument()
   })
