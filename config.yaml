@@ -95,23 +95,29 @@ agent_policy:
         match:
           keyword:
             [
-              "password=",
-              "passwd=",
-              "api_key=",
-              "apikey=",
-              "api-key=",
-              "secret=",
               "client_secret",
               "-----BEGIN",
               "Bearer ey",
+              "eyJ",
               "AKIA",
+              "AIza",
+              "glpat-",
+              "github_pat_",
               "ghp_",
               "xoxb-",
               "xoxp-",
               "ya29.",
+              "sk-ant-",
+              "sk-proj-",
               "ssh-rsa ",
               "ssh-ed25519 ",
-              "密码是",
+            ]
+          regex:
+            [
+              "(?i)(password|passwd|pwd)\\s*[=:]\\s*[\"']?[A-Za-z0-9_.!@#$%^&*\\-]{6,}",
+              "(?i)(api[_-]?key|secret(_key)?|(access|refresh)_token)\\s*[=:]\\s*[\"']?[A-Za-z0-9_./+\\-]{16,}",
+              "(?i)(密码|口令|密钥)\\s*[是为:：]\\s*[A-Za-z0-9_.!@#$%^&*\\-]{6,}",
+              "(?i)(postgresql|mysql|mongodb|redis)://[^:\\s]+:[^@\\s]+@",
             ]
       - id: skip-transient-status
         action: skip
@@ -121,8 +127,12 @@ agent_policy:
           keyword:
             [
               "现在几点",
+              "现在时间",
               "今天日期",
+              "今天几号",
+              "今天星期",
               "临时输出",
+              "临时记录",
               "一次性状态",
             ]
       - id: update-existing-knowledge
@@ -152,8 +162,6 @@ agent_policy:
               "改一下这里",
               "之前漏了",
               "补充说明",
-              "终于明白",
-              "搞清楚了",
               "记错了",
               "之前搞错",
               "更正一下",
@@ -162,78 +170,37 @@ agent_policy:
               "之前理解",
               "漏掉了",
               "忽略了",
-              "重新理解",
-              "关键点",
             ]
       - id: must-save-signals
         action: write
-        description: 用户纠正、明确偏好、强制规则必须记录
+        description: 用户纠正、明确偏好与强制规则必须记录（feedback/rule）
         examples: ["不要这样做，改用 X", "以后都按这个约定", "记住：这个接口必须传 token"]
         match:
           type: [feedback, rule]
       - id: save-decisions
         action: write
-        description: 技术决策、方案取舍与架构选择要保存
+        description: 技术决策、方案取舍与架构选择要保存（decision）
         examples: ["选 A 不选 B，因为…", "决定改用 X", "对比 A vs B：性能/复杂度/生态权衡"]
         match:
           type: [decision]
       - id: save-findings
         action: write
-        description: 调试根因、踩坑教训、理解突破与非显然 workaround 要保存
-        examples: ["根因是…", "下次要先查…", "反复踩的坑：端口释放需要等 30s", "终于搞懂了 X 的底层原理"]
+        description: 调试根因、踩坑教训、实战经验与排查过程要保存（issue/lesson）
+        examples: ["根因是…", "踩过的坑：…", "下次要先查…", "线上故障复盘：…"]
         match:
           type: [issue, lesson]
       - id: save-conventions
         action: write
-        description: 项目约定、隐性规则、复用模式与环境约束要保存
+        description: 项目约定、隐性规则、复用模式与环境约束要保存（convention/pattern/constraint）
         examples: ["本项目统一用…", "该限制来自…", "工具 X 的隐藏约束：版本 Y 起行为变化"]
         match:
           type: [convention, pattern, constraint]
       - id: save-knowledge
         action: write
-        description: 知识梳理、原理解析、学习笔记与操作步骤要保存（含通用知识，侧重"为什么"）
-        examples: ["原理解析：…", "完整操作步骤…", "X 与 Y 的核心区别及选型理由"]
+        description: 知识梳理、原理解析、本质理解与操作步骤要保存（含通用知识，侧重为什么）（fact/reference/procedure）
+        examples: ["原理解析：…", "本质上是…", "完整操作步骤…", "X 与 Y 的核心区别及选型理由"]
         match:
           type: [fact, reference, procedure]
-      - id: save-experience
-        action: write
-        description: 实战经验、踩坑记录与排查过程要保存（关键词捕获，防止类型标注遗漏）
-        examples: ["踩过的坑：…", "根因分析：…", "线上故障复盘：…", "调试发现：…"]
-        match:
-          keyword:
-            [
-              "踩坑",
-              "踩过",
-              "实战经验",
-              "血泪教训",
-              "实际踩",
-              "排查发现",
-              "根因分析",
-              "根因是",
-              "故障复盘",
-              "线上问题",
-              "复现步骤",
-              "调试发现",
-              "经验总结",
-            ]
-      - id: save-essence
-        action: write
-        description: 本质理解、核心原理与设计思想要保存（关键词捕获，侧重深层理解）
-        examples: ["本质上是…", "核心原理：…", "底层逻辑：…", "设计哲学：…"]
-        match:
-          keyword:
-            [
-              "本质上是",
-              "核心原理",
-              "底层逻辑",
-              "设计哲学",
-              "设计思想",
-              "核心区别",
-              "关键在于",
-              "重点是",
-              "核心思路",
-              "原理是",
-            ]
 parasitic_evolution:
   agent_profile_enabled: true
   auto_consolidate_enabled: true

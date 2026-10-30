@@ -94,6 +94,7 @@ async def test_get_default_write_decisions(client: httpx.AsyncClient, isolated_c
         "max_example_chars": 120,
         "max_match_values": 20,
         "max_keyword_values": 40,
+        "max_regex_values": 20,
         "max_match_value_chars": 100,
         "max_hint_chars": 800,
     }
@@ -124,6 +125,26 @@ async def test_put_persists_and_reloads(client: httpx.AsyncClient, isolated_conf
     fetched = await client.get("/v1/config/write-decisions")
     assert fetched.status_code == 200
     assert fetched.json()["rules"] == data["rules"]
+
+
+async def test_put_roundtrips_regex_match(
+    client: httpx.AsyncClient, isolated_config
+) -> None:
+    pattern = r"(?i)password\s*[=:]\s*[A-Za-z0-9]{6,}"
+    payload = _payload()
+    payload["rules"][0]["match"]["regex"] = [pattern]
+
+    response = await client.put("/v1/config/write-decisions", json=payload)
+
+    assert response.status_code == 200, response.text
+    assert response.json()["rules"][0]["match"]["regex"] == [pattern]
+
+    stored = yaml.safe_load(isolated_config.read_text(encoding="utf-8"))
+    stored_match = stored["agent_policy"]["write_decisions"]["rules"][0]["match"]
+    assert stored_match["regex"] == [pattern]
+
+    fetched = await client.get("/v1/config/write-decisions")
+    assert fetched.json()["rules"][0]["match"]["regex"] == [pattern]
 
 
 async def test_put_preserves_other_local_config_keys(
@@ -164,6 +185,8 @@ async def test_duplicate_rule_ids_rejected(client: httpx.AsyncClient, isolated_c
         lambda payload: payload.update({"default_action": "review"}),
         lambda payload: payload["rules"][0].update({"examples": ["x" * 121]}),
         lambda payload: payload["rules"][0].update({"description": "x" * 301}),
+        # 非法正则会整条规则被跳过，PUT 按“部分规则无法解析”拒绝
+        lambda payload: payload["rules"][0]["match"].update({"regex": ["(unclosed"]}),
     ],
 )
 async def test_invalid_payload_rejected(client: httpx.AsyncClient, isolated_config, mutate) -> None:

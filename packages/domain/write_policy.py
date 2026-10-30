@@ -5,22 +5,29 @@
 
 - ``type`` / ``workspace``：任一命中即可（OR）
 - ``tags``：必须全部存在（AND）
-- ``keyword``：正文或标题包含任一关键词即可（OR，大小写不敏感）
+- ``keyword`` / ``regex``：正文或标题命中任意一个即可（OR，二者合并为文本维度）
 """
 
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from typing import Any, Literal, cast
 
-from packages.domain.rule_match import matches_fields
+from packages.domain.rule_match import (
+    MAX_KEYWORD_VALUES,
+    MAX_MATCH_VALUE_CHARS,
+    MAX_MATCH_VALUES,
+    MAX_REGEX_VALUES,
+    matches_fields,
+)
 
 logger = logging.getLogger(__name__)
 
 PolicyAction = Literal["auto", "review", "reject"]
 _VALID_ACTIONS: frozenset[str] = frozenset({"auto", "review", "reject"})
-_MATCH_KEYS: frozenset[str] = frozenset({"workspace", "type", "tags", "keyword"})
+_MATCH_KEYS: frozenset[str] = frozenset({"workspace", "type", "tags", "keyword", "regex"})
 
 
 @dataclass(frozen=True)
@@ -43,6 +50,7 @@ class WriteRule:
     types: tuple[str, ...] = ()
     tags: tuple[str, ...] = ()
     keywords: tuple[str, ...] = ()
+    regexes: tuple[str, ...] = ()
 
     def matches(
         self,
@@ -59,6 +67,7 @@ class WriteRule:
             types=self.types,
             tags=self.tags,
             keywords=self.keywords,
+            regexes=self.regexes,
             workspace_name=workspace_name,
             workspace_id=workspace_id,
             memory_type=memory_type,
@@ -166,10 +175,33 @@ def _parse_rule(item: Any, index: int) -> WriteRule | None:
     types = _as_strings(match_raw.get("type"), field="type", rule_id=rule_id)
     tags = _as_strings(match_raw.get("tags"), field="tags", rule_id=rule_id)
     keywords = _as_strings(match_raw.get("keyword"), field="keyword", rule_id=rule_id)
-    if workspaces is None or types is None or tags is None or keywords is None:
+    regexes = _as_strings(match_raw.get("regex"), field="regex", rule_id=rule_id)
+    if workspaces is None or types is None or tags is None or keywords is None or regexes is None:
         return None
 
-    if not (workspaces or types or tags or keywords):
+    if (
+        len(workspaces) > MAX_MATCH_VALUES
+        or len(types) > MAX_MATCH_VALUES
+        or len(tags) > MAX_MATCH_VALUES
+        or len(keywords) > MAX_KEYWORD_VALUES
+        or len(regexes) > MAX_REGEX_VALUES
+    ):
+        logger.warning("write_policy 规则 %s 的匹配值数量超过上限，已跳过", rule_id)
+        return None
+
+    for pattern in regexes:
+        try:
+            re.compile(pattern)
+        except re.error as exc:
+            logger.warning(
+                "write_policy 规则 %s 的正则 %r 无效（%s），已跳过整条规则",
+                rule_id,
+                pattern,
+                exc,
+            )
+            return None
+
+    if not (workspaces or types or tags or keywords or regexes):
         logger.warning("write_policy 规则 %s 没有匹配条件，将匹配所有候选", rule_id)
 
     return WriteRule(
@@ -180,6 +212,7 @@ def _parse_rule(item: Any, index: int) -> WriteRule | None:
         types=types,
         tags=tags,
         keywords=keywords,
+        regexes=regexes,
     )
 
 
@@ -210,6 +243,14 @@ def _as_strings(value: Any, *, field: str, rule_id: str) -> tuple[str, ...] | No
             )
             return None
         text = item.strip()
+        if len(text) > MAX_MATCH_VALUE_CHARS:
+            logger.warning(
+                "write_policy 规则 %s 的 match.%s 含超过 %d 字符的值，已跳过",
+                rule_id,
+                field,
+                MAX_MATCH_VALUE_CHARS,
+            )
+            return None
         key = text.casefold()
         if key in seen:
             continue

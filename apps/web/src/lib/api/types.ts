@@ -418,6 +418,7 @@ export interface WritePolicyRuleMatch {
   type: string[]
   tags: string[]
   keyword: string[]
+  regex: string[]
 }
 
 export interface WritePolicyRule {
@@ -431,6 +432,7 @@ export interface WritePolicyLimits {
   max_rules: number
   max_match_values: number
   max_keyword_values: number
+  max_regex_values: number
   max_match_value_chars: number
 }
 
@@ -459,6 +461,7 @@ export interface WriteDecisionLimits {
   max_example_chars: number
   max_match_values: number
   max_keyword_values: number
+  max_regex_values: number
   max_match_value_chars: number
   max_hint_chars: number
 }

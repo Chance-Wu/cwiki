@@ -11,10 +11,17 @@
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from typing import Any, Literal, cast
 
-from packages.domain.rule_match import matches_fields
+from packages.domain.rule_match import (
+    MAX_KEYWORD_VALUES,
+    MAX_MATCH_VALUE_CHARS,
+    MAX_MATCH_VALUES,
+    MAX_REGEX_VALUES,
+    matches_fields,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +35,7 @@ DecisionAction = Literal["write", "skip", "update"]
 DefaultAction = Literal["write", "skip"]
 _VALID_ACTIONS: frozenset[str] = frozenset({"write", "skip", "update"})
 _VALID_DEFAULTS: frozenset[str] = frozenset({"write", "skip"})
-_MATCH_KEYS: frozenset[str] = frozenset({"workspace", "type", "tags", "keyword"})
+_MATCH_KEYS: frozenset[str] = frozenset({"workspace", "type", "tags", "keyword", "regex"})
 _ACTION_PRIORITY: dict[str, int] = {"skip": 0, "update": 1, "write": 2}
 
 _ACTION_LABELS: dict[str, str] = {
@@ -42,9 +49,6 @@ MAX_DESCRIPTION_CHARS = 300
 MAX_EXAMPLES = 5
 MAX_EXAMPLE_CHARS = 120
 MAX_RULES = 30
-MAX_MATCH_VALUES = 20
-MAX_KEYWORD_VALUES = 40
-MAX_MATCH_VALUE_CHARS = 100
 
 
 @dataclass(frozen=True)
@@ -86,6 +90,7 @@ class WriteDecisionRule:
     types: tuple[str, ...] = ()
     tags: tuple[str, ...] = ()
     keywords: tuple[str, ...] = ()
+    regexes: tuple[str, ...] = ()
 
     def matches(
         self,
@@ -102,6 +107,7 @@ class WriteDecisionRule:
             types=self.types,
             tags=self.tags,
             keywords=self.keywords,
+            regexes=self.regexes,
             workspace_name=workspace_name,
             workspace_id=workspace_id,
             memory_type=memory_type,
@@ -302,10 +308,24 @@ def _parse_rule(item: Any, index: int, *, quiet: bool = False) -> WriteDecisionR
     types = _as_strings(match_raw.get("type"), field="type", rule_id=rule_id, quiet=quiet)
     tags = _as_strings(match_raw.get("tags"), field="tags", rule_id=rule_id, quiet=quiet)
     keywords = _as_strings(match_raw.get("keyword"), field="keyword", rule_id=rule_id, quiet=quiet)
-    if workspaces is None or types is None or tags is None or keywords is None:
+    regexes = _as_strings(match_raw.get("regex"), field="regex", rule_id=rule_id, quiet=quiet)
+    if workspaces is None or types is None or tags is None or keywords is None or regexes is None:
         return None
 
-    if not (workspaces or types or tags or keywords):
+    if (
+        len(workspaces) > MAX_MATCH_VALUES
+        or len(types) > MAX_MATCH_VALUES
+        or len(tags) > MAX_MATCH_VALUES
+        or len(keywords) > MAX_KEYWORD_VALUES
+        or len(regexes) > MAX_REGEX_VALUES
+    ):
+        _log_issue(quiet, "write_decisions 规则 %s 的匹配值数量超过上限，已跳过", rule_id)
+        return None
+
+    if not _valid_regexes(regexes, rule_id=rule_id, quiet=quiet):
+        return None
+
+    if not (workspaces or types or tags or keywords or regexes):
         _log_issue(quiet, "write_decisions 规则 %s 没有匹配条件，将匹配所有候选", rule_id)
 
     description_raw = item.get("description")
@@ -326,7 +346,25 @@ def _parse_rule(item: Any, index: int, *, quiet: bool = False) -> WriteDecisionR
         types=types,
         tags=tags,
         keywords=keywords,
+        regexes=regexes,
     )
+
+
+def _valid_regexes(regexes: tuple[str, ...], *, rule_id: str, quiet: bool = False) -> bool:
+    """解析期编译校验：一条非法正则就跳过整条规则，避免维度退化成不限制。"""
+    for pattern in regexes:
+        try:
+            re.compile(pattern)
+        except re.error as exc:
+            _log_issue(
+                quiet,
+                "write_decisions 规则 %s 的正则 %r 无效（%s），已跳过整条规则",
+                rule_id,
+                pattern,
+                exc,
+            )
+            return False
+    return True
 
 
 def _as_strings(
@@ -356,6 +394,15 @@ def _as_strings(
             )
             return None
         text = item.strip()
+        if len(text) > MAX_MATCH_VALUE_CHARS:
+            _log_issue(
+                quiet,
+                "write_decisions 规则 %s 的 match.%s 含超过 %d 字符的值，已跳过",
+                rule_id,
+                field,
+                MAX_MATCH_VALUE_CHARS,
+            )
+            return None
         key = text.casefold()
         if key in seen:
             continue

@@ -155,3 +155,35 @@ def test_parse_keeps_first_duplicate_id(caplog) -> None:
     )
     assert [rule.action for rule in policy.rules] == ["auto"]
     assert "规则 id 重复" in caplog.text
+
+
+def test_regex_ors_with_keyword_and_matches_raw_text() -> None:
+    rule = WriteRule(
+        id="rx",
+        action="review",
+        keywords=("口径",),
+        regexes=(r"(?i)econnreset", r"(?i)command timed out"),
+    )
+    policy = WritePolicy(enabled=True, rules=(rule,))
+
+    assert _decide(policy, content="Error: ECONNRESET") is not None
+    assert _decide(policy, content="Command timed out after 30s") is not None
+    assert _decide(policy, title="口径说明", content="正文") is not None
+    assert _decide(policy, title="其他", content="无关") is None
+
+
+def test_parse_skips_rule_with_invalid_regex(caplog) -> None:
+    caplog.set_level(logging.WARNING)
+    policy = parse_write_policy(
+        {
+            "enabled": True,
+            "rules": [
+                {"id": "bad", "action": "auto", "match": {"regex": ["["]}},
+                {"id": "good", "action": "auto", "match": {"regex": ["^x"]}},
+            ],
+        }
+    )
+
+    assert [rule.id for rule in policy.rules] == ["good"]
+    assert policy.rules[0].regexes == ("^x",)
+    assert "无效" in caplog.text

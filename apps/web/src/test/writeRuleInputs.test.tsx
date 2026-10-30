@@ -1,9 +1,12 @@
 import { useState } from 'react'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { ListInput, MatchChips } from '../components/config/writeRuleShared'
-import { collectLimitIssues, collectWritePolicyLimitIssues } from '../components/config/writeRuleUtils'
+import { ListInput, MatchChips, MatchEditor } from '../components/config/writeRuleShared'
+import {
+  collectLimitIssues,
+  collectWritePolicyLimitIssues,
+} from '../components/config/writeRuleUtils'
 import type { WriteDecisionLimits, WriteDecisionRule } from '../lib/api'
 import type { WritePolicyLimits, WritePolicyRule } from '../lib/api/types'
 
@@ -27,6 +30,7 @@ const LIMITS: WriteDecisionLimits = {
   max_example_chars: 120,
   max_match_values: 2,
   max_keyword_values: 3,
+  max_regex_values: 2,
   max_match_value_chars: 5,
   max_hint_chars: 800,
 }
@@ -97,7 +101,7 @@ describe('MatchChips', () => {
     render(
       <MatchChips
         copy={COPY}
-        match={{ workspace: [], type: [], tags: [], keyword: ['a', 'b', 'c', 'd', 'e'] }}
+        match={{ workspace: [], type: [], tags: [], keyword: ['a', 'b', 'c', 'd', 'e'], regex: [] }}
       />,
     )
     expect(screen.getByText('a, b, c +2')).toBeInTheDocument()
@@ -110,7 +114,7 @@ describe('collectLimitIssues', () => {
     action: 'write',
     description: '',
     examples: [],
-    match: { workspace: [], type: [], tags: [], keyword: [] },
+    match: { workspace: [], type: [], tags: [], keyword: [], regex: [] },
     ...patch,
   })
 
@@ -118,7 +122,7 @@ describe('collectLimitIssues', () => {
     const longRule = rule({
       description: 'x'.repeat(LIMITS.max_description + 1),
       examples: ['y'.repeat(LIMITS.max_example_chars + 1)],
-      match: { workspace: [], type: [], tags: [], keyword: ['z'.repeat(6)] },
+      match: { workspace: [], type: [], tags: [], keyword: ['z'.repeat(6)], regex: [] },
     })
 
     const issues = collectLimitIssues([longRule], COPY, LIMITS)
@@ -136,7 +140,13 @@ describe('collectLimitIssues', () => {
 
   it('flags match value counts per field', () => {
     const crowded = rule({
-      match: { workspace: ['a', 'b', 'c'], type: [], tags: [], keyword: ['1', '2', '3', '4'] },
+      match: {
+        workspace: ['a', 'b', 'c'],
+        type: [],
+        tags: [],
+        keyword: ['1', '2', '3', '4'],
+        regex: [],
+      },
     })
 
     const issues = collectLimitIssues([crowded], COPY, LIMITS)
@@ -156,6 +166,7 @@ describe('collectWritePolicyLimitIssues', () => {
     max_rules: 50,
     max_match_values: 2,
     max_keyword_values: 3,
+    max_regex_values: 2,
     max_match_value_chars: 5,
   }
 
@@ -163,27 +174,31 @@ describe('collectWritePolicyLimitIssues', () => {
     id: 'r1',
     action: 'review',
     reason: null,
-    match: { workspace: [], type: [], tags: [], keyword: [] },
+    match: { workspace: [], type: [], tags: [], keyword: [], regex: [] },
     ...patch,
   })
 
   it('flags overlong match values', () => {
     const longRule = policyRule({
-      match: { workspace: [], type: [], tags: [], keyword: ['z'.repeat(6)] },
+      match: { workspace: [], type: [], tags: [], keyword: ['z'.repeat(6)], regex: [] },
     })
 
     const issues = collectWritePolicyLimitIssues([longRule], COPY, POLICY_LIMITS)
 
     expect(issues).toHaveLength(1)
     expect(issues[0].ruleId).toBe('r1')
-    expect(issues[0].messages).toEqual(
-      expect.arrayContaining(['单个匹配值不能超过 5 字符']),
-    )
+    expect(issues[0].messages).toEqual(expect.arrayContaining(['单个匹配值不能超过 5 字符']))
   })
 
   it('flags match value counts per field', () => {
     const crowded = policyRule({
-      match: { workspace: ['a', 'b', 'c'], type: [], tags: [], keyword: ['1', '2', '3', '4'] },
+      match: {
+        workspace: ['a', 'b', 'c'],
+        type: [],
+        tags: [],
+        keyword: ['1', '2', '3', '4'],
+        regex: [],
+      },
     })
 
     const issues = collectWritePolicyLimitIssues([crowded], COPY, POLICY_LIMITS)
@@ -195,5 +210,35 @@ describe('collectWritePolicyLimitIssues', () => {
 
   it('returns no issues within limits', () => {
     expect(collectWritePolicyLimitIssues([policyRule({})], COPY, POLICY_LIMITS)).toEqual([])
+  })
+})
+
+describe('MatchEditor', () => {
+  it('renders the regex field and emits regex values separately', async () => {
+    const user = userEvent.setup()
+    const onMatchChange = vi.fn()
+
+    render(
+      <MatchEditor
+        match={{ workspace: [], type: [], tags: [], keyword: [], regex: [] }}
+        onMatchChange={onMatchChange}
+        hint="提示"
+        warning="告警"
+        copy={{
+          ...COPY,
+          writePolicyMatch: '匹配条件',
+          writePolicyRegex: '正则',
+          writePolicyRegexHint: '按原文匹配',
+        }}
+        limits={{ workspace: 2, type: 2, tags: 2, keyword: 2, regex: 2, valueChars: 50 }}
+      />,
+    )
+
+    const input = screen.getByRole('textbox', { name: '正则' })
+    await user.type(input, '(?i)^x')
+    await user.keyboard('{Enter}')
+
+    expect(onMatchChange).toHaveBeenCalledWith('regex', ['(?i)^x'])
+    expect(screen.getByText('按原文匹配')).toBeInTheDocument()
   })
 })

@@ -12,7 +12,8 @@ export function isEmptyMatch(match: WritePolicyRuleMatch): boolean {
     match.workspace.length === 0 &&
     match.type.length === 0 &&
     match.tags.length === 0 &&
-    match.keyword.length === 0
+    match.keyword.length === 0 &&
+    match.regex.length === 0
   )
 }
 
@@ -38,6 +39,7 @@ export const DEFAULT_MATCH_LIMITS = {
   type: 20,
   tags: 20,
   keyword: 30,
+  regex: 20,
   valueChars: 100,
 }
 
@@ -49,6 +51,7 @@ export const DEFAULT_WRITE_DECISION_LIMITS: WriteDecisionLimits = {
   max_example_chars: 120,
   max_match_values: 20,
   max_keyword_values: 40,
+  max_regex_values: 20,
   max_match_value_chars: 100,
   max_hint_chars: 800,
 }
@@ -87,6 +90,7 @@ export function collectLimitIssues(
       ['type', limits.max_match_values],
       ['tags', limits.max_match_values],
       ['keyword', limits.max_keyword_values],
+      ['regex', limits.max_regex_values],
     ]
     for (const [field, max] of counts) {
       if (match[field].length > max) {
@@ -117,13 +121,14 @@ export function collectLimitIssues(
 }
 
 function matchValues(match: WritePolicyRuleMatch): string[] {
-  return [...match.workspace, ...match.type, ...match.tags, ...match.keyword]
+  return [...match.workspace, ...match.type, ...match.tags, ...match.keyword, ...match.regex]
 }
 
 export const DEFAULT_WRITE_POLICY_LIMITS: WritePolicyLimits = {
   max_rules: 50,
   max_match_values: 20,
   max_keyword_values: 40,
+  max_regex_values: 20,
   max_match_value_chars: 100,
 }
 
@@ -143,6 +148,7 @@ export function collectWritePolicyLimitIssues(
       ['type', limits.max_match_values],
       ['tags', limits.max_match_values],
       ['keyword', limits.max_keyword_values],
+      ['regex', limits.max_regex_values],
     ]
     for (const [field, max] of counts) {
       if (match[field].length > max) {

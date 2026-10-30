@@ -858,7 +858,8 @@ const en = {
     writePolicyReason: 'Note',
     writePolicyReasonPlaceholder: 'Optional, e.g. user-designated long-term knowledge',
     writePolicyMatch: 'Match',
-    writePolicyMatchHint: 'Fields are ANDed; separate multiple values with commas',
+    writePolicyMatchHint:
+      'Fields are ANDed; keywords and regexes are ORed; separate values with commas',
     writePolicyWorkspace: 'Workspace',
     writePolicyWorkspaceHint: 'Name or UUID; leave empty for any',
     writePolicyType: 'Memory type',
@@ -867,6 +868,9 @@ const en = {
     writePolicyTagsHint: 'All tags must be present; leave empty for any',
     writePolicyKeyword: 'Keywords',
     writePolicyKeywordHint: 'Title or content contains any keyword; case-insensitive',
+    writePolicyRegex: 'Regex',
+    writePolicyRegexHint:
+      'Any regex match counts; matched against raw text — use (?i) for case-insensitive',
     writePolicyRemoveValue: 'Remove value',
     writePolicyCatchAll: 'Matches all',
     writePolicyCatchAllWarning: 'No match conditions set — this rule matches every candidate.',

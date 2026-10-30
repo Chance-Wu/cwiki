@@ -184,6 +184,7 @@ function RuleEditor({
           type: limits.max_match_values,
           tags: limits.max_match_values,
           keyword: limits.max_keyword_values,
+          regex: limits.max_regex_values,
           valueChars: limits.max_match_value_chars,
         }}
       />
@@ -384,7 +385,7 @@ export default function WriteDecisionCard() {
           action,
           description: '',
           examples: [],
-          match: { workspace: [], type: [], tags: [], keyword: [] },
+          match: { workspace: [], type: [], tags: [], keyword: [], regex: [] },
         },
       ],
     })

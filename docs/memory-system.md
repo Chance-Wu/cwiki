@@ -106,20 +106,20 @@ agent_policy:
           keyword: ["password=", "api_key=", "-----BEGIN"]
       - id: must-save-signals
         action: write
-        description: 用户纠正、明确偏好、强制规则必须记录
+        description: 用户纠正、明确偏好与强制规则必须记录（feedback/rule）
         examples: ["不要这样做，改用 X", "以后都按这个约定"]
         match:
           type: [feedback, rule]
-      # …其余规则按 decision / issue+lesson / convention+pattern+constraint /
-      #   fact+reference+procedure 分类，均为 type 匹配
+      # 其余 4 条写入规则按 decision / issue+lesson / convention+pattern+constraint /
+      #   fact+reference+procedure 分类，均为 type 匹配；keyword 只用于 skip/update
 ```
 
 - **管理界面**：配置页「写入管理 → 写入规则」支持分组编辑、组内排序、标签式匹配值输入与草稿预校验；改动先保存在浏览器草稿，点击“保存规则”才写入 `config.yaml` 并即时重载。
 - **注入预览**：`POST /v1/config/write-decisions/preview` 按草稿生成真实的 SessionStart 摘要，支持传入 `workspace` 模拟工作区过滤，并返回字符预算（`length/max_chars`）、已展示/总规则数与截断标记；界面据此显示预算进度条与“未展示规则”提示。
-- **硬限制**：规则 ≤ 30 条，说明 ≤ 300 字符，示例 ≤ 5 条且单条 ≤ 120 字符，匹配值每个维度按类型 ≤ 20/30 个且单值 ≤ 100 字符，注入摘要 ≤ 800 字符。服务端在 `GET/PUT /v1/config/write-decisions` 的 `limits` 字段中返回同一组数值，供前端计数与保存前校验。
+- **硬限制**：规则 ≤ 30 条，说明 ≤ 300 字符，示例 ≤ 5 条且单条 ≤ 120 字符，匹配值每个维度按类型 ≤ 20/30 个（正则为 20 个）且单值 ≤ 100 字符，注入摘要 ≤ 800 字符。服务端在 `GET/PUT /v1/config/write-decisions` 的 `limits` 字段中返回同一组数值，供前端计数与保存前校验。
 
 - **分工**：`write_decisions` 是准入（是否写/更新），`write_policy` 是写入后的审核（auto/review/reject）。两者可同时命中；需要“写入但人工审核”时用 write_policy 的 `review`。
-- **匹配**：固定优先级“不写入 > 更新 > 写入”，同组内按声明顺序；未命中用 `default_action`（write/skip）。`description/examples` 只注入 SessionStart，`match` 由服务端执行。
+- **匹配**：固定优先级“不写入 > 更新 > 写入”，同组内按声明顺序；未命中用 `default_action`（write/skip）。`description/examples` 只注入 SessionStart，`match` 由服务端执行。`match` 支持 `workspace` / `type` / `tags` / `keyword` / `regex`：前四者之外字段之间 AND；`keyword` 与 `regex` 合并为文本维度——任一关键词（大小写不敏感）或任一正则（按原文匹配，忽略大小写需写 `(?i)`）命中即可。正则非法时整条规则被跳过并告警。
 - **action**：
   - `write`：正常准入。
   - `skip`：4xx 拒绝，不创建候选。
@@ -145,9 +145,10 @@ memory:
           type: [decision, lesson]   # 字符串或列表
           tags: ["pinned"]          # 必须全部存在
           keyword: ["必须保留", "口径"]  # 标题/正文包含任一即可
+          regex: ['(?i)password\s*[=:]\s*\S+']  # 与 keyword 是「或」关系
 ```
 
-- **匹配语义**：同一条规则内各字段是 AND；`type` / `workspace` / `keyword` 多值任一命中，`tags` 需全部存在。`keyword` 大小写不敏感，匹配标题 + 正文。规则按声明顺序匹配，命中第一条即停止。
+- **匹配语义**：同一条规则内各字段是 AND；`type` / `workspace` 多值任一命中，`tags` 需全部存在。`keyword` 与 `regex` 同属文本维度，任一命中即可：`keyword` 大小写不敏感，`regex` 按原文匹配（忽略大小写请写 `(?i)`），两者都匹配标题 + 正文。规则按声明顺序匹配，命中第一条即停止。
 - **action**：
   - `auto`：评分任务完成后自动生效，跳过价值分/置信度/质量门阈值；仍要求无 open 冲突，且已知重复概率 `< 0.95`。
   - `review`：强制人工审核，即使 `auto_approve_enabled=true` 也不会自动生效。

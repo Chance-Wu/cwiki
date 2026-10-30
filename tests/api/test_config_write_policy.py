@@ -69,6 +69,7 @@ async def test_get_default_write_policy(client: httpx.AsyncClient, isolated_conf
     assert data["limits"]["max_rules"] == 50
     assert data["limits"]["max_match_values"] == 20
     assert data["limits"]["max_keyword_values"] == 40
+    assert data["limits"]["max_regex_values"] == 20
     assert data["limits"]["max_match_value_chars"] == 100
 
 

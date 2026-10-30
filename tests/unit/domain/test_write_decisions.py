@@ -352,3 +352,51 @@ def test_decision_and_write_policy_share_match_semantics() -> None:
             )
             == expected
         )
+
+
+def test_regex_ors_with_keyword_and_matches_raw_text() -> None:
+    pattern = r"(?i)password\s*[=:]\s*[A-Za-z0-9]{6,}"
+    policy = WriteDecisionPolicy(
+        enabled=True,
+        default_action="write",
+        rules=(
+            WriteDecisionRule(id="cred", action="skip", keywords=("现在几点",), regexes=(pattern,)),
+        ),
+    )
+
+    assert _decide(policy, content="现在几点？").action == "skip"
+    assert _decide(policy, content="配置 password=Hunter2Pass").action == "skip"
+    # 只有赋值符号、没有值：不应误伤配置类知识
+    assert _decide(policy, content="配置里 password= 后面不能有空格").action == "write"
+    assert _decide(policy, content="普通内容").action == "write"
+
+
+def test_regex_case_sensitivity_follows_pattern() -> None:
+    strict = WriteDecisionPolicy(
+        enabled=True,
+        default_action="write",
+        rules=(WriteDecisionRule(id="strict", action="skip", regexes=(r"password\s*=\s*\S+",)),),
+    )
+
+    assert _decide(strict, content="配置 password=hunter2").action == "skip"
+    assert _decide(strict, content="配置 PASSWORD=hunter2").action == "write"
+
+
+def test_parse_keeps_regex_and_skips_rule_with_invalid_pattern(caplog) -> None:
+    caplog.set_level(logging.WARNING)
+
+    policy = parse_write_decisions(
+        {
+            "enabled": True,
+            "rules": [
+                {"id": "bad", "action": "skip", "match": {"regex": ["(unclosed"]}},
+                {"id": "good", "action": "skip", "match": {"regex": "^ghp_", "keyword": "现在几点"}},
+            ],
+        }
+    )
+
+    assert [rule.id for rule in policy.rules] == ["good"]
+    (rule,) = policy.rules
+    assert rule.regexes == ("^ghp_",)
+    assert rule.keywords == ("现在几点",)
+    assert "无效" in caplog.text

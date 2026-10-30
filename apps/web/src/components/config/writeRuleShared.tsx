@@ -28,6 +28,7 @@ export interface MatchFieldLimits {
   type: number
   tags: number
   keyword: number
+  regex: number
   valueChars: number
 }
 
@@ -252,6 +253,7 @@ export function MatchChips({
     { label: copy.writePolicyType, values: match.type },
     { label: copy.writePolicyTags, values: match.tags },
     { label: copy.writePolicyKeyword, values: match.keyword },
+    { label: copy.writePolicyRegex, values: match.regex },
   ].filter((chip) => chip.values.length > 0)
 
   if (chips.length === 0) {
@@ -265,7 +267,7 @@ export function MatchChips({
         const hidden = chip.values.length - shown.length
         return (
           <Badge key={chip.label} variant="default" className="max-w-full">
-            <span className="text-[var(--text-tertiary)]">{chip.label}</span>
+            <span className="whitespace-nowrap text-[var(--text-tertiary)]">{chip.label}</span>
             <span className="truncate">
               {shown.join(', ')}
               {hidden > 0 ? ` +${hidden}` : ''}
@@ -297,6 +299,7 @@ export function MatchEditor({
     type: 20,
     tags: 20,
     keyword: 30,
+    regex: 20,
     valueChars: 100,
   }
 
@@ -345,6 +348,16 @@ export function MatchEditor({
           hint={copy.writePolicyKeywordHint}
           removeLabel={copy.writePolicyRemoveValue}
           max={fieldLimits.keyword}
+          maxValueLength={fieldLimits.valueChars}
+        />
+        <ListInput
+          label={copy.writePolicyRegex}
+          value={match.regex}
+          onChange={(values) => onMatchChange('regex', values)}
+          placeholder={String.raw`(?i)password\s*[=:]\s*\S+`}
+          hint={copy.writePolicyRegexHint}
+          removeLabel={copy.writePolicyRemoveValue}
+          max={fieldLimits.regex}
           maxValueLength={fieldLimits.valueChars}
         />
       </div>

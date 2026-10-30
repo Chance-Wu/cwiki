@@ -27,6 +27,7 @@ from packages.domain.write_decisions import (
     MAX_KEYWORD_VALUES,
     MAX_MATCH_VALUE_CHARS,
     MAX_MATCH_VALUES,
+    MAX_REGEX_VALUES,
     MAX_RULES,
     build_agent_hint_details,
     parse_write_decisions,
@@ -159,8 +160,9 @@ class WriteRuleMatchModel(BaseModel):
     type: list[str] = Field(default_factory=list, max_length=MAX_MATCH_VALUES)
     tags: list[str] = Field(default_factory=list, max_length=MAX_MATCH_VALUES)
     keyword: list[str] = Field(default_factory=list, max_length=MAX_KEYWORD_VALUES)
+    regex: list[str] = Field(default_factory=list, max_length=MAX_REGEX_VALUES)
 
-    @field_validator("workspace", "type", "tags", "keyword")
+    @field_validator("workspace", "type", "tags", "keyword", "regex")
     @classmethod
     def _clean_values(cls, values: list[str]) -> list[str]:
         cleaned: list[str] = []
@@ -206,6 +208,7 @@ class WritePolicyLimits(BaseModel):
     max_rules: int
     max_match_values: int
     max_keyword_values: int
+    max_regex_values: int
     max_match_value_chars: int
 
 
@@ -214,6 +217,7 @@ def _write_policy_limits() -> WritePolicyLimits:
         max_rules=WRITE_POLICY_MAX_RULES,
         max_match_values=MAX_MATCH_VALUES,
         max_keyword_values=MAX_KEYWORD_VALUES,
+        max_regex_values=MAX_REGEX_VALUES,
         max_match_value_chars=MAX_MATCH_VALUE_CHARS,
     )
 
@@ -270,6 +274,7 @@ class WriteDecisionLimits(BaseModel):
     max_example_chars: int
     max_match_values: int
     max_keyword_values: int
+    max_regex_values: int
     max_match_value_chars: int
     max_hint_chars: int
 
@@ -282,6 +287,7 @@ def _write_decision_limits() -> WriteDecisionLimits:
         max_example_chars=MAX_EXAMPLE_CHARS,
         max_match_values=MAX_MATCH_VALUES,
         max_keyword_values=MAX_KEYWORD_VALUES,
+        max_regex_values=MAX_REGEX_VALUES,
         max_match_value_chars=MAX_MATCH_VALUE_CHARS,
         max_hint_chars=DEFAULT_MAX_HINT_CHARS,
     )
@@ -347,6 +353,7 @@ def _effective_write_policy() -> WritePolicyData:
                     type=list(rule.types),
                     tags=list(rule.tags),
                     keyword=list(rule.keywords),
+                    regex=list(rule.regexes),
                 ),
             )
             for rule in policy.rules
@@ -379,6 +386,7 @@ def _write_write_policy(body: WritePolicyModel) -> None:
             "type": rule.match.type,
             "tags": rule.match.tags,
             "keyword": rule.match.keyword,
+            "regex": rule.match.regex,
         }
         entry: dict[str, Any] = {
             "id": rule.id,
@@ -410,6 +418,7 @@ def _effective_write_decisions() -> WriteDecisionData:
                     type=list(rule.types),
                     tags=list(rule.tags),
                     keyword=list(rule.keywords),
+                    regex=list(rule.regexes),
                 ),
             )
             for rule in policy.rules
@@ -439,6 +448,7 @@ def _write_write_decisions(body: WriteDecisionModel) -> None:
                     "type": rule.match.type,
                     "tags": rule.match.tags,
                     "keyword": rule.match.keyword,
+                    "regex": rule.match.regex,
                 }.items()
                 if value
             },
