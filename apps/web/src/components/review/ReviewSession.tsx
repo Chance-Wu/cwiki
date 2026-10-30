@@ -1,5 +1,5 @@
-import { motion } from 'framer-motion'
-import { ArrowUp, Flame, Maximize2, RotateCcw, SkipForward } from 'lucide-react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { ArrowUp, Clock, Flame, Maximize2, Pause, Play, RotateCcw, SkipForward } from 'lucide-react'
 import { spring, ease, duration } from '../../lib/motion'
 import { Badge } from '../ui/Badge'
 import { Button } from '../ui/Button'
@@ -7,6 +7,7 @@ import { ReviewCard, QualityButtons } from '../ReviewCard'
 import { FocusModeOverlay } from '../FocusModeOverlay'
 import { SegmentedControl } from '../ui/SegmentedControl'
 import { MASTERY_COLORS } from '../../lib/labels'
+import { formatClock } from './reviewSessionUtils'
 
 interface ReviewItem {
   memory_id: string
@@ -51,6 +52,9 @@ interface ReviewSessionProps {
   t: Record<string, unknown>
   mode: 'learn' | 'test'
   onModeChange: (mode: 'learn' | 'test') => void
+  elapsed: number
+  paused: boolean
+  onTogglePause: () => void
 }
 
 export const ReviewSession = function ReviewSession({
@@ -74,6 +78,9 @@ export const ReviewSession = function ReviewSession({
   t,
   mode,
   onModeChange,
+  elapsed,
+  paused,
+  onTogglePause,
 }: ReviewSessionProps) {
   const tr = t.review as Record<string, string>
 
@@ -81,15 +88,35 @@ export const ReviewSession = function ReviewSession({
     <div>
       {/* 进度条 + 专注模式开关 */}
       <div className="mb-4">
-        <div className="flex items-center justify-between mb-1.5">
+        <div className="flex flex-wrap items-center justify-between gap-y-1 mb-1.5">
           <span className="text-xs text-[var(--text-tertiary)] font-medium">{tr.progress}</span>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             {sessionStreak >= 2 && (
               <span className="flex items-center gap-1 text-xs text-warning-fg font-medium tabular-nums">
                 <Flame size={13} />
                 {sessionStreak}
               </span>
             )}
+            <span className="flex items-center gap-1 text-xs text-[var(--text-tertiary)] tabular-nums font-medium">
+              <Clock size={12} aria-hidden="true" />
+              {formatClock(elapsed)}
+            </span>
+            <button
+              aria-label={paused ? tr.resume : tr.pause}
+              onClick={onTogglePause}
+              title={paused ? tr.resume : tr.pause}
+              className={`p-1 rounded-md transition-all duration-150 ${
+                paused
+                  ? 'bg-warning/20 text-warning-fg'
+                  : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-surface-elevated/40'
+              }`}
+            >
+              {paused ? (
+                <Play size={14} aria-hidden="true" />
+              ) : (
+                <Pause size={14} aria-hidden="true" />
+              )}
+            </button>
             <span className="text-xs text-[var(--text-tertiary)] tabular-nums font-medium">
               {currentIndex + 1} / {totalItems}
             </span>
@@ -116,6 +143,9 @@ export const ReviewSession = function ReviewSession({
             style={{ boxShadow: '0 0 8px rgb(var(--info-rgb, 59 130 246) / 0.4)' }}
           />
         </div>
+        <p className="mt-1.5 hidden text-[10px] font-medium text-[var(--text-tertiary)] sm:block">
+          S {tr.skip} · P {tr.pause} · F {tr.focusMode}
+        </p>
       </div>
 
       {/* 模式切换 + 掌握度徽标 */}
@@ -137,7 +167,7 @@ export const ReviewSession = function ReviewSession({
       </div>
 
       {/* 卡片 */}
-      <div className={focusMode ? 'relative z-[60]' : ''}>
+      <div className="relative">
         <ReviewCard
           item={currentItem}
           showAnswer={showAnswer}
@@ -147,10 +177,35 @@ export const ReviewSession = function ReviewSession({
           mode={mode}
           maxHeight={focusMode ? 'max-h-[55vh]' : undefined}
         />
+        <AnimatePresence>
+          {paused && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: duration.fast, ease: ease.out }}
+              className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 rounded-2xl bg-[var(--surface-card)]/85 backdrop-blur-sm"
+            >
+              <motion.span
+                initial={{ scale: 0.9, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                transition={spring.snappy}
+                className="flex items-center gap-2 text-sm font-semibold text-[var(--text-secondary)]"
+              >
+                <Pause size={16} aria-hidden="true" />
+                {tr.pausedTitle}
+              </motion.span>
+              <Button onClick={onTogglePause} size="sm" variant="secondary">
+                <Play size={14} aria-hidden="true" />
+                {tr.resume}
+              </Button>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
       {/* 跳过按钮 */}
-      {!lastResult && (
+      {!lastResult && !paused && (
         <div className="flex justify-center mt-3">
           <Button
             onClick={handleSkip}
@@ -241,7 +296,7 @@ export const ReviewSession = function ReviewSession({
       )}
 
       {/* 质量打分按钮 */}
-      {!lastResult && (mode === 'learn' || showAnswer) && (
+      {!lastResult && !paused && (mode === 'learn' || showAnswer) && (
         <motion.div
           className="mt-5"
           initial={{ opacity: 0, y: 10 }}

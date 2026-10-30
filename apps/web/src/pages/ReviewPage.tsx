@@ -16,6 +16,8 @@ import { TrendSection } from '../components/review/TrendSection'
 import { FilterBar } from '../components/review/FilterBar'
 import { SessionComplete } from '../components/review/SessionComplete'
 import { ReviewSession } from '../components/review/ReviewSession'
+import { DailyGoalRing } from '../components/review/DailyGoalRing'
+import { clampGoal, DAILY_GOAL_DEFAULT } from '../components/review/reviewSessionUtils'
 
 export default function ReviewPage() {
   const { t, locale } = useTranslation()
@@ -47,6 +49,29 @@ export default function ReviewPage() {
     setMode(next)
     try {
       localStorage.setItem('review-mode', next)
+    } catch {
+      /* 忽略存储不可用 */
+    }
+  }, [])
+
+  const [elapsed, setElapsed] = useState(0)
+  const [paused, setPaused] = useState(false)
+  const [goal, setGoal] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('review-daily-goal')
+      return saved ? clampGoal(Number(saved)) : DAILY_GOAL_DEFAULT
+    } catch {
+      return DAILY_GOAL_DEFAULT
+    }
+  })
+  const [results, setResults] = useState<
+    Array<{ title: string; quality: number; prevMastery: string | null; newMastery: string }>
+  >([])
+  const handleGoalChange = useCallback((next: number) => {
+    const clamped = clampGoal(next)
+    setGoal(clamped)
+    try {
+      localStorage.setItem('review-daily-goal', String(clamped))
     } catch {
       /* 忽略存储不可用 */
     }
@@ -123,7 +148,7 @@ export default function ReviewPage() {
 
   const handleRate = useCallback(
     async (quality: number) => {
-      if (submitMutation.isPending) return
+      if (submitMutation.isPending || paused) return
       const item = filteredItems[currentIndex]
       if (!item) return
       try {
@@ -137,6 +162,15 @@ export default function ReviewPage() {
         setLastMemoryId(item.memory_id)
         setSessionReviewed((n) => n + 1)
         setSessionQualities((prev) => [...prev, quality])
+        setResults((prev) => [
+          ...prev,
+          {
+            title: item.title,
+            quality,
+            prevMastery: item.mastery_level,
+            newMastery: result.mastery_level,
+          },
+        ])
         setTimeout(() => {
           setLastResult(null)
           setLastMemoryId(null)
@@ -147,7 +181,7 @@ export default function ReviewPage() {
         toast(t.review.submitFailed, 'error')
       }
     },
-    [filteredItems, currentIndex, submitMutation, toast, t],
+    [filteredItems, currentIndex, submitMutation, toast, t, paused],
   )
 
   const handleUndo = useCallback(async () => {
@@ -159,6 +193,7 @@ export default function ReviewPage() {
       setLastMemoryId(null)
       setSessionReviewed((n) => Math.max(0, n - 1))
       setSessionQualities((prev) => prev.slice(0, -1))
+      setResults((prev) => prev.slice(0, -1))
     } catch {
       toast(t.review.undoFailed, 'error')
     }
@@ -166,6 +201,7 @@ export default function ReviewPage() {
 
   const handleSkip = useCallback(() => {
     if (
+      paused ||
       submitMutation.isPending ||
       lastResult ||
       filteredItems.length === 0 ||
@@ -173,7 +209,7 @@ export default function ReviewPage() {
     )
       return
     setCurrentIndex((i) => i + 1)
-  }, [lastResult, filteredItems.length, currentIndex, submitMutation.isPending])
+  }, [lastResult, filteredItems.length, currentIndex, submitMutation.isPending, paused])
 
   // 从首页带 ?id= 跳转过来时定位到指定条目，随后清掉参数避免刷新重复定位
   const targetId = searchParams.get('id') ?? null
@@ -211,6 +247,13 @@ export default function ReviewPage() {
 
       if (lastResult || filteredItems.length === 0 || currentIndex >= filteredItems.length) return
       const key = e.key
+      // P 暂停/继续
+      if (key === 'p' || key === 'P') {
+        e.preventDefault()
+        setPaused((v) => !v)
+        return
+      }
+      if (paused) return
       // 学习模式内容常显，无需翻面；仅测试模式响应空格/回车
       if (mode === 'test' && !showAnswer && (key === ' ' || key === 'Enter')) {
         e.preventDefault()
@@ -229,7 +272,17 @@ export default function ReviewPage() {
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [lastResult, filteredItems, currentIndex, handleRate, handleSkip, showAnswer, focusMode, mode])
+  }, [
+    lastResult,
+    filteredItems,
+    currentIndex,
+    handleRate,
+    handleSkip,
+    showAnswer,
+    focusMode,
+    mode,
+    paused,
+  ])
 
   // 切到下一张卡时重置翻面状态
   useEffect(() => {
@@ -261,6 +314,13 @@ export default function ReviewPage() {
     return count
   }, [sessionQualities])
 
+  // 计时：有当前卡片且未暂停/未完成时每秒累加
+  useEffect(() => {
+    if (paused || allDone || noItems || !currentItem) return
+    const id = window.setInterval(() => setElapsed((s) => s + 1), 1000)
+    return () => window.clearInterval(id)
+  }, [paused, allDone, noItems, currentItem])
+
   const clearSession = useCallback(() => {
     setCurrentIndex(0)
     setLastResult(null)
@@ -269,6 +329,9 @@ export default function ReviewPage() {
     setSessionQualities([])
     setSessionReviewed(0)
     setFocusMode(false)
+    setElapsed(0)
+    setPaused(false)
+    setResults([])
     try {
       localStorage.removeItem('review-session')
     } catch {
@@ -293,6 +356,15 @@ export default function ReviewPage() {
         />
       ) : (
         <>
+          {/* 每日目标 */}
+          {stats && (
+            <DailyGoalRing
+              done={(stats.reviewed_today ?? 0) + sessionReviewed}
+              goal={goal}
+              onChange={handleGoalChange}
+            />
+          )}
+
           {/* 统计条 */}
           {stats && (
             <StatsBar
@@ -349,6 +421,9 @@ export default function ReviewPage() {
               sessionGoodRate={sessionGoodRate}
               sessionStreak={sessionStreak}
               clearSession={clearSession}
+              results={results}
+              elapsedSec={elapsed}
+              goal={goal}
               t={t}
             />
           )}
@@ -376,6 +451,9 @@ export default function ReviewPage() {
               t={t}
               mode={mode}
               onModeChange={handleModeChange}
+              elapsed={elapsed}
+              paused={paused}
+              onTogglePause={() => setPaused((v) => !v)}
             />
           )}
         </>

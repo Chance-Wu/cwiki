@@ -3,7 +3,10 @@ import { CheckCircle2, Flame } from 'lucide-react'
 import { spring } from '../../lib/motion'
 import { Button } from '../ui/Button'
 import { Card } from '../ui/Card'
+import { Badge } from '../ui/Badge'
 import { useCountUp } from '../../hooks/useCountUp'
+import { MASTERY_COLORS } from '../../lib/labels'
+import { formatClock } from './reviewSessionUtils'
 
 function AnimatedNumber({
   target,
@@ -20,12 +23,22 @@ function AnimatedNumber({
   return <span ref={ref} />
 }
 
+interface SessionResult {
+  title: string
+  quality: number
+  prevMastery: string | null
+  newMastery: string
+}
+
 interface SessionCompleteProps {
   sessionReviewed: number
   sessionAvgQuality: number | null
   sessionGoodRate: number | null
   sessionStreak: number
   clearSession: () => void
+  results?: SessionResult[]
+  elapsedSec?: number
+  goal?: number
   t: {
     review: {
       sessionComplete: string
@@ -44,8 +57,13 @@ export const SessionComplete = function SessionComplete({
   sessionGoodRate,
   sessionStreak,
   clearSession,
+  results = [],
+  elapsedSec = 0,
+  goal,
   t,
 }: SessionCompleteProps) {
+  const tr = t.review as unknown as Record<string, string>
+  const goalReached = goal !== undefined && goal > 0 && sessionReviewed >= goal
   return (
     <motion.div
       className="text-center py-10"
@@ -67,6 +85,18 @@ export const SessionComplete = function SessionComplete({
         </h2>
         <p className="text-xs text-[var(--text-secondary)] mb-6">
           {t.review.sessionReviewedCount.replace('{n}', String(sessionReviewed))}
+          {elapsedSec > 0 && (
+            <span className="text-[var(--text-tertiary)]">
+              {' · '}
+              {tr.elapsedTime} {formatClock(elapsedSec)}
+            </span>
+          )}
+          {goalReached && (
+            <span className="font-medium text-success-fg">
+              {' · '}
+              {tr.goalReached}
+            </span>
+          )}
         </p>
 
         {/* 本次会话统计 */}
@@ -103,6 +133,56 @@ export const SessionComplete = function SessionComplete({
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {/* 本轮逐条结果 */}
+        {results.length > 0 && (
+          <div className="mb-6 text-left">
+            <div className="mb-2 text-xs font-medium text-[var(--text-secondary)]">
+              {tr.sessionResults}
+            </div>
+            <ul className="max-h-56 space-y-1.5 overflow-y-auto scrollbar-thin pr-1">
+              {results.map((r, i) => (
+                <li
+                  key={`${r.title}-${i}`}
+                  className="flex items-center gap-2 rounded-lg border border-[var(--border-default)] bg-surface-elevated/30 px-2.5 py-1.5"
+                >
+                  <span
+                    className="min-w-0 flex-1 truncate text-xs text-[var(--text-primary)]"
+                    title={r.title}
+                  >
+                    {r.title}
+                  </span>
+                  {r.prevMastery && r.prevMastery !== r.newMastery && (
+                    <Badge
+                      className={`hidden sm:inline-flex ${MASTERY_COLORS[r.prevMastery] ?? ''}`}
+                    >
+                      {tr[`mastery_${r.prevMastery}`] ?? r.prevMastery}
+                    </Badge>
+                  )}
+                  <Badge
+                    className={
+                      MASTERY_COLORS[r.newMastery] ??
+                      'bg-surface-elevated/40 text-[var(--text-secondary)] border border-[var(--border-default)]'
+                    }
+                  >
+                    {tr[`mastery_${r.newMastery}`] ?? r.newMastery}
+                  </Badge>
+                  <span
+                    className={`shrink-0 rounded px-1.5 py-0.5 text-2xs font-semibold tabular-nums ${
+                      r.quality >= 4
+                        ? 'text-success-fg'
+                        : r.quality <= 1
+                          ? 'text-danger-fg'
+                          : 'text-warning-fg'
+                    }`}
+                  >
+                    {r.quality}
+                  </span>
+                </li>
+              ))}
+            </ul>
           </div>
         )}
 
