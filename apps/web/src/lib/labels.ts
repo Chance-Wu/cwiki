@@ -43,6 +43,7 @@ export const TYPE_COLORS: Record<string, string> = {
   pattern: 'bg-success/22 border-success/35 text-success-fg',
   procedure: 'bg-success/22 border-success/35 text-success-fg',
   feedback: 'bg-brand-200/40 border-brand-300/35 text-brand-fg',
+  reference: 'bg-info/15 border-info/35 text-info-fg',
   constraint: 'bg-warning/22 border-warning/35 text-warning-fg',
   lesson: 'bg-info/22 border-info/35 text-info-fg',
   rule: 'bg-brand-200/45 border-brand-300/40 text-brand-fg',
@@ -51,6 +52,21 @@ export const TYPE_COLORS: Record<string, string> = {
 export const SOURCE_COLORS: Record<string, string> = {
   mcp: 'bg-info/22 border-info/35 text-info-fg',
   worker: 'bg-warning/22 border-warning/35 text-warning-fg',
+}
+
+// Canvas 用的十六进制类型色（与 TYPE_COLORS 覆盖同一组类型）
+export const TYPE_HEX: Record<string, string> = {
+  fact: '#3b82f6',
+  decision: '#8b5cf6',
+  issue: '#ef4444',
+  convention: '#14b8a6',
+  pattern: '#22c55e',
+  procedure: '#06b6d4',
+  feedback: '#ec4899',
+  reference: '#0ea5e9',
+  constraint: '#f97316',
+  lesson: '#f59e0b',
+  rule: '#a855f7',
 }
 
 export const MASTERY_COLORS: Record<string, string> = {

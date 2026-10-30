@@ -1226,14 +1226,6 @@ const zh: TranslationKeys = {
     cancelFocus: '点击空白处取消聚焦',
     legend: '图例',
     relationTypes: '关系类型',
-    type: {
-      fact: '事实',
-      decision: '决策',
-      pattern: '模式',
-      lesson: '教训',
-      issue: '问题',
-      procedure: '流程',
-    },
     relation: {
       related: '关联',
       supports: '支持',

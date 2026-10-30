@@ -3,6 +3,7 @@ import { motion } from 'framer-motion'
 import { Folder, Network } from 'lucide-react'
 import { useTranslation } from '../i18n/I18nProvider'
 import { api, type FileMemory } from '../lib/api'
+import { TYPE_HEX, typeLabel } from '../lib/labels'
 import { useWorkspacesList } from '../hooks/useMemories'
 import { Select } from '../components/ui/Select'
 import PageShell from '../components/PageShell'
@@ -53,15 +54,6 @@ const RELATION_COLORS: Record<string, string> = {
   refines: '#3b82f6',
 }
 
-const TYPE_COLORS: Record<string, string> = {
-  fact: '#3b82f6',
-  decision: '#8b5cf6',
-  pattern: '#22c55e',
-  lesson: '#f59e0b',
-  issue: '#ef4444',
-  procedure: '#06b6d4',
-}
-
 const SIM_FRAMES = 240
 const KICK_FRAMES = 60
 const SETTLE_FRAMES = 45
@@ -86,7 +78,6 @@ const hitRadiusOf = (node: GraphNode) => radiusOf(node) + 5
 export default function GraphPage() {
   const { t } = useTranslation()
   const g = t.graph
-  const typeLabels = g.type as Record<string, string>
   const relationLabels = g.relation as Record<string, string>
   const workspacesQuery = useWorkspacesList()
   const [workspaceFilter, setWorkspaceFilter] = useState('all')
@@ -318,7 +309,7 @@ export default function GraphPage() {
 
         ctx.beginPath()
         ctx.arc(node.x, node.y, r, 0, Math.PI * 2)
-        const fill = TYPE_COLORS[node.type] || colors.edgeDefault
+        const fill = TYPE_HEX[node.type] || colors.edgeDefault
         ctx.fillStyle = fill
         ctx.globalAlpha = alpha
         if (isHighlighted) {
@@ -593,7 +584,7 @@ export default function GraphPage() {
                 {g.legend}
               </div>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-2.5 text-xs">
-                {Object.entries(TYPE_COLORS).map(([type, color]) => (
+                {Object.entries(TYPE_HEX).map(([type, color]) => (
                   <div
                     key={type}
                     className="flex items-center gap-2 text-[var(--text-secondary)]"
@@ -603,7 +594,7 @@ export default function GraphPage() {
                       className="w-2.5 h-2.5 rounded-full shrink-0"
                       style={{ backgroundColor: color }}
                     />
-                    <span>{typeLabels[type] ?? type}</span>
+                    <span>{typeLabel(t.common, type)}</span>
                   </div>
                 ))}
               </div>

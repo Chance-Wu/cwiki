@@ -1277,14 +1277,6 @@ const en = {
     cancelFocus: 'Click empty space to clear focus',
     legend: 'Legend',
     relationTypes: 'Relation Types',
-    type: {
-      fact: 'Fact',
-      decision: 'Decision',
-      pattern: 'Pattern',
-      lesson: 'Lesson',
-      issue: 'Issue',
-      procedure: 'Procedure',
-    },
     relation: {
       related: 'Related',
       supports: 'Supports',
