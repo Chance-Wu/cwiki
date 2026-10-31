@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react'
 import { motion } from 'framer-motion'
-import { Folder, Network } from 'lucide-react'
+import { Folder, Maximize2, Network, ZoomIn, ZoomOut } from 'lucide-react'
 import { useTranslation } from '../i18n/I18nProvider'
 import { api, type FileMemory } from '../lib/api'
 import { TYPE_HEX, typeLabel } from '../lib/labels'
 import { useWorkspacesList } from '../hooks/useMemories'
 import { Select } from '../components/ui/Select'
+import { Button } from '../components/ui/Button'
 import PageShell from '../components/PageShell'
 import PageTitle from '../components/PageTitle'
 import ErrorAlert from '../components/ErrorAlert'
@@ -59,6 +60,14 @@ const KICK_FRAMES = 60
 const SETTLE_FRAMES = 45
 const ENERGY_THRESHOLD = 0.35
 
+// 布局在世界坐标系中计算（中心固定），显示时通过视口变换缩放/平移
+const WORLD_CX = 600
+const WORLD_CY = 300
+const MIN_SCALE = 0.25
+const MAX_SCALE = 3
+
+const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max)
+
 function readThemeColors(dark: boolean): ThemeColors {
   const css = getComputedStyle(document.documentElement)
   const get = (name: string, fallback: string) => css.getPropertyValue(name).trim() || fallback
@@ -94,6 +103,16 @@ export default function GraphPage() {
   const runningRef = useRef(false)
   const rafRef = useRef(0)
   const gridRef = useRef<{ w: number; h: number; path: Path2D } | null>(null)
+  // 视口变换：屏幕 = 世界 * scale + (tx, ty)
+  const viewRef = useRef({ scale: 1, tx: 0, ty: 0 })
+  const dragRef = useRef<{ x: number; y: number; tx: number; ty: number; moved: boolean } | null>(
+    null,
+  )
+  const suppressClickRef = useRef(false)
+  const userAdjustedRef = useRef(false)
+  const fitRef = useRef<(() => void) | null>(null)
+  const resizeFitTimerRef = useRef(0)
+  const [zoomPct, setZoomPct] = useState(100)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
   const [hoveredNode, setHoveredNode] = useState<string | null>(null)
@@ -142,6 +161,9 @@ export default function GraphPage() {
         edgesRef.current = data.edges
         neighborsRef.current = neighbors
         frameCountRef.current = 0
+        userAdjustedRef.current = false
+        viewRef.current = { scale: 1, tx: 0, ty: 0 }
+        setZoomPct(100)
 
         const isolated = initializedNodes.filter((n) => n.is_isolated).length
         const avgDegree = count > 0 ? (data.edges.length * 2) / count : 0
@@ -181,10 +203,7 @@ export default function GraphPage() {
 
   const simulate = useCallback(() => {
     const nodes = nodesRef.current
-    const canvas = canvasRef.current
-    if (nodes.length === 0 || !canvas) return
-    const width = canvas.clientWidth || 1200
-    const height = canvas.clientHeight || 600
+    if (nodes.length === 0) return
 
     const neighbors = neighborsRef.current
     const byId = new Map(nodes.map((n) => [n.id, n]))
@@ -216,13 +235,16 @@ export default function GraphPage() {
         fy += (dy / dist) * force
       }
 
-      fx += (width / 2 - node.x) * 0.0015
-      fy += (height / 2 - node.y) * 0.0015
+      fx += (WORLD_CX - node.x) * 0.0015
+      fy += (WORLD_CY - node.y) * 0.0015
 
       const vx = (node.vx + fx) * 0.86
       const vy = (node.vy + fy) * 0.86
       energy += vx * vx + vy * vy
-      return { ...node, vx, vy, x: node.x + vx, y: node.y + vy }
+      // 世界边界：无边界斥力会把少数节点推得很远，导致适配比例剧烈跳动
+      const nx = clamp(node.x + vx, 40, WORLD_CX * 2 - 40)
+      const ny = clamp(node.y + vy, 40, WORLD_CY * 2 - 40)
+      return { ...node, vx, vy, x: nx, y: ny }
     })
 
     nodesRef.current = newNodes
@@ -258,6 +280,10 @@ export default function GraphPage() {
       }
       ctx.fillStyle = colors.gridDot
       ctx.fill(grid.path)
+
+      // 视口变换：网格按屏幕坐标绘制（保持点距稳定），内容按世界坐标缩放
+      const view = viewRef.current
+      ctx.setTransform(dpr * view.scale, 0, 0, dpr * view.scale, dpr * view.tx, dpr * view.ty)
 
       const focus = selected
         ? new Set<string>([selected, ...(neighborsRef.current.get(selected) ?? [])])
@@ -332,7 +358,7 @@ export default function GraphPage() {
           ctx.shadowBlur = 6
           ctx.fillText(node.title.slice(0, 30), node.x, node.y - r - 6)
           ctx.shadowBlur = 0
-        } else if (!focusDimmed) {
+        } else if (!focusDimmed && view.scale >= 0.6) {
           ctx.font = '11px system-ui, sans-serif'
           ctx.textAlign = 'center'
           ctx.textBaseline = 'top'
@@ -380,12 +406,19 @@ export default function GraphPage() {
     [tick],
   )
 
-  // 数据就绪后启动布局动画
+  // 数据就绪后启动布局动画；动画约 4s（240 帧），结束后定时适配一次视口，
+  // 6s 再兜底一次（帧率偏低时），用户手动缩放/拖拽后不再自动接管
   useEffect(() => {
     if (loading || error) return
     if (nodesRef.current.length === 0) return
     frameCountRef.current = 0
     requestRedraw(SIM_FRAMES)
+    const timers = [4200, 6000].map((delay) =>
+      window.setTimeout(() => {
+        if (!userAdjustedRef.current) fitRef.current?.()
+      }, delay),
+    )
+    return () => timers.forEach((timer) => window.clearTimeout(timer))
   }, [loading, error, requestRedraw])
 
   // 高分屏与容器尺寸适配；依赖 canvasEl——LoadingWrapper 重挂 children 会替换
@@ -405,14 +438,26 @@ export default function GraphPage() {
         canvasEl.width = bw
         canvasEl.height = bh
         gridRef.current = null
-        if (nodesRef.current.length > 0) requestRedraw(KICK_FRAMES)
+        if (nodesRef.current.length > 0) {
+          requestRedraw(KICK_FRAMES)
+          // 动画进行中不提前适配（会先放大再缩回）；等布局稳定后再按尺寸适配
+          if (simFramesRef.current === 0) {
+            if (resizeFitTimerRef.current) window.clearTimeout(resizeFitTimerRef.current)
+            resizeFitTimerRef.current = window.setTimeout(() => {
+              if (!userAdjustedRef.current) fitRef.current?.()
+            }, 1400)
+          }
+        }
       }
     }
 
     applySize()
     const observer = new ResizeObserver(applySize)
     observer.observe(canvasEl)
-    return () => observer.disconnect()
+    return () => {
+      observer.disconnect()
+      if (resizeFitTimerRef.current) window.clearTimeout(resizeFitTimerRef.current)
+    }
   }, [canvasEl, requestRedraw])
 
   // 主题切换时重绘（颜色从 CSS 变量读取，需重新取色）
@@ -449,8 +494,10 @@ export default function GraphPage() {
     const canvas = canvasRef.current
     if (!canvas) return undefined
     const rect = canvas.getBoundingClientRect()
-    const x = clientX - rect.left
-    const y = clientY - rect.top
+    const view = viewRef.current
+    // 屏幕坐标反变换回世界坐标
+    const x = (clientX - rect.left - view.tx) / view.scale
+    const y = (clientY - rect.top - view.ty) / view.scale
     return nodesRef.current.find((node) => {
       const r = hitRadiusOf(node)
       const dx = node.x - x
@@ -459,19 +506,137 @@ export default function GraphPage() {
     })
   }, [])
 
+  const fitToContent = useCallback(() => {
+    const canvas = canvasRef.current
+    const nodes = nodesRef.current
+    if (!canvas || nodes.length === 0) return
+    const cssW = canvas.clientWidth
+    const cssH = canvas.clientHeight
+    if (!cssW || !cssH) return
+
+    let minX = Infinity
+    let minY = Infinity
+    let maxX = -Infinity
+    let maxY = -Infinity
+    for (const node of nodes) {
+      const r = radiusOf(node) + 18
+      minX = Math.min(minX, node.x - r)
+      minY = Math.min(minY, node.y - r)
+      maxX = Math.max(maxX, node.x + r)
+      maxY = Math.max(maxY, node.y + r)
+    }
+    const width = Math.max(maxX - minX, 1)
+    const height = Math.max(maxY - minY, 1)
+    // 留白覆盖标签半宽（标题居中于节点上方/下方），避免边缘标签被裁
+    const pad = 48
+    const scale = clamp(
+      Math.min((cssW - pad * 2) / width, (cssH - pad * 2) / height),
+      MIN_SCALE,
+      1.6,
+    )
+    viewRef.current = {
+      scale,
+      tx: cssW / 2 - ((minX + maxX) / 2) * scale,
+      ty: cssH / 2 - ((minY + maxY) / 2) * scale,
+    }
+    userAdjustedRef.current = false
+    setZoomPct(Math.round(scale * 100))
+    requestRedraw()
+  }, [requestRedraw])
+
+  const zoomBy = useCallback(
+    (factor: number) => {
+      const canvas = canvasRef.current
+      if (!canvas) return
+      const view = viewRef.current
+      const next = clamp(view.scale * factor, MIN_SCALE, MAX_SCALE)
+      if (next === view.scale) return
+      const cx = canvas.clientWidth / 2
+      const cy = canvas.clientHeight / 2
+      const ratio = next / view.scale
+      view.tx = cx - (cx - view.tx) * ratio
+      view.ty = cy - (cy - view.ty) * ratio
+      view.scale = next
+      userAdjustedRef.current = true
+      setZoomPct(Math.round(next * 100))
+      requestRedraw()
+    },
+    [requestRedraw],
+  )
+
+  useEffect(() => {
+    fitRef.current = fitToContent
+  }, [fitToContent])
+
+  // 滚轮缩放：React 的 wheel 监听是 passive，需原生绑定才能 preventDefault
+  useEffect(() => {
+    if (!canvasEl) return
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault()
+      const rect = canvasEl.getBoundingClientRect()
+      const x = e.clientX - rect.left
+      const y = e.clientY - rect.top
+      const view = viewRef.current
+      const next = clamp(view.scale * Math.exp(-e.deltaY * 0.0015), MIN_SCALE, MAX_SCALE)
+      if (next === view.scale) return
+      const ratio = next / view.scale
+      // 光标下的世界点保持不动
+      view.tx = x - (x - view.tx) * ratio
+      view.ty = y - (y - view.ty) * ratio
+      view.scale = next
+      userAdjustedRef.current = true
+      setZoomPct(Math.round(next * 100))
+      requestRedraw()
+    }
+    canvasEl.addEventListener('wheel', onWheel, { passive: false })
+    return () => canvasEl.removeEventListener('wheel', onWheel)
+  }, [canvasEl, requestRedraw])
+
+  const handleMouseDown = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    const view = viewRef.current
+    dragRef.current = { x: e.clientX, y: e.clientY, tx: view.tx, ty: view.ty, moved: false }
+  }, [])
+
+  const handleMouseUp = useCallback(() => {
+    if (dragRef.current?.moved) suppressClickRef.current = true
+    dragRef.current = null
+  }, [])
+
   const handleMouseMove = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
+      const drag = dragRef.current
+      if (drag) {
+        const dx = e.clientX - drag.x
+        const dy = e.clientY - drag.y
+        if (!drag.moved && Math.hypot(dx, dy) > 3) drag.moved = true
+        if (drag.moved) {
+          viewRef.current.tx = drag.tx + dx
+          viewRef.current.ty = drag.ty + dy
+          userAdjustedRef.current = true
+          if (hoveredRef.current) {
+            hoveredRef.current = null
+            setHoveredNode(null)
+          }
+          requestRedraw()
+        }
+        return
+      }
       const id = findNodeAt(e.clientX, e.clientY)?.id ?? null
       if (id !== hoveredRef.current) {
         hoveredRef.current = id
         setHoveredNode(id)
       }
     },
-    [findNodeAt],
+    [findNodeAt, requestRedraw],
   )
 
   const handleClick = useCallback(
     async (e: React.MouseEvent<HTMLCanvasElement>) => {
+      // 拖拽结束后的 click 不应触发选中/详情
+      if (suppressClickRef.current) {
+        suppressClickRef.current = false
+        return
+      }
       const clicked = findNodeAt(e.clientX, e.clientY)
 
       setSelectedNode((prev) => {
@@ -554,10 +719,51 @@ export default function GraphPage() {
             <div className="glass-card rounded-2xl p-4 relative overflow-hidden">
               <canvas
                 ref={attachCanvas}
-                className="w-full h-[600px] cursor-pointer block"
+                className="w-full h-[600px] cursor-grab active:cursor-grabbing block"
                 onMouseMove={handleMouseMove}
+                onMouseDown={handleMouseDown}
+                onMouseUp={handleMouseUp}
+                onMouseLeave={handleMouseUp}
                 onClick={handleClick}
               />
+              {/* 视口控制：缩放 / 适配全部 */}
+              {stats.total > 0 && (
+                <div className="absolute bottom-4 right-4 flex items-center gap-1 rounded-lg border border-[var(--border-default)] bg-[var(--surface-elevated)]/90 p-1 shadow-warm-sm backdrop-blur-sm">
+                  <Button
+                    variant="icon"
+                    size="xs"
+                    onClick={() => zoomBy(1 / 1.25)}
+                    title={g.zoomOut}
+                    aria-label={g.zoomOut}
+                  >
+                    <ZoomOut size={14} aria-hidden="true" />
+                  </Button>
+                  <span className="w-10 text-center text-[11px] font-medium tabular-nums text-[var(--text-secondary)]">
+                    {zoomPct}%
+                  </span>
+                  <Button
+                    variant="icon"
+                    size="xs"
+                    onClick={() => zoomBy(1.25)}
+                    title={g.zoomIn}
+                    aria-label={g.zoomIn}
+                  >
+                    <ZoomIn size={14} aria-hidden="true" />
+                  </Button>
+                  <Button
+                    variant="icon"
+                    size="xs"
+                    onClick={fitToContent}
+                    title={g.fitView}
+                    aria-label={g.fitView}
+                  >
+                    <Maximize2 size={14} aria-hidden="true" />
+                  </Button>
+                </div>
+              )}
+              <div className="absolute top-4 left-4 text-[11px] text-[var(--text-tertiary)] pointer-events-none select-none">
+                {g.dragHint}
+              </div>
               {stats.total === 0 && (
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                   <div className="text-center">
