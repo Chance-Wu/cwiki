@@ -75,7 +75,24 @@ async def test_nested_path_with_own_repo_uses_that_repo(tmp_path):
     data = outer / "data"
     data.mkdir()
     await asyncio.to_thread(
-        subprocess.run, ["git", "init", "-q", "-b", "master"], cwd=data, check=True
+        subprocess.run,
+        ["git", "init", "-q", "-b", "master"],
+        cwd=data,
+        check=True,
+    )
+    # 外部带入的仓库不保证继承全局 identity；测试夹具显式提供本地身份，
+    # 与 GitVersionControl.commit 的逐仓库兜底行为保持一致。
+    await asyncio.to_thread(
+        subprocess.run,
+        ["git", "config", "user.email", "cwiki@test.local"],
+        cwd=data,
+        check=True,
+    )
+    await asyncio.to_thread(
+        subprocess.run,
+        ["git", "config", "user.name", "cwiki-test"],
+        cwd=data,
+        check=True,
     )
 
     data_vc = GitVersionControl(str(data))
