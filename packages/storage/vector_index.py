@@ -89,7 +89,9 @@ class VectorIndex:
                 with np.load(self.index_path) as data:
                     vecs = data["vectors"]
                     embedded_ids = data["ids"].tolist() if "ids" in data.files else None
-                if embedded_ids is not None and [str(i) for i in embedded_ids] != [str(i) for i in ids]:
+                if embedded_ids is not None and [str(i) for i in embedded_ids] != [
+                    str(i) for i in ids
+                ]:
                     raise ValueError("vector index id pairing mismatch")
                 expected_hash = meta.get("vector_hash")
                 if expected_hash:
