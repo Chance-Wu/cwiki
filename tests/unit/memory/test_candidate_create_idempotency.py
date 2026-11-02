@@ -68,9 +68,11 @@ async def test_idempotent_insert_race_keeps_outer_transaction_usable(
     await create_db.commit()
     assert await create_db.get(Workspace, extra.id) is not None
 
-    rows = list(await create_db.scalars(
-        select(CandidateMemory).where(CandidateMemory.client_write_id == "same-write-id")
-    ))
+    rows = list(
+        await create_db.scalars(
+            select(CandidateMemory).where(CandidateMemory.client_write_id == "same-write-id")
+        )
+    )
     assert len(rows) == 1
 
 
@@ -115,9 +117,7 @@ async def test_idempotent_insert_recovers_when_precheck_misses_competing_row(
     create_db.add(extra)
     await create_db.commit()
     assert await create_db.get(Workspace, extra.id) is not None
-    rows = (
-        await create_db.execute(
-            select(CandidateMemory).where(CandidateMemory.client_write_id == write_id)
-        )
-    ).scalars().all()
+    rows = list(await create_db.scalars(
+        select(CandidateMemory).where(CandidateMemory.client_write_id == write_id)
+    ))
     assert len(rows) == 1
