@@ -40,7 +40,7 @@ def _record_memory_mirrors(session: Session, flush_context: Any) -> None:
                 ids.add(mid)
     if ids:
         session.connection().execute(
-            insert(FileSyncJob.__table__),
+            insert(FileSyncJob),
             [{"id": uuid.uuid4(), "memory_id": mid} for mid in ids],
         )
 
@@ -58,6 +58,6 @@ def _record_bulk_memory_deletes(state: Any) -> None:
     ids = state.session.execute(stmt).scalars().all()
     if ids:
         state.session.connection().execute(
-            insert(FileSyncJob.__table__),
+            insert(FileSyncJob),
             [{"id": uuid.uuid4(), "memory_id": mid} for mid in ids],
         )
