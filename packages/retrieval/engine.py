@@ -25,12 +25,13 @@ from packages.domain.models import (
 )
 from packages.domain.text_utils import preprocess_query_for_embedding
 from packages.memory.reinforcement import decay_strength, reinforce_relations
-from packages.memory.utility_aggregation import aggregate_utility_scores
+from packages.memory.utility_aggregation import aggregate_evidence_counts, aggregate_utility_scores
 from packages.retrieval.bm25 import BM25Index
 from packages.retrieval.context.assembler import ContextResult, assemble_context_with_embedding
 from packages.retrieval.context.filters import normalize_mode
 from packages.retrieval.embedding import get_embedding_service
 from packages.retrieval.query.analyzer import AnalyzedQuery, analyze_query
+from packages.retrieval.ranking.constants import RRF_K
 from packages.retrieval.ranking.diversity import apply_diversity
 from packages.retrieval.ranking.reranker import RerankInput, diversity_limit_for_intent, rerank
 from packages.retrieval.ranking.temporal import is_stale_item, temporal_score
@@ -40,13 +41,12 @@ logger = logging.getLogger(__name__)
 
 _engine: RetrievalEngine | None = None
 
-# RRF 倒数排名融合常数：k=60 为原论文推荐值，压缩头部名次差距，
-# 使各检索路的名次贡献平缓衰减，避免第 1 名过度碾压
-RRF_K = 60
 # 向量检索侧参与打分的记忆数量上限
 _VECTOR_SEARCH_LIMIT = 10_000
 # 某一路检索未命中时用于排名兜底的占位名次
 _FALLBACK_RANK = 999
+# 图扩展加分的理论上限：0.15×confidence + 0.10×strength
+_GRAPH_BOOST_MAX = 0.25
 
 # 向量矩阵缓存的生效指纹：DB 内容指纹，使用文件向量索引时再并入其大小。
 _VecFingerprint = tuple[int, datetime | None, int] | tuple[int, datetime | None, int, int]
@@ -402,6 +402,10 @@ class RetrievalEngine:
             [mid for mid, _, _ in diverse],
             mem_map,
         )
+        evidence_map = await aggregate_evidence_counts(
+            db,
+            [m for mem_id, _, _ in diverse if (m := mem_map.get(mem_id)) is not None],
+        )
 
         # Phase 8: 构建结果
         final_memories, sources = self._build_final_results(
@@ -410,6 +414,7 @@ class RetrievalEngine:
             candidates,
             rrf_scores,
             utility_map,
+            evidence_map,
         )
         latency_ms = int((time.time() - start_time) * 1000)
 
@@ -641,8 +646,10 @@ class RetrievalEngine:
             Memory.valid_from,
             Memory.valid_to,
             Memory.created_at,
+            Memory.updated_at,
             Memory.last_used_at,
             Memory.embedding,
+            Memory.source,
         ).where(Memory.id.in_(uuid_ids), Memory.status == "active")
         if workspace_id is not None:
             final_stmt = final_stmt.where(Memory.workspace_id == workspace_id)
@@ -782,8 +789,9 @@ class RetrievalEngine:
         candidates: dict[str, dict[str, Any]],
         rrf_scores: dict[str, float],
         utility_map: dict[str, float],
+        evidence_map: dict[str, int],
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-        """Phase 8: 构建最终结果字典。"""
+        """Phase 8: 构建最终结果字典（含 citation 字段）。"""
         final_memories: list[dict[str, Any]] = []
         sources: list[dict[str, Any]] = []
         rank = 0
@@ -814,9 +822,23 @@ class RetrievalEngine:
                     "valid_to": m.valid_to,
                     "rank": rank,
                     "embedding": m.embedding,
+                    "source": m.source,
+                    "updated_at": m.updated_at.isoformat() if m.updated_at else None,
+                    "evidence_count": evidence_map.get(mem_id, 0),
                 }
             )
-            sources.append({"memory_id": mem_id, "score": round(final_score, 4)})
+            sources.append(
+                {
+                    "memory_id": mem_id,
+                    "title": m.title,
+                    "source": m.source,
+                    "version": m.version,
+                    "updated_at": m.updated_at.isoformat() if m.updated_at else None,
+                    "confidence": m.confidence,
+                    "evidence_count": evidence_map.get(mem_id, 0),
+                    "score": round(final_score, 4),
+                }
+            )
         return final_memories, sources
 
     async def _safe_record_trace(self, **kwargs: Any) -> None:
@@ -896,7 +918,10 @@ class RetrievalEngine:
                 logger.warning("Hybrid episodic merge failed", exc_info=True)
 
         ctx = await assemble_context_with_embedding(
-            final_memories, query=query or "", max_tokens=max_tokens
+            final_memories,
+            query=query or "",
+            intent=result["analyzed"].intent,
+            max_tokens=max_tokens,
         )
 
         latency_ms = int((time.time() - start_time) * 1000)
@@ -1019,6 +1044,12 @@ class RetrievalEngine:
                 last_reinforced_at,
                 now=resolved_now,
                 half_life_days=parasitic_evolution_config.relation_decay_half_life_days,
+            )
+            # 关系邻居属于相关性信号，但不能压过检索相关性：按理论满分
+            # （0.15×confidence + 0.10×strength）等比缩放到 band，保留
+            # 邻居之间的强度差异，同时把最大加分限制在 band 内。
+            boost = min(boost, _GRAPH_BOOST_MAX) * (
+                max(0.0, settings.reranker_relevance_band) / _GRAPH_BOOST_MAX
             )
             if boost > boosts.get(neighbor_id, 0.0):
                 boosts[neighbor_id] = boost

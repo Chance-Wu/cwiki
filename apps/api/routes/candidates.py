@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import case, func, select
+from sqlalchemy import case, delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.auth import AgentIdentity
@@ -32,6 +33,8 @@ from packages.domain.schemas import (
 )
 from packages.domain.task_queue import queue
 from packages.memory.service import ContentFormatError, create_candidate
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix=f"{API_V1_PREFIX}/candidates", tags=["candidates"])
 
@@ -114,6 +117,9 @@ async def list_candidates(
     memory_type: MemoryType | None = Query(None, alias="type"),
     source: str | None = Query(None),
     project_id: uuid.UUID | None = Query(None),
+    min_quality_gate: float | None = Query(None, ge=0, le=1),
+    min_value: float | None = Query(None, ge=0, le=1),
+    max_duplicate: float | None = Query(None, ge=0, le=1),
     offset: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     _identity: Annotated[AgentIdentity | None, Depends(get_current_agent)] = None,
@@ -135,6 +141,12 @@ async def list_candidates(
         conditions.append(CandidateMemory.source == source)
     if project_id:
         conditions.append(CandidateMemory.project_id == project_id)
+    if min_quality_gate is not None:
+        conditions.append(CandidateMemory.quality_gate_score >= min_quality_gate)
+    if min_value is not None:
+        conditions.append(CandidateMemory.value_score >= min_value)
+    if max_duplicate is not None:
+        conditions.append(CandidateMemory.duplicate_probability <= max_duplicate)
     stmt, count_stmt = apply_optional_filters(stmt, count_stmt, conditions)
 
     # 收件箱按审核优先级排序（低分 = 高优先级），未评分的排在后面，
@@ -213,14 +225,14 @@ async def revert_auto_approve(
     reason: str | None = Query(None, max_length=500),
     _identity: Annotated[AgentIdentity | None, Depends(require_scope("reviews:write"))] = None,
 ) -> CandidateMemoryRead:
-    """撤销自动生效：归档生成的正式记忆并留痕，候选保持 approved。
+    """撤销自动生效：物理删除生成的正式记忆，候选回到 pending_review。
 
     生成的记忆 ID 记录在 auto_approve Review 的 reason JSON 中；
-    记忆本身可通过 PATCH status=active 恢复。
+    删除后不可恢复，候选重新进入审核队列，可再次编辑/批准。
     """
     import json as _json
 
-    from packages.domain.models.memory import Memory, MemoryLifecycleEvent, Review
+    from packages.domain.models.memory import Memory, Review
 
     candidate = await get_or_404(db, CandidateMemory, candidate_id)
     auto_review_stmt = (
@@ -241,47 +253,78 @@ async def revert_auto_approve(
     try:
         reason_data = _json.loads(auto_review.reason or "{}")
         memory_id = reason_data.get("memory_id")
-    except ValueError:
+        expected_version = reason_data.get("memory_version")
+    except (TypeError, ValueError):
         memory_id = None
-    if not memory_id:
+        expected_version = None
+    if not memory_id or not isinstance(expected_version, int):
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Auto-approve review is missing memory_id in reason JSON",
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Auto-approve review is missing the creation version; memory was preserved",
         )
 
     memory = await get_or_404(db, Memory, uuid.UUID(memory_id))
-    if memory.status == "active":
-        memory.status = "archived"
-        db.add(
-            MemoryLifecycleEvent(
-                id=uuid.uuid4(),
-                memory_id=memory.id,
-                event_type="auto_approve_reverted",
-                metadata_json=_json.dumps({"candidate_id": str(candidate_id)}),
-            )
+    if memory.status != "active" or memory.version != expected_version:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Memory changed after auto-approve; revert was not applied. "
+                "The memory, version, and evidence were preserved."
+            ),
         )
-        db.add(
-            Review(
-                candidate_id=candidate_id,
-                reviewer_type="human",
-                reviewer_id=reviewer_id,
-                action="revert_auto_approve",
-                reason=reason,
-            )
+
+    from apps.api.file_sync import (
+        delete_memory_assets,
+        resolve_workspace_name,
+    )
+    from apps.api.routes.context import invalidate_context_cache
+    from apps.api.routes.memory_status import invalidate_memory_status_caches
+    from apps.api.routes.search import invalidate_search_cache
+
+    workspace_name = await resolve_workspace_name(db, memory.workspace_id)
+    memory_type = memory.type
+    title = memory.title
+    memory_uuid = memory.id
+
+    # Guard the deletion itself: a concurrent update wins if it changes the
+    # version after the read above, leaving the memory and its evidence intact.
+    delete_result = await db.execute(
+        delete(Memory)
+        .where(
+            Memory.id == memory_uuid,
+            Memory.status == "active",
+            Memory.version == expected_version,
         )
-        await db.commit()
-        await db.refresh(memory)
+        .returning(Memory.id)
+    )
+    if delete_result.scalar_one_or_none() is None:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Memory changed concurrently; revert was not applied. "
+                "The memory, version, and evidence were preserved."
+            ),
+        )
 
-        from apps.api.file_sync import sync_memory_to_file
-        from apps.api.routes.context import invalidate_context_cache
-        from apps.api.routes.memory_status import invalidate_memory_status_caches
-        from apps.api.routes.search import invalidate_search_cache
+    db.add(
+        Review(
+            candidate_id=candidate_id,
+            reviewer_type="human",
+            reviewer_id=reviewer_id,
+            action="revert_auto_approve",
+            reason=reason,
+        )
+    )
+    # 候选回到待审，允许重新编辑/批准；否则 approved 是终态，撤销后无法再次生成
+    candidate.status = "pending_review"
+    await db.commit()
 
-        # 离开 active：向量从内存与磁盘索引一并移除
-        await sync_memory_to_file(memory, db, skip_vector_index=True, save_index=True)
-        invalidate_search_cache()
-        invalidate_context_cache()
-        invalidate_memory_status_caches(str(memory.id))
+    await delete_memory_assets(memory_uuid, workspace_name, memory_type, title)
+    logger.info("Auto-approve reverted: memory %s deleted", memory_uuid)
+    invalidate_search_cache()
+    invalidate_context_cache()
+    invalidate_memory_status_caches(str(memory_uuid))
 
     await db.refresh(candidate)
     return CandidateMemoryRead.model_validate(candidate)

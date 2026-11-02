@@ -45,10 +45,10 @@ async def semantic_env(tmp_path, monkeypatch):
             Memory(workspace_id=foreign.id, title="Foreign", content="Foreign body", type="fact"),
             Memory(
                 workspace_id=local.id,
-                title="Archived",
-                content="Archived body",
+                title="Superseded",
+                content="Superseded body",
                 type="fact",
-                status="archived",
+                status="superseded",
             ),
         ]
         db.add_all(memories)
@@ -56,7 +56,7 @@ async def semantic_env(tmp_path, monkeypatch):
         workspace_id = str(local.id)
         ids = [str(memory.id) for memory in memories]
         for i, memory in enumerate(memories):
-            # 归档 DB 行故意保留一份过期的 active 镜像/向量。
+            # 已取代 DB 行故意保留一份过期的 active 镜像/向量。
             await indexer.index_memory(
                 MemoryFile(
                     id=str(memory.id),
@@ -135,11 +135,11 @@ async def test_unknown_workspace_and_empty_allowlist_never_fall_back(semantic_en
     assert await env.indexer.semantic_search([1.0, 0.0], allowed_ids=set()) == []
 
 
-async def test_archived_files_and_orphan_vectors_do_not_consume_top_k(semantic_env):
+async def test_superseded_files_and_orphan_vectors_do_not_consume_top_k(semantic_env):
     env = semantic_env
-    # 允许列表只包含本地 active 文件与一个得分更高的归档镜像。
+    # 允许列表只包含本地 active 文件与一个得分更高的已取代镜像。
     await env.indexer.index_memory(
-        MemoryFile(id=env.ids[2], title="Archived mirror", content="Archived", status="archived"),
+        MemoryFile(id=env.ids[2], title="Superseded mirror", content="Superseded", status="superseded"),
         embedding=[1.0, 0.0],
     )
     env.indexer.vector_index.add("orphan-vector", [1.0, 0.0])
@@ -162,7 +162,7 @@ async def test_db_scope_rechecked_after_embedding_await(semantic_env, change):
                 foreign = await db.get(Memory, uuid.UUID(env.ids[1]))
                 memory.workspace_id = foreign.workspace_id
             else:
-                memory.status = "archived"
+                memory.status = "superseded"
             await db.commit()
         return [1.0, 0.0]
 

@@ -25,6 +25,8 @@ interface ReviewItem {
   days_overdue: number
   mastery_level: string
   total_reviews: number
+  lapse_streak?: number
+  leech?: boolean
 }
 
 interface ReviewSessionProps {
@@ -48,13 +50,21 @@ interface ReviewSessionProps {
   handleUndo: () => void
   isPending: boolean
   undoPending: boolean
+  onEdit: (memoryId: string) => void
+  onSuspend: (memoryId: string) => void
+  onReset: (memoryId: string) => void
+  actionPending: boolean
   locale: string
   t: Record<string, unknown>
   mode: 'learn' | 'test'
   onModeChange: (mode: 'learn' | 'test') => void
+  testSubMode: 'cloze' | 'flip'
+  onTestSubModeChange: (mode: 'cloze' | 'flip') => void
   elapsed: number
   paused: boolean
   onTogglePause: () => void
+  onQuizSubmit?: (answers: string[]) => void
+  quizPending?: boolean
 }
 
 export const ReviewSession = function ReviewSession({
@@ -74,13 +84,21 @@ export const ReviewSession = function ReviewSession({
   handleUndo,
   isPending,
   undoPending,
+  onEdit,
+  onSuspend,
+  onReset,
+  actionPending,
   locale,
   t,
   mode,
   onModeChange,
+  testSubMode,
+  onTestSubModeChange,
   elapsed,
   paused,
   onTogglePause,
+  onQuizSubmit,
+  quizPending = false,
 }: ReviewSessionProps) {
   const tr = t.review as Record<string, string>
 
@@ -150,14 +168,26 @@ export const ReviewSession = function ReviewSession({
 
       {/* 模式切换 + 掌握度徽标 */}
       <div className="flex items-center justify-between gap-2 mb-2 -mt-1">
-        <SegmentedControl
-          value={mode}
-          onChange={onModeChange}
-          options={[
-            { value: 'learn', label: tr.modeLearn },
-            { value: 'test', label: tr.modeTest },
-          ]}
-        />
+        <div className="flex flex-wrap items-center gap-2">
+          <SegmentedControl
+            value={mode}
+            onChange={onModeChange}
+            options={[
+              { value: 'learn', label: tr.modeLearn },
+              { value: 'test', label: tr.modeTest },
+            ]}
+          />
+          {mode === 'test' && (
+            <SegmentedControl
+              value={testSubMode}
+              onChange={onTestSubModeChange}
+              options={[
+                { value: 'cloze', label: tr.testCloze },
+                { value: 'flip', label: tr.testFlip },
+              ]}
+            />
+          )}
+        </div>
         <Badge
           className={`font-semibold ${MASTERY_COLORS[currentItem.mastery_level] ?? 'bg-surface-elevated/40 text-[var(--text-secondary)] border border-[var(--border-default)]'}`}
         >
@@ -175,7 +205,10 @@ export const ReviewSession = function ReviewSession({
           t={t as never}
           locale={locale}
           mode={mode}
+          preferCloze={testSubMode === 'cloze'}
           maxHeight={focusMode ? 'max-h-[55vh]' : undefined}
+          onQuizSubmit={onQuizSubmit}
+          quizPending={quizPending}
         />
         <AnimatePresence>
           {paused && (
@@ -203,6 +236,35 @@ export const ReviewSession = function ReviewSession({
           )}
         </AnimatePresence>
       </div>
+
+      {/* 顽固记忆处置：连续 3 次没记住时出现 */}
+      {currentItem.leech && !lastResult && !paused && (
+        <div className="mt-3 rounded-xl border border-warning/40 bg-warning/10 px-3 py-2.5">
+          <p className="text-xs font-medium text-warning-fg">{tr.leechTitle}</p>
+          <p className="mt-0.5 text-xs text-[var(--text-tertiary)]">{tr.leechHint}</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Button size="sm" variant="secondary" onClick={() => onEdit(currentItem.memory_id)}>
+              {tr.editContent}
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={actionPending}
+              onClick={() => onSuspend(currentItem.memory_id)}
+            >
+              {tr.suspendReview}
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={actionPending}
+              onClick={() => onReset(currentItem.memory_id)}
+            >
+              {tr.resetProgress}
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* 跳过按钮 */}
       {!lastResult && !paused && (
@@ -326,6 +388,9 @@ export const ReviewSession = function ReviewSession({
           isPending={isPending}
           undoPending={undoPending}
           mode={mode}
+          preferCloze={testSubMode === 'cloze'}
+          onQuizSubmit={onQuizSubmit}
+          quizPending={quizPending}
         />
       )}
     </div>

@@ -1,7 +1,6 @@
 """apps/worker/tasks.py 测试 — 辅助函数、注册、embedding 任务。"""
 
 import uuid
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -10,17 +9,12 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from apps.worker.tasks import (
     register_tasks,
-    task_auto_consolidate_similar,
     task_generate_candidate_embedding,
 )
-from packages.domain.config import parasitic_evolution_config
 from packages.domain.database import Base
-from packages.domain.models import Memory, MemoryLifecycleEvent, MemoryRelation, Workspace
+from packages.domain.models import Memory, MemoryRelation, Workspace
 from packages.domain.text_utils import format_memory_for_embedding
 from packages.memory.similarity import jaccard_from_sets
-from packages.storage.file_store import FileStore, MemoryFile
-from packages.storage.indexer import MemoryIndexer
-from packages.storage.vector_index import VectorIndex
 
 
 class TestJaccardFromSets:
@@ -46,10 +40,10 @@ class TestJaccardFromSets:
 
 
 class TestRegisterTasks:
-    def test_registers_all_eleven_tasks(self):
+    def test_registers_all_tasks(self):
         queue = MagicMock()
         register_tasks(queue)
-        assert queue.register.call_count == 11
+        assert queue.register.call_count == 10
 
     def test_registers_expected_task_names(self):
         queue = MagicMock()
@@ -62,7 +56,6 @@ class TestRegisterTasks:
             "generate_candidate_embedding",
             "batch_generate_embeddings",
             "dedup_check",
-            "auto_consolidate_similar",
             "check_review_reminders",
             "periodic_meta_export",
             "auto_discover_relations",
@@ -155,209 +148,12 @@ class TestEmbeddingFailureRaises:
                 await task_generate_candidate_embedding(ctx, candidate_id)
 
 
-MERGE_CONTENT = "项目使用 Python 与 FastAPI 构建后端服务，记忆检索依赖 BM25 与向量余弦融合排序。"
-
-
-class TestAutoConsolidateMerge:
-    async def test_auto_merge_persists_and_converges_files_and_vectors(self, tmp_path, monkeypatch):
-        engine = create_async_engine(f"sqlite+aiosqlite:///{(tmp_path / 'db.sqlite').as_posix()}")
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-        sessions = async_sessionmaker(engine, expire_on_commit=False)
-
-        file_store = FileStore(tmp_path / "mirrors")
-        indexer = MemoryIndexer(
-            str(tmp_path / "index.sqlite"),
-            file_store,
-            vector_index_path=str(tmp_path / "vectors.npz"),
-            embedding_dimensions=3,
-        )
-        await indexer.init_db()
-        indexer._embedding_service = SimpleNamespace(
-            generate_embedding=AsyncMock(return_value=[0.5, 0.5, 0.5])
-        )
-
-        async with sessions() as db:
-            ws = Workspace(name="merge-ws")
-            db.add(ws)
-            await db.flush()
-            keeper = Memory(
-                workspace_id=ws.id,
-                title="Merge keeper",
-                content=MERGE_CONTENT,
-                type="fact",
-                confidence=0.9,
-                importance=0.9,
-            )
-            source = Memory(
-                workspace_id=ws.id,
-                title="Merge source",
-                content=MERGE_CONTENT,
-                type="fact",
-                confidence=0.2,
-                importance=0.2,
-            )
-            db.add_all([keeper, source])
-            await db.commit()
-            keeper_id, source_id = keeper.id, source.id
-            workspace = ws.name
-
-        for memory_id, title in ((keeper_id, "Merge keeper"), (source_id, "Merge source")):
-            mirror = MemoryFile(id=str(memory_id), title=title, content=MERGE_CONTENT, type="fact")
-            file_store.save(mirror, workspace_name=workspace)
-            await indexer.index_memory(mirror, [0.1, 0.2, 0.3])
-        await indexer.save_vector_index()
-        assert {str(keeper_id), str(source_id)} <= set(indexer.vector_index.vectors)
-
-        class _FakeBM25:
-            def search(self, query, top_k):
-                return [(str(keeper_id), 1.0), (str(source_id), 1.0)]
-
-        fake_engine = SimpleNamespace(get_bm25_index=AsyncMock(return_value=_FakeBM25()))
-
-        monkeypatch.setattr("packages.retrieval.engine.get_retrieval_engine", lambda: fake_engine)
-        monkeypatch.setattr("apps.worker.tasks.consolidate.async_session_maker", sessions)
-        monkeypatch.setattr("apps.api.file_sync.get_file_store", lambda: file_store)
-        monkeypatch.setattr("apps.api.file_sync.get_memory_indexer", lambda: indexer)
-        monkeypatch.setattr("apps.worker.tasks.consolidate._consolidate_last_snapshot", None)
-        monkeypatch.setattr(parasitic_evolution_config, "auto_consolidate_enabled", True)
-        monkeypatch.setattr(parasitic_evolution_config, "auto_merge_enabled", True)
-        monkeypatch.setattr(parasitic_evolution_config, "auto_merge_threshold", 0.9)
-        # 标题不同时 hybrid 相似度约 0.846，略低于 0.85 分组阈值；
-        # 本用例只验证合并持久化与收敛，固定相似度以隔离阈值噪声。
-        monkeypatch.setattr(
-            "apps.worker.tasks.consolidate.compute_similarity",
-            AsyncMock(return_value=1.0),
-        )
-        monkeypatch.setattr("apps.worker.tasks.consolidate.Path.home", lambda: tmp_path / "home")
-
-        queue = AsyncMock()
-        try:
-            result = await task_auto_consolidate_similar({"queue": queue})
-
-            assert result["auto_merged_count"] == 1
-
-            # DB 状态已提交：源记忆归档，保留记忆已合并且带待生成的 embedding。
-            async with sessions() as db:
-                assert (await db.get(Memory, source_id)).status == "archived"
-                keeper_row = await db.get(Memory, keeper_id)
-                assert (
-                    keeper_row.content == f"{MERGE_CONTENT}\n\n## Merge source\n\n{MERGE_CONTENT}"
-                )
-                assert keeper_row.embedding is None
-                relations = (await db.execute(select(MemoryRelation))).scalars().all()
-                events = (
-                    (
-                        await db.execute(
-                            select(MemoryLifecycleEvent).where(
-                                MemoryLifecycleEvent.event_type == "auto_merged"
-                            )
-                        )
-                    )
-                    .scalars()
-                    .all()
-                )
-            assert [(r.relation_type, r.target_memory_id) for r in relations] == [
-                ("supersedes", source_id)
-            ]
-            assert len(events) == 1
-
-            # 向量已从内存和磁盘移除；每条记忆都排队了收敛任务。
-            assert str(keeper_id) not in indexer.vector_index.vectors
-            assert str(source_id) not in indexer.vector_index.vectors
-            reloaded = VectorIndex(dimensions=3, index_path=str(indexer.vector_index.index_path))
-            assert reloaded.vectors == {}
-            queue.enqueue.assert_any_await("generate_embedding", str(keeper_id))
-            queue.enqueue.assert_any_await("generate_embedding", str(source_id))
-
-            # 文件镜像与已提交状态保持一致。
-            source_mirror = file_store.load(workspace, "fact", "Merge source", str(source_id))
-            assert source_mirror.status == "archived"
-            keeper_mirror = file_store.load(workspace, "fact", "Merge keeper", str(keeper_id))
-            assert keeper_mirror.content == f"{MERGE_CONTENT}\n\n## Merge source\n\n{MERGE_CONTENT}"
-        finally:
-            await indexer.close()
-            await engine.dispose()
-
-    async def test_auto_merge_skips_group_with_permanent_memory(self, tmp_path, monkeypatch):
-        """组内存在永久记忆时只保留建议，不自动合并或归档。"""
-        engine = create_async_engine(f"sqlite+aiosqlite:///{(tmp_path / 'db.sqlite').as_posix()}")
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-        sessions = async_sessionmaker(engine, expire_on_commit=False)
-
-        async with sessions() as db:
-            ws = Workspace(name="permanent-merge-ws")
-            db.add(ws)
-            await db.flush()
-            permanent = Memory(
-                workspace_id=ws.id,
-                title="Permanent keeper",
-                content=MERGE_CONTENT,
-                type="fact",
-                confidence=0.2,
-                importance=0.2,
-                is_permanent=True,
-                permanent_reason="用户指定长期保留",
-            )
-            other = Memory(
-                workspace_id=ws.id,
-                title="Merge candidate",
-                content=MERGE_CONTENT,
-                type="fact",
-                confidence=0.9,
-                importance=0.9,
-            )
-            db.add_all([permanent, other])
-            await db.commit()
-            permanent_id, other_id = permanent.id, other.id
-
-        class _FakeBM25:
-            def search(self, query, top_k):
-                return [(str(permanent_id), 1.0), (str(other_id), 1.0)]
-
-        fake_engine = SimpleNamespace(get_bm25_index=AsyncMock(return_value=_FakeBM25()))
-        monkeypatch.setattr("packages.retrieval.engine.get_retrieval_engine", lambda: fake_engine)
-        monkeypatch.setattr("apps.worker.tasks.consolidate.async_session_maker", sessions)
-        monkeypatch.setattr("apps.worker.tasks.consolidate._consolidate_last_snapshot", None)
-        monkeypatch.setattr(parasitic_evolution_config, "auto_consolidate_enabled", True)
-        monkeypatch.setattr(parasitic_evolution_config, "auto_merge_enabled", True)
-        monkeypatch.setattr(parasitic_evolution_config, "auto_merge_threshold", 0.9)
-        monkeypatch.setattr(
-            "apps.worker.tasks.consolidate.compute_similarity",
-            AsyncMock(return_value=1.0),
-        )
-        monkeypatch.setattr("apps.worker.tasks.consolidate.Path.home", lambda: tmp_path / "home")
-
-        try:
-            result = await task_auto_consolidate_similar({"queue": AsyncMock()})
-
-            assert result["auto_merged_count"] == 0
-            assert result["auto_merge_skipped_permanent"] == 1
-            assert result["suggestions"][0]["has_permanent"] is True
-
-            async with sessions() as db:
-                preserved = await db.get(Memory, permanent_id)
-                untouched = await db.get(Memory, other_id)
-            assert preserved.status == "active"
-            assert preserved.is_permanent is True
-            assert preserved.permanent_reason == "用户指定长期保留"
-            assert untouched.status == "active"
-        finally:
-            await engine.dispose()
-
-
 class TestPruneStaleRelations:
     @pytest.fixture
     async def env(self, tmp_path, monkeypatch):
         from datetime import UTC, datetime, timedelta
 
-        from sqlalchemy import select
-        from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-
         from apps.worker.tasks import maintenance
-        from packages.domain.database import Base
-        from packages.domain.models import Memory, MemoryRelation, Workspace
 
         engine = create_async_engine(f"sqlite+aiosqlite:///{(tmp_path / 'db.sqlite').as_posix()}")
         async with engine.begin() as conn:

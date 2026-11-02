@@ -647,7 +647,7 @@ class TestImportDualWrite:
             embedding_dimensions=3,
         )
         await indexer.init_db()
-        # 与 test_archived_vector_lifecycle 同一策略：替换 embedding 服务，
+        # 与 test_memory_lifecycle_vectors 同一策略：替换 embedding 服务，
         # 避免网络不可用时 TextEmbedding() 构造永久卡在 huggingface 下载上
         from types import SimpleNamespace
         from unittest.mock import AsyncMock

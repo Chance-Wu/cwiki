@@ -63,7 +63,6 @@ digraph cwiki_data_flow {
         web_ui [label="Web UI\n(InboxPage :5173)", fillcolor="#C5E1A5"]
         approve [label="Approve → active", fillcolor="#C5E1A5"]
         reject [label="Reject", fillcolor="#EF9A9A"]
-        merge [label="Merge → archived", fillcolor="#FFE0B2"]
         defer [label="Defer → 稍后再审", fillcolor="#F5F5F5"]
     }
 
@@ -106,9 +105,8 @@ digraph cwiki_data_flow {
         color="#FFE0B2"
         fontcolor="#37474F"
 
-        consolidate [label="auto_consolidate_similar\n(Jaccard ≥ 0.92)", fillcolor="#E1BEE7"]
         health_check [label="健康度评估\npriority + negative signals", fillcolor="#E1BEE7"]
-        state_evolve [label="状态演化\nactive ↔ archived/superseded", fillcolor="#E1BEE7"]
+        state_evolve [label="状态演化\nactive ↔ superseded/deprecated", fillcolor="#E1BEE7"]
         orphan_recover [label="孤儿恢复\n启动时重放未完成任务", fillcolor="#E1BEE7"]
         spaced_review [label="间隔重复\nSM-2 算法", fillcolor="#E1BEE7"]
     }
@@ -136,7 +134,6 @@ digraph cwiki_data_flow {
     queue_review -> web_ui
     web_ui -> approve
     web_ui -> reject
-    web_ui -> merge
     web_ui -> defer
 
     // Phase 4: Persist
@@ -158,8 +155,6 @@ digraph cwiki_data_flow {
     diversity -> context_assembly
 
     // Phase 6: Evolve
-    sqlite_db -> consolidate [label="定时 6h"]
-    consolidate -> dual_write [label="合并后重写"]
     sqlite_db -> health_check [label="后台评估"]
     health_check -> state_evolve
     state_evolve -> vectors_npz [label="向量回收/回填"]

@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { Link } from 'react-router-dom'
 import { BookOpenCheck, Download } from 'lucide-react'
 import { useTranslation } from '../../i18n/I18nProvider'
 import { api } from '../../lib/api'
@@ -37,11 +38,16 @@ export default function WeeklyReview({ workspaceId }: Props) {
       '',
       `## ${t.weekly.actionsTitle}`,
       `- ${t.weekly.conflicts}: ${data.actions.conflicts.length}`,
-      ...data.actions.conflicts.map((c) => `  - ${c.description ?? c.id}`),
+      ...data.actions.conflicts.map((c) => `  - [${c.description ?? c.id}](/inbox?tab=conflicts)`),
       `- ${t.weekly.staleMemories}: ${data.actions.stale_memories.length}`,
-      ...data.actions.stale_memories.map((m) => `  - ${m.title}`),
+      ...data.actions.stale_memories.map(
+        (m) => `  - [${m.title}](/memories?memoryId=${m.memory_id})`,
+      ),
       `- ${t.weekly.knowledgeGaps}: ${data.actions.knowledge_gaps.length}`,
-      ...data.actions.knowledge_gaps.map((g) => `  - ${g.query} (${g.attempts})`),
+      ...data.actions.knowledge_gaps.map(
+        (g) =>
+          `  - [${g.query}](/memories?create=1&title=${encodeURIComponent(g.query)}) (${g.attempts})`,
+      ),
       '',
     ]
     const blob = new Blob([lines.join('\n')], { type: 'text/markdown;charset=utf-8' })
@@ -125,7 +131,12 @@ export default function WeeklyReview({ workspaceId }: Props) {
                     <span className="w-4 text-right tabular-nums text-[var(--text-tertiary)]">
                       {index + 1}
                     </span>
-                    <span className="truncate">{item.title}</span>
+                    <Link
+                      to={`/memories?memoryId=${item.memory_id}`}
+                      className="truncate hover:underline"
+                    >
+                      {item.title}
+                    </Link>
                     <span className="ml-auto tabular-nums text-[var(--text-tertiary)]">
                       {item.uses}
                     </span>
@@ -152,7 +163,9 @@ export default function WeeklyReview({ workspaceId }: Props) {
                     <span className="rounded bg-warning/15 px-1.5 py-0.5 text-warning-fg">
                       {t.weekly.conflicts}
                     </span>
-                    <span className="truncate">{c.description ?? c.id}</span>
+                    <Link to="/inbox?tab=conflicts" className="truncate hover:underline">
+                      {c.description ?? c.id}
+                    </Link>
                   </li>
                 ))}
                 {data.actions.stale_memories.map((m) => (
@@ -160,7 +173,12 @@ export default function WeeklyReview({ workspaceId }: Props) {
                     <span className="rounded bg-danger/15 px-1.5 py-0.5 text-danger-fg">
                       {t.weekly.staleMemories}
                     </span>
-                    <span className="truncate">{m.title}</span>
+                    <Link
+                      to={`/memories?memoryId=${m.memory_id}`}
+                      className="truncate hover:underline"
+                    >
+                      {m.title}
+                    </Link>
                   </li>
                 ))}
                 {data.actions.knowledge_gaps.map((g) => (
@@ -168,7 +186,12 @@ export default function WeeklyReview({ workspaceId }: Props) {
                     <span className="rounded bg-info/15 px-1.5 py-0.5 text-info-fg">
                       {t.weekly.knowledgeGaps}
                     </span>
-                    <span className="truncate">{g.query}</span>
+                    <Link
+                      to={`/memories?create=1&title=${encodeURIComponent(g.query)}`}
+                      className="truncate hover:underline"
+                    >
+                      {g.query}
+                    </Link>
                     <span className="ml-auto tabular-nums text-[var(--text-tertiary)]">
                       {g.attempts}
                     </span>

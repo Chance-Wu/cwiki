@@ -288,6 +288,21 @@ class CwikiClient:
             # 响应丢失/非法不代表写入失败，按结果不确定处理而非直接报错。
             raise MemoryUpdateUncertainError(memory_id) from exc
 
+    async def delete_memory(self, memory_id: str, *, reason: str | None = None) -> dict[str, Any]:
+        """物理删除记忆；404 视为已不存在（幂等）。"""
+        params = {"reason": reason} if reason else None
+        try:
+            return await self._request(
+                "DELETE",
+                f"{API_V1_PREFIX}/memories/{memory_id}",
+                params=params,
+                max_retries=0,
+            )
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                return {"deleted": True, "memory_id": memory_id, "already_absent": True}
+            raise
+
     async def get_raw_events(
         self,
         workspace_id: str,

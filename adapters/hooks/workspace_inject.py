@@ -62,6 +62,12 @@ def _unwrap(payload: dict[str, Any]) -> tuple[str, dict[str, Any] | None, bool]:
     return outer, tool_input, False
 
 
+def tool_suffix(payload: dict[str, Any]) -> str:
+    """本次调用对应的 cwiki 工具短名（memory_save 等）；无法识别时为空串。"""
+    inner, _, _ = _unwrap(payload)
+    return _tool_suffix(inner)
+
+
 def updated_input(payload: dict[str, Any]) -> dict[str, Any] | None:
     """返回应替换的 tool_input；None 表示无需改写。任何异常路径都必须安全返回 None。"""
     inner, args, wrapped = _unwrap(payload)

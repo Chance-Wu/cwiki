@@ -18,7 +18,6 @@ export type {
   Lifecycle,
   Relation,
   RelatedMemory,
-  MergeSuggestion,
   EvolutionMetrics,
   MemoryStatus,
   AgentSession,

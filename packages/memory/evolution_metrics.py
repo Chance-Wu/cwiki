@@ -15,10 +15,7 @@ from packages.domain.models import (
     Review,
     SessionNote,
 )
-from packages.domain.models.memory import (
-    MemoryLifecycleEvent,
-    ReviewSchedule,
-)
+from packages.domain.models.memory import ReviewSchedule
 
 
 async def compute_evolution_metrics(
@@ -34,7 +31,6 @@ async def compute_evolution_metrics(
     reviews_approved, reviews_rejected = await _count_review_stats(db, workspace_id, cutoff)
     memories_active, avg_confidence = await _count_memory_stats(db, workspace_id)
     review_mastery = await _count_review_mastery(db, workspace_id)
-    consolidation_stats = await _count_consolidation_stats(db, workspace_id, cutoff)
 
     total_reviews = reviews_approved + reviews_rejected
     approval_rate = round(reviews_approved / total_reviews, 2) if total_reviews > 0 else 0.0
@@ -59,7 +55,6 @@ async def compute_evolution_metrics(
             "avg_confidence": round(avg_confidence, 2) if avg_confidence else 0.0,
         },
         "review": review_mastery,
-        "consolidation": consolidation_stats,
     }
 
 
@@ -170,27 +165,4 @@ async def _count_review_mastery(
         "familiar": row[3] or 0,
         "proficient": row[4] or 0,
         "mastered": row[5] or 0,
-    }
-
-
-async def _count_consolidation_stats(
-    db: AsyncSession,
-    workspace_id: uuid.UUID,
-    cutoff: datetime,
-) -> dict[str, Any]:
-    """整合/归档统计：最近 N 天的自动合并与归档数。"""
-    stmt = select(
-        func.sum(case((MemoryLifecycleEvent.event_type == "auto_merged", 1), else_=0)),
-        func.sum(case((MemoryLifecycleEvent.event_type == "archived", 1), else_=0)),
-    ).where(
-        MemoryLifecycleEvent.memory_id.in_(
-            select(Memory.id).where(Memory.workspace_id == workspace_id)
-        ),
-        MemoryLifecycleEvent.created_at >= cutoff,
-    )
-    result = await db.execute(stmt)
-    row = result.one()
-    return {
-        "auto_merged": row[0] or 0,
-        "archived": row[1] or 0,
     }

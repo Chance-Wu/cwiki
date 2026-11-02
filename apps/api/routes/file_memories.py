@@ -23,17 +23,18 @@ from apps.api.deps import (
     require_scope,
     resolve_workspace,
 )
+from apps.api.file_sync import delete_memory_assets
 from apps.api.routes.context import invalidate_context_cache
 from apps.api.routes.memory_status import invalidate_memory_status_caches
 from apps.api.routes.search import invalidate_search_cache
 from packages.domain.config import API_V1_PREFIX
 
 logger = logging.getLogger(__name__)
-from packages.domain.models import Memory
+from packages.domain.models import Memory, Workspace
 from packages.domain.schemas.common import MemoryStatus, MemoryType
 from packages.domain.schemas.memory import MemoryContent, MemoryTitle
 from packages.storage import config as storage_config
-from packages.storage.file_store import FileStore, MemoryFile
+from packages.storage.file_store import MemoryFile
 from packages.storage.git_version import GitVersionControl
 from packages.storage.indexer import MemoryIndexer
 
@@ -71,20 +72,24 @@ class MemoryUpdateRequest(BaseModel):
 @router.get("/stats")
 async def get_stats(
     db: Annotated[AsyncSession, Depends(get_db)],
+    memory_status: MemoryStatus | None = Query(None, alias="status"),
     _identity: Annotated[AgentIdentity | None, Depends(get_current_agent)] = None,
 ) -> dict[str, Any]:
-    """获取存储统计信息。"""
+    """获取存储统计信息。
+
+    file_count / type_distribution 跟随可选 status 过滤（不传含全部状态）；
+    vector_count 始终是 active 向量数，非 active 记忆不持有向量。
+    """
     global _git_stats_cache
 
     indexer = get_memory_indexer()
 
-    total_result = await db.execute(
-        select(func.count()).select_from(Memory).where(Memory.status == "active")
-    )
+    conditions = [Memory.status == memory_status] if memory_status else []
+    total_result = await db.execute(select(func.count()).select_from(Memory).where(*conditions))
     file_count = total_result.scalar() or 0
 
     type_result = await db.execute(
-        select(Memory.type, func.count()).where(Memory.status == "active").group_by(Memory.type)
+        select(Memory.type, func.count()).where(*conditions).group_by(Memory.type)
     )
     type_distribution = {row[0]: row[1] for row in type_result.all()}
 
@@ -132,7 +137,7 @@ async def rebuild_index(
     active_ids = {m.id for m in memories if m.status == "active"}
     for memory in memories:
         await indexer.index_memory(memory, update_vector=memory.id in active_ids)
-    # 向量索引只保留 active 记忆，顺带清掉历史遗留的 archived/stale 条目
+    # 向量索引只保留 active 记忆，顺带清掉历史遗留的非 active/stale 条目
     orphan_ids = set(indexer.vector_index.vectors.keys()) - active_ids
     for oid in orphan_ids:
         indexer.vector_index.remove(oid)
@@ -393,37 +398,38 @@ async def update_memory(
     return memory.to_dict()
 
 
-async def _delete_memory_entry(
-    indexer: MemoryIndexer,
-    file_store: FileStore,
-    db: AsyncSession,
-    memory_id: str,
-) -> tuple[dict[str, Any], bool, bool] | None:
-    """删除单条记忆的文件、索引条目与 DB 行。
-
-    返回 (index_entry, file_deleted, db_cleaned)；记忆不在索引中
-    时返回 None。向量索引持久化由调用方负责，便于批量删除时合并。
-    """
-    index_entry = await indexer.get_memory(memory_id)
-    if not index_entry:
-        return None
-
-    workspace_name = index_entry.get("workspace") or "chat"
-    type_name = index_entry.get("type", "fact")
-    memory_title = index_entry.get("title", memory_id)
-
-    file_deleted = file_store.delete(workspace_name, type_name, memory_title, memory_id=memory_id)
-    await indexer.remove_from_index(memory_id)
-
-    db_cleaned = False
+async def _resolve_delete_entry(
+    indexer: MemoryIndexer, db: AsyncSession, memory_id: str
+) -> dict[str, Any] | None:
+    """优先取索引条目；索引漂移时回退 DB，避免删除被索引缺失阻塞。"""
+    entry = await indexer.get_memory(memory_id)
+    if entry:
+        return entry
     try:
         mem_uuid = uuid.UUID(memory_id)
-        result = await db.execute(delete(Memory).where(Memory.id == mem_uuid))
-        db_cleaned = getattr(result, "rowcount", 0) > 0
+    except ValueError:
+        return None
+    memory = await db.get(Memory, mem_uuid)
+    if memory is None:
+        return None
+    workspace_name = await db.scalar(
+        select(Workspace.name).where(Workspace.id == memory.workspace_id)
+    )
+    return {
+        "workspace": workspace_name,
+        "type": memory.type,
+        "title": memory.title,
+    }
+
+
+async def _delete_memory_row(db: AsyncSession, memory_id: str) -> bool:
+    """删除 DB 行，返回是否命中。非法 UUID 视为未命中。"""
+    try:
+        result = await db.execute(delete(Memory).where(Memory.id == uuid.UUID(memory_id)))
+        return getattr(result, "rowcount", 0) > 0
     except ValueError:
         logger.debug("Invalid UUID format for memory %s", memory_id)
-
-    return index_entry, file_deleted, db_cleaned
+        return False
 
 
 @router.delete("/{memory_id}")
@@ -436,14 +442,25 @@ async def delete_memory(
 ) -> dict[str, Any]:
     """从文件、索引与 DB 中删除记忆。"""
     indexer = get_memory_indexer()
-    file_store = get_file_store()
-
-    entry = await _delete_memory_entry(indexer, file_store, db, memory_id)
+    entry = await _resolve_delete_entry(indexer, db, memory_id)
     if entry is None:
         raise HTTPException(status_code=404, detail="Memory not found")
 
-    _index_entry, file_deleted, db_cleaned = entry
-    await asyncio.to_thread(indexer.vector_index.save)
+    workspace_name = entry.get("workspace") or "chat"
+    type_name = entry.get("type", "fact")
+    memory_title = entry.get("title", memory_id)
+
+    # 先提交 DB 删除，再清理文件资产；避免文件已删而 DB 回滚。
+    db_cleaned = await _delete_memory_row(db, memory_id)
+    await db.commit()
+    assets_removed = await delete_memory_assets(
+        memory_id,
+        workspace_name,
+        type_name,
+        memory_title,
+        file_path=entry.get("file_path"),
+    )
+    logger.info("Memory %s physically deleted (assets_removed=%s)", memory_id, assets_removed)
 
     invalidate_search_cache()
     invalidate_context_cache()
@@ -451,9 +468,10 @@ async def delete_memory(
 
     return {
         "message": "Memory deleted",
-        "file_deleted": file_deleted,
+        "file_deleted": assets_removed,
         "index_cleaned": True,
         "db_cleaned": db_cleaned,
+        "assets_removed": assets_removed,
     }
 
 
@@ -474,41 +492,49 @@ async def batch_delete_memories(
         return {"deleted": [], "failed": []}
 
     indexer = get_memory_indexer()
-    file_store = get_file_store()
 
     deleted: list[str] = []
     failed: list[dict[str, str]] = []
-    db_ids: list[uuid.UUID] = []
+    entries: list[tuple[str, dict[str, Any]]] = []
 
     for memory_id in body.ids:
         try:
-            index_entry = await indexer.get_memory(memory_id)
-            if not index_entry:
+            uuid.UUID(memory_id)
+        except ValueError:
+            failed.append({"id": memory_id, "error": "invalid_id"})
+            continue
+        try:
+            entry = await _resolve_delete_entry(indexer, db, memory_id)
+            if not entry:
                 failed.append({"id": memory_id, "error": "not_found"})
                 continue
-
-            workspace_name = index_entry.get("workspace") or "chat"
-            type_name = index_entry.get("type", "fact")
-            memory_title = index_entry.get("title", memory_id)
-
-            file_store.delete(workspace_name, type_name, memory_title, memory_id=memory_id)
-            await indexer.remove_from_index(memory_id)
-
-            try:
-                db_ids.append(uuid.UUID(memory_id))
-            except ValueError:
-                pass
-
-            deleted.append(memory_id)
+            entries.append((memory_id, entry))
         except Exception as e:
             # 单条失败只记录，继续处理剩余条目
             failed.append({"id": memory_id, "error": str(e)})
 
-    if db_ids:
+    if entries:
+        db_ids = [uuid.UUID(memory_id) for memory_id, _ in entries]
+        # 先提交 DB 删除，再清理文件资产；避免文件已删而事务回滚。
         await db.execute(delete(Memory).where(Memory.id.in_(db_ids)))
         await db.commit()
 
-    await asyncio.to_thread(indexer.vector_index.save)
+        for memory_id, entry in entries:
+            workspace_name = entry.get("workspace") or "chat"
+            type_name = entry.get("type", "fact")
+            memory_title = entry.get("title", memory_id)
+            await delete_memory_assets(
+                memory_id,
+                workspace_name,
+                type_name,
+                memory_title,
+                file_path=entry.get("file_path"),
+                save_index=False,
+            )
+            deleted.append(memory_id)
+        await asyncio.to_thread(indexer.vector_index.save)
+        logger.info("Batch deleted %d memories", len(deleted))
+
     if deleted:
         invalidate_search_cache()
         invalidate_context_cache()

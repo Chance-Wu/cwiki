@@ -41,7 +41,7 @@ async def _current_section(client: httpx.AsyncClient, section: str) -> dict:
         ("performance", "context_token_budget", 10),
         ("performance", "dedup_top_k", 0),
         ("retrieval", "bm25_weight", -1.0),
-        ("parasitic_evolution", "auto_merge_threshold", 2.0),
+        ("retrieval", "reranker_relevance_band", 1.5),
     ],
 )
 async def test_patch_rejects_out_of_range(
@@ -73,6 +73,24 @@ async def test_patch_accepts_in_range_and_persists(
     assert "memory.title_max_length" in response.json()["changed_fields"]
     stored = yaml.safe_load(isolated_config.read_text(encoding="utf-8"))
     assert stored["memory"]["title_max_length"] == 120
+
+
+async def test_patch_persists_reranker_band_and_bm25(
+    client: httpx.AsyncClient, isolated_config: Path
+) -> None:
+    payload = await _current_section(client, "retrieval")
+    payload["reranker_bm25_weight"] = 0.2
+    payload["reranker_relevance_band"] = 0.03
+
+    response = await client.patch("/v1/config", json={"retrieval": payload})
+
+    assert response.status_code == 200, response.text
+    changed = response.json()["changed_fields"]
+    assert "retrieval.reranker_bm25_weight" in changed
+    assert "retrieval.reranker_relevance_band" in changed
+    stored = yaml.safe_load(isolated_config.read_text(encoding="utf-8"))
+    assert stored["retrieval"]["reranker_bm25_weight"] == 0.2
+    assert stored["retrieval"]["reranker_relevance_band"] == 0.03
 
 
 @pytest.mark.parametrize(

@@ -237,6 +237,10 @@ async def resolve_workspace(
     db.add(new_ws)
     await db.flush()
     _workspace_cache[workspace_id] = (new_ws.id, time.monotonic())
+    # 机器来源自动建区后立即同步快照（本地导入避免与 file_sync 循环依赖）
+    from apps.api.file_sync import sync_workspaces_to_file
+
+    await sync_workspaces_to_file(db)
     return new_ws.id
 
 

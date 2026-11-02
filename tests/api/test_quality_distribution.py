@@ -6,6 +6,43 @@ from apps.api.routes.memory_status import invalidate_memory_status_caches
 from packages.domain.models import Memory, Workspace
 
 
+async def test_stats_type_distribution_follows_status(client, db_session, monkeypatch):
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(
+        "apps.api.routes.file_memories.get_memory_indexer",
+        lambda: SimpleNamespace(
+            vector_index=SimpleNamespace(size=lambda: 0, index_path="vectors.npz")
+        ),
+    )
+    ws = Workspace(name="stats-status-ws")
+    db_session.add(ws)
+    await db_session.flush()
+    db_session.add_all(
+        [
+            Memory(workspace_id=ws.id, title="A", content="知识内容" * 20, type="fact"),
+            Memory(
+                workspace_id=ws.id,
+                title="B",
+                content="知识内容" * 20,
+                type="decision",
+                status="superseded",
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    all_resp = await client.get("/v1/file-memories/stats")
+    assert all_resp.status_code == 200, all_resp.text
+    assert all_resp.json()["file_count"] == 2
+    assert all_resp.json()["type_distribution"] == {"fact": 1, "decision": 1}
+
+    superseded_resp = await client.get("/v1/file-memories/stats", params={"status": "superseded"})
+    assert superseded_resp.status_code == 200, superseded_resp.text
+    assert superseded_resp.json()["file_count"] == 1
+    assert superseded_resp.json()["type_distribution"] == {"decision": 1}
+
+
 async def test_quality_distribution_all_workspaces(client, db_session):
     alpha = Workspace(name="quality-alpha")
     beta = Workspace(name="quality-beta")
@@ -21,7 +58,7 @@ async def test_quality_distribution_all_workspaces(client, db_session):
                 title="B2",
                 content="知识内容" * 20,
                 type="fact",
-                status="archived",
+                status="superseded",
             ),
         ]
     )

@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
 import tempfile
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +18,14 @@ from packages.storage import config as storage_config
 logger = logging.getLogger(__name__)
 
 
+def _file_hash(path: Path) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def _atomic_replace(src: str, dst: Path) -> None:
     """使用 os.replace 将 dst 原子替换为 src。"""
     os.replace(src, dst)
@@ -24,8 +34,14 @@ def _atomic_replace(src: str, dst: Path) -> None:
 class VectorIndex:
     """基于 numpy 余弦相似度检索的简易向量索引。"""
 
-    def __init__(self, dimensions: int = 1536, index_path: str | None = None) -> None:
+    def __init__(
+        self,
+        dimensions: int = 1536,
+        index_path: str | None = None,
+        model: str | None = None,
+    ) -> None:
         self.dimensions = dimensions
+        self.model = model
         self.index_path = Path(index_path) if index_path else Path(storage_config.vector_index_path)
         self._meta_path = self.index_path.with_suffix(".json")
 
@@ -48,8 +64,38 @@ class VectorIndex:
                 with open(self._meta_path, encoding="utf-8") as f:
                     meta = json.load(f)
                 ids = meta["ids"]
-                data = np.load(self.index_path)
-                vecs = data["vectors"]
+                indexed_dims = meta.get("dimensions")
+                if indexed_dims is not None and int(indexed_dims) != self.dimensions:
+                    logger.error(
+                        "Vector index dimension mismatch: index=%s configured=%s; "
+                        "discarding vectors, run rebuild-db --force-index",
+                        indexed_dims,
+                        self.dimensions,
+                    )
+                    self.vectors.clear()
+                    self.metadata.clear()
+                    return
+                indexed_model = meta.get("model")
+                if indexed_model and self.model and indexed_model != self.model:
+                    logger.error(
+                        "Vector index model mismatch: index=%s configured=%s; "
+                        "discarding vectors, run rebuild-db --force-index",
+                        indexed_model,
+                        self.model,
+                    )
+                    self.vectors.clear()
+                    self.metadata.clear()
+                    return
+                with np.load(self.index_path) as data:
+                    vecs = data["vectors"]
+                    embedded_ids = data["ids"].tolist() if "ids" in data.files else None
+                if embedded_ids is not None and [str(i) for i in embedded_ids] != [str(i) for i in ids]:
+                    raise ValueError("vector index id pairing mismatch")
+                expected_hash = meta.get("vector_hash")
+                if expected_hash:
+                    actual_hash = _file_hash(self.index_path)
+                    if actual_hash != expected_hash:
+                        raise ValueError("vector index generation/hash mismatch")
                 # id 数与向量数不一致视为索引损坏，丢弃全部内容
                 if len(ids) != len(vecs):
                     logger.warning(
@@ -104,7 +150,14 @@ class VectorIndex:
 
             ids = list(self.vectors.keys())
             vecs = np.stack([self.vectors[i] for i in ids])
-            meta_data = {"ids": ids, "metadata": self.metadata, "version": 1}
+            meta_data = {
+                "ids": ids,
+                "metadata": self.metadata,
+                "version": 3,
+                "generation": uuid.uuid4().hex,
+                "dimensions": self.dimensions,
+                "model": self.model,
+            }
 
             # 先写临时 npz 再原子重命名。
             # 名字缺后缀时 np.savez 会自动补 ".npz"，因此临时名用 ".tmp"
@@ -115,8 +168,9 @@ class VectorIndex:
             os.unlink(tmp_base)
             tmp_data = tmp_base + ".npz"
             try:
-                np.savez(tmp_base, vectors=vecs)
+                np.savez(tmp_base, vectors=vecs, ids=np.asarray(ids, dtype=str))
                 _atomic_replace(tmp_data, self.index_path)
+                meta_data["vector_hash"] = _file_hash(self.index_path)
             except Exception:
                 Path(tmp_data).unlink(missing_ok=True)
                 raise
@@ -134,8 +188,9 @@ class VectorIndex:
 
             logger.info("Saved %d vectors to index", len(self.vectors))
         except OSError as e:
-            # 保存操作主要风险是 I/O 错误（磁盘满、权限问题等）
+            # 保存失败必须向调用方传播，避免 outbox 将未持久化状态视为成功
             logger.error("Error saving vector index %s: %s", self.index_path, e)
+            raise
 
     def add(
         self, memory_id: str, vector: list[float], metadata: dict[str, Any] | None = None

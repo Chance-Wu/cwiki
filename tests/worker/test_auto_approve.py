@@ -24,7 +24,7 @@ from apps.worker.tasks import task_score_candidate
 from packages.domain.config import settings
 from packages.domain.database import Base
 from packages.domain.models import CandidateMemory, Workspace
-from packages.domain.models.memory import Memory, MemoryConflict, MemoryLifecycleEvent, Review
+from packages.domain.models.memory import Evidence, Memory, MemoryConflict, Review
 
 TEST_DB_URL = "sqlite+aiosqlite:///:memory:"
 
@@ -72,6 +72,8 @@ async def _make_candidate(
     policy_action: str | None = None,
     decision_rule_id: str | None = None,
     decision_action: str | None = None,
+    content: str | None = None,
+    embedding: list[float] | None = None,
 ) -> tuple[CandidateMemory, str]:
     """直接落一行候选，各分项由参数控制。"""
     ws = Workspace(id=uuid.uuid4(), name=f"ws-{uuid.uuid4().hex[:6]}")
@@ -91,7 +93,8 @@ async def _make_candidate(
         id=uuid.uuid4(),
         workspace_id=ws.id,
         title="自动生效测试候选",
-        content=(
+        content=content
+        or (
             "## 场景\n自动生效状态机测试。\n\n"
             f"## 知识\n唯一校验码 {uuid.uuid4().hex[:12]}。\n\n"
             "## 原因\n验证三档审核行为。"
@@ -99,7 +102,7 @@ async def _make_candidate(
         type="fact",
         source="memory_save",
         status="pending_review",
-        embedding=[0.1, 0.2, 0.3],
+        embedding=embedding if embedding is not None else [0.1, 0.2, 0.3],
         quality_gate_score=quality_gate_score,
         duplicate_probability=duplicate_probability,
         policy_rule_id=policy_rule_id,
@@ -171,6 +174,7 @@ class TestAutoApprove:
         assert review.reviewer_id == "auto_tier_v1"
         reason = json.loads(review.reason)
         assert reason["memory_id"] == memory_id
+        assert reason["memory_version"] == 1
         assert "thresholds" in reason
         assert reason["value_score"] >= reason["thresholds"]["value"]
 
@@ -268,6 +272,7 @@ class TestWritePolicyAutoApprove:
         assert review.reviewer_id == "write_policy"
         reason = json.loads(review.reason)
         assert reason["policy_rule"] == "pinned-auto"
+        assert reason["memory_version"] == 1
         assert reason["forced"] is True
         mock_queue.enqueue.assert_awaited_once_with("generate_embedding", str(memory.id))
 
@@ -311,6 +316,62 @@ class TestWritePolicyAutoApprove:
         assert result["status"] == "policy_auto_blocked"
         await db.refresh(cand)
         assert cand.status == "pending_review"
+
+    async def test_policy_auto_detects_conflict_and_links_candidate(
+        self, db: AsyncSession, ctx: dict, engine, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """auto-approve 必须真正检测冲突并把候选挂到冲突行上。"""
+        from packages.domain.config import parasitic_evolution_config
+
+        monkeypatch.setattr(parasitic_evolution_config, "write_time_conflict_enabled", True)
+        cand, cid = await _make_candidate(
+            db,
+            policy_rule_id="pinned-auto",
+            policy_action="auto",
+            content=(
+                "## 场景\n发布流程缓存预热。\n\n"
+                "## 知识\n发布流程中允许提前预热缓存。\n\n"
+                "## 原因\n提前预热可以降低发布后的首查延迟。"
+            ),
+            embedding=[0.1, 0.2, 1.0],
+        )
+        db.add(
+            Memory(
+                workspace_id=cand.workspace_id,
+                title="发布流程缓存预热规则",
+                content=(
+                    "## 规则\n发布流程中禁止提前预热缓存。\n\n## 原因\n避免发布期间缓存雪崩。"
+                ),
+                type="rule",
+                source="mcp",
+                status="active",
+                version=1,
+                embedding=[0.1, 0.2, 0.3],
+            )
+        )
+        await db.commit()
+
+        result = await _run_score(ctx, engine, cid, str(cand.workspace_id))
+
+        assert result["status"] == "policy_auto_blocked"
+        await db.refresh(cand)
+        assert cand.status == "pending_review"
+
+        conflicts = (
+            (await db.execute(select(MemoryConflict).where(MemoryConflict.candidate_id == cand.id)))
+            .scalars()
+            .all()
+        )
+        assert len(conflicts) == 1
+        assert conflicts[0].status == "open"
+        assert conflicts[0].conflict_type == "contradiction"
+
+        memories = (
+            (await db.execute(select(Memory).where(Memory.workspace_id == cand.workspace_id)))
+            .scalars()
+            .all()
+        )
+        assert len(memories) == 1  # 只有种子记忆，未自动转正
 
     async def test_policy_review_blocks_global_auto_approve(
         self, db: AsyncSession, ctx: dict, engine, monkeypatch: pytest.MonkeyPatch
@@ -435,9 +496,7 @@ class TestQuarantine:
 
 
 class TestRevertAutoApprove:
-    async def test_revert_archives_memory_and_records_review(
-        self, db: AsyncSession, engine
-    ) -> None:
+    async def test_revert_deletes_memory_and_records_review(self, db: AsyncSession, engine) -> None:
         from httpx import ASGITransport, AsyncClient
 
         from apps.api.deps import get_db
@@ -461,7 +520,9 @@ class TestRevertAutoApprove:
                 reviewer_type="system",
                 reviewer_id="auto_tier_v1",
                 action="auto_approve",
-                reason=json.dumps({"memory_id": str(memory.id), "thresholds": {}}),
+                reason=json.dumps(
+                {"memory_id": str(memory.id), "memory_version": memory.version, "thresholds": {}}
+            ),
             )
         )
         await db.commit()
@@ -480,7 +541,10 @@ class TestRevertAutoApprove:
 
         app.dependency_overrides[get_db] = override_get_db
         try:
-            with patch("apps.api.file_sync.sync_memory_to_file", new=AsyncMock()):
+            with (
+                patch("apps.api.file_sync.sync_memory_to_file", new=AsyncMock()),
+                patch("apps.api.file_sync.delete_memory_assets", new=AsyncMock()),
+            ):
                 transport = ASGITransport(app=app)
                 async with AsyncClient(transport=transport, base_url="http://test") as client:
                     r = await client.post(f"/v1/candidates/{cand_pk}/revert-auto-approve")
@@ -489,8 +553,14 @@ class TestRevertAutoApprove:
             app.dependency_overrides.clear()
 
         db.expire_all()
-        archived = (await db.execute(select(Memory).where(Memory.id == memory_id))).scalar_one()
-        assert archived.status == "archived"
+        deleted = (
+            await db.execute(select(Memory).where(Memory.id == memory_id))
+        ).scalar_one_or_none()
+        assert deleted is None
+
+        candidate_after = await db.get(CandidateMemory, cand_pk)
+        assert candidate_after is not None
+        assert candidate_after.status == "pending_review"
 
         revert_review = (
             await db.execute(
@@ -501,19 +571,79 @@ class TestRevertAutoApprove:
         ).scalar_one()
         assert revert_review.reviewer_type == "human"
 
-        events = (
-            (
-                await db.execute(
-                    select(MemoryLifecycleEvent).where(
-                        MemoryLifecycleEvent.memory_id == memory_id,
-                        MemoryLifecycleEvent.event_type == "auto_approve_reverted",
-                    )
-                )
-            )
-            .scalars()
-            .all()
+    async def test_revert_preserves_memory_after_later_version_change(
+        self, db: AsyncSession, engine
+    ) -> None:
+        from httpx import ASGITransport, AsyncClient
+
+        from apps.api.deps import get_db
+        from apps.api.main import app
+
+        cand, _ = await _make_candidate(db)
+        memory = Memory(
+            workspace_id=cand.workspace_id,
+            title=cand.title,
+            content=cand.content,
+            type="fact",
+            source="memory_save",
+            status="active",
+            version=1,
         )
-        assert len(events) == 1
+        db.add(memory)
+        await db.flush()
+        evidence = Evidence(
+            memory_id=memory.id,
+            candidate_id=cand.id,
+            source_type="test",
+            content="保留证据",
+        )
+        db.add(evidence)
+        db.add(
+            Review(
+                candidate_id=cand.id,
+                reviewer_type="system",
+                reviewer_id="auto_tier_v1",
+                action="auto_approve",
+                reason=json.dumps(
+                    {"memory_id": str(memory.id), "memory_version": 1, "thresholds": {}}
+                ),
+            )
+        )
+        await db.commit()
+        memory_id = memory.id
+        evidence_id = evidence.id
+        cand_pk = cand.id
+
+        memory.version = 2
+        memory.content = "后续人工编辑内容"
+        await db.commit()
+
+        async def override_get_db() -> AsyncGenerator[AsyncSession, None]:
+            maker = async_sessionmaker(engine, expire_on_commit=False)
+            async with maker() as session:
+                try:
+                    yield session
+                    await session.commit()
+                except Exception:
+                    await session.rollback()
+                    raise
+
+        app.dependency_overrides[get_db] = override_get_db
+        try:
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                response = await client.post(f"/v1/candidates/{cand_pk}/revert-auto-approve")
+            assert response.status_code == 409, response.text
+        finally:
+            app.dependency_overrides.clear()
+
+        db.expire_all()
+        preserved = await db.get(Memory, memory_id)
+        assert preserved is not None
+        assert preserved.version == 2
+        assert preserved.content == "后续人工编辑内容"
+        assert await db.get(Evidence, evidence_id) is not None
+        assert await db.get(CandidateMemory, cand_pk) is not None
 
     async def test_revert_without_auto_review_returns_404(self, db: AsyncSession, engine) -> None:
         from httpx import ASGITransport, AsyncClient

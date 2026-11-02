@@ -5,7 +5,6 @@
 - ``candidate_review`` 候选评分与自动生效
 - ``embedding``        记忆/候选向量生成
 - ``dedup_check``      候选去重检查
-- ``consolidate``      相似记忆自动整理
 - ``maintenance``      复习提醒与定期 meta 导出
 
 公开名从此包根重导出，``from apps.worker.tasks import X`` 兼容旧引用。
@@ -23,7 +22,6 @@ from apps.worker.tasks.candidate_review import (
     _maybe_auto_approve,
     task_score_candidate,
 )
-from apps.worker.tasks.consolidate import task_auto_consolidate_similar
 from apps.worker.tasks.dedup_check import task_dedup_check
 from apps.worker.tasks.embedding import (
     task_batch_generate_embeddings,
@@ -60,7 +58,6 @@ __all__ = [
     "_resolve_embedding_service",
     "recover_orphaned_candidates",
     "register_tasks",
-    "task_auto_consolidate_similar",
     "task_auto_discover_relations",
     "task_batch_generate_embeddings",
     "task_check_review_reminders",
@@ -82,7 +79,6 @@ def register_tasks(queue: TaskQueue) -> None:
     queue.register("generate_candidate_embedding", task_generate_candidate_embedding)
     queue.register("batch_generate_embeddings", task_batch_generate_embeddings)
     queue.register("dedup_check", task_dedup_check)
-    queue.register("auto_consolidate_similar", task_auto_consolidate_similar)
     queue.register("check_review_reminders", task_check_review_reminders)
     queue.register("periodic_meta_export", task_periodic_meta_export)
     queue.register("auto_discover_relations", task_auto_discover_relations)

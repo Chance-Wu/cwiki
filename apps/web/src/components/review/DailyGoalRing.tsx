@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Check, Minus, Plus, Target, X } from 'lucide-react'
+import { Check, Flame, Minus, Plus, Target, X } from 'lucide-react'
 import { useTranslation } from '../../i18n/I18nProvider'
 import { Card } from '../ui/Card'
 import { clampGoal } from './reviewSessionUtils'
@@ -8,9 +8,21 @@ interface DailyGoalRingProps {
   done: number
   goal: number
   onChange: (goal: number) => void
+  /** 连续有复习记录的自然天数；0 时不展示 */
+  streakDays?: number
+  /** 近 30 天填空判分准确率（0-1）；无判分记录时为空 */
+  quizAccuracy?: number | null
+  quizAttempts?: number
 }
 
-export function DailyGoalRing({ done, goal, onChange }: DailyGoalRingProps) {
+export function DailyGoalRing({
+  done,
+  goal,
+  onChange,
+  streakDays = 0,
+  quizAccuracy = null,
+  quizAttempts = 0,
+}: DailyGoalRingProps) {
   const { t } = useTranslation()
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(String(goal))
@@ -74,6 +86,20 @@ export function DailyGoalRing({ done, goal, onChange }: DailyGoalRingProps) {
           <span className="text-xs font-medium text-[var(--text-secondary)]">
             {t.review.dailyGoal}
           </span>
+          {streakDays > 0 && (
+            <span className="ml-auto flex items-center gap-0.5 text-xs font-medium text-warning-fg tabular-nums">
+              <Flame size={12} aria-hidden="true" />
+              {t.review.streakDays.replace('{n}', String(streakDays))}
+            </span>
+          )}
+          {quizAttempts > 0 && quizAccuracy != null && (
+            <span
+              className={`text-xs font-medium tabular-nums text-[var(--text-tertiary)] ${streakDays > 0 ? 'ml-2' : 'ml-auto'}`}
+              title={t.review.quizAccuracyHint}
+            >
+              {t.review.quizAccuracy.replace('{n}', String(Math.round(quizAccuracy * 100)))}
+            </span>
+          )}
         </div>
         {reached ? (
           <p className="mt-0.5 text-xs font-medium text-success-fg">{t.review.goalReached}</p>

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { X, Pencil, Merge, Trash2 } from 'lucide-react'
 import { api } from '../../lib/api'
 import type { TagInfo } from '../../lib/api/memories'
+import { suggestTagMerges, type TagMergeSuggestion } from '../../lib/tagSuggestions'
 import { useTranslation } from '../../i18n/I18nProvider'
 import { useToast } from '../Toast'
 
@@ -10,13 +11,22 @@ interface Props {
   workspaceId?: string
   onTagsChanged: () => void
   onClose: () => void
+  /** 放在 Dialog 内时隐藏自带标题栏，避免重复 */
+  hideHeader?: boolean
 }
 
 type Mode = 'idle' | 'rename' | 'merge' | 'delete'
 
-export default function TagManagePanel({ tags, workspaceId, onTagsChanged, onClose }: Props) {
+export default function TagManagePanel({
+  tags,
+  workspaceId,
+  onTagsChanged,
+  onClose,
+  hideHeader = false,
+}: Props) {
   const { t } = useTranslation()
   const { toast } = useToast()
+  const suggestions = suggestTagMerges(tags)
   const [mode, setMode] = useState<Mode>('idle')
   const [selectedTag, setSelectedTag] = useState<string>('')
   const [newName, setNewName] = useState('')
@@ -77,24 +87,76 @@ export default function TagManagePanel({ tags, workspaceId, onTagsChanged, onClo
     }
   }
 
+  const handleSuggestionMerge = async (suggestion: TagMergeSuggestion) => {
+    const sources = suggestion.tags.filter((tag) => tag !== suggestion.target)
+    if (sources.length === 0) return
+    setLoading(true)
+    try {
+      const res = await api.mergeTags(sources, suggestion.target, workspaceId)
+      toast(t.memories.tagMerged + ` (${res.updated_count})`, 'success')
+      onTagsChanged()
+    } catch {
+      toast('合并失败', 'error')
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const toggleMergeSource = (tag: string) => {
     setMergeSources((prev) => (prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]))
   }
 
   return (
     <div className="p-4 bg-surface-card border border-[var(--border-default)] rounded-xl shadow-lg space-y-4">
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-[var(--text-primary)]">{t.memories.tagManage}</h3>
-        <button
-          onClick={onClose}
-          className="p-1 text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors"
-        >
-          <X size={16} />
-        </button>
-      </div>
+      {!hideHeader && (
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-[var(--text-primary)]">
+            {t.memories.tagManage}
+          </h3>
+          <button
+            onClick={onClose}
+            className="p-1 text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors"
+          >
+            <X size={16} />
+          </button>
+        </div>
+      )}
 
       {mode === 'idle' && (
         <div className="space-y-3">
+          {suggestions.length > 0 && (
+            <div className="space-y-1.5 rounded-lg border border-warning/30 bg-warning/5 p-2">
+              <p className="text-xs font-medium text-warning-fg">{t.memories.mergeSuggestions}</p>
+              {suggestions.map((suggestion) => (
+                <div
+                  key={suggestion.tags.join('|')}
+                  className="flex flex-wrap items-center gap-2 text-xs"
+                >
+                  <span className="min-w-0 flex-1 truncate text-[var(--text-secondary)]">
+                    {suggestion.tags.join(' / ')} →{' '}
+                    <span className="font-medium text-[var(--text-primary)]">
+                      {suggestion.target}
+                    </span>
+                    <span className="ml-1 text-[var(--text-tertiary)]">
+                      {suggestion.reason === 'case'
+                        ? t.memories.reasonCase
+                        : suggestion.reason === 'spacing'
+                          ? t.memories.reasonSpacing
+                          : t.memories.reasonPlural}
+                    </span>
+                  </span>
+                  <button
+                    type="button"
+                    disabled={loading}
+                    onClick={() => handleSuggestionMerge(suggestion)}
+                    className="shrink-0 rounded-md border border-warning/40 px-2 py-0.5 font-medium text-warning-fg transition-colors hover:bg-warning/15 disabled:opacity-50"
+                  >
+                    {t.memories.applyMerge}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
           <div className="flex gap-2">
             <button
               onClick={() => setMode('rename')}

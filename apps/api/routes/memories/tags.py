@@ -31,7 +31,7 @@ async def list_tags(
     ),
     _identity: Annotated[AgentIdentity | None, Depends(get_current_agent)] = None,
 ) -> dict[str, Any]:
-    """列出 workspace 下所有标签及使用计数（默认含归档等全部状态）。"""
+    """列出 workspace 下所有标签及使用计数（默认含全部状态）。"""
     resolved_ws_id = await resolve_workspace(workspace_id, db) if workspace_id else None
 
     stmt = select(Memory.tags)
@@ -160,7 +160,7 @@ async def delete_tag(
     workspace_id: str | None = Query(None, min_length=1),
     _identity: Annotated[AgentIdentity | None, Depends(get_current_agent)] = None,
 ) -> dict[str, Any]:
-    """从所有记忆（含归档等全部状态）中删除指定标签。"""
+    """从所有记忆（含全部状态）中删除指定标签。"""
     tag = tag_name.strip().lower()
     if not tag:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "标签名不能为空")

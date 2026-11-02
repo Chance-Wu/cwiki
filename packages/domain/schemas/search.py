@@ -52,7 +52,15 @@ class SearchResult(BaseModel):
     tags: list[str] = Field(default_factory=list)
     version: int = 1
     score: float | None = Field(default=None, description="Similarity score")
-    confidence: float | None = Field(default=None, description="Memory confidence (0-1)")
+    confidence: float | None = Field(
+        default=None,
+        description="Memory confidence (0-1); MCP writes default to 0.5 as a prior, not a measured score",
+    )
+    source: str = Field(default="mcp", description="Source channel of the memory")
+    updated_at: str | None = Field(default=None, description="Last update timestamp (ISO 8601)")
+    evidence_count: int = Field(
+        default=0, description="Number of attached provenance evidence rows"
+    )
     valid_to: str | None = Field(default=None, description="Expiry timestamp (ISO 8601)")
     is_stale: bool = Field(default=False, description="Whether the memory has expired")
 
@@ -105,7 +113,23 @@ class ContextItem(BaseModel):
     version: int | None = None
     score: float | None = Field(default=None, description="Relevance score")
     source: str = "memory"
+    confidence: float | None = Field(default=None, description="Memory confidence (0-1)")
+    updated_at: str | None = Field(default=None, description="Last update timestamp (ISO 8601)")
+    evidence_count: int = Field(default=0, description="Attached provenance evidence rows")
     metadata: dict[str, Any] | None = None
+
+
+class ContextCitation(BaseModel):
+    """上下文条目的结构化引用，供 Agent 原样引用来源。"""
+
+    memory_id: UUID
+    title: str
+    source: str = "memory"
+    version: int | None = None
+    updated_at: str | None = None
+    confidence: float | None = None
+    evidence_count: int = 0
+    score: float | None = None
 
 
 class ContextResponse(BaseModel):
@@ -114,6 +138,7 @@ class ContextResponse(BaseModel):
     context: str = ""
     items: list[ContextItem] = Field(default_factory=list)
     sources: list[str] = Field(default_factory=list)
+    citations: list[ContextCitation] = Field(default_factory=list)
     total: int = 0
     keyword: str | None = None
     latency_ms: int = 0

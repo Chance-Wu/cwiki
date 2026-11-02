@@ -36,22 +36,16 @@ from packages.domain.config import settings
 from packages.domain.models import (
     AgentSession,
     CandidateMemory,
-    Evidence,
     Memory,
-    MemoryConflict,
-    MemoryFeedback,
-    MemoryLifecycleEvent,
-    MemoryRelation,
-    MemoryUsage,
-    MemoryVersion,
     Review,
-    ReviewHistory,
-    ReviewSchedule,
     SessionNote,
     Workspace,
 )
 from packages.storage import config as storage_config
+from packages.storage.export_state import record_export
 from packages.storage.file_store import FileStore, MemoryFile
+from packages.storage.meta_export import collect_memory_relations
+from packages.storage.meta_export import serialize_row as _serialize_row
 from packages.storage.meta_store import MetaStore
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
@@ -143,20 +137,6 @@ def _memory_to_file(mem: Memory, workspace_name: str) -> MemoryFile:
         is_permanent=mem.is_permanent,
         metadata=mem.metadata_,
     )
-
-
-def _serialize_row(row: Any, fields: list[str]) -> dict[str, Any]:
-    """把 SQLAlchemy 行序列化为普通 dict，UUID/日期转为字符串。"""
-    result: dict[str, Any] = {}
-    for f in fields:
-        val = getattr(row, f, None)
-        if isinstance(val, uuid.UUID):
-            result[f] = str(val)
-        elif isinstance(val, datetime):
-            result[f] = val.isoformat()
-        else:
-            result[f] = val
-    return result
 
 
 # ---------------------------------------------------------------------------
@@ -262,7 +242,7 @@ async def export_all(db_url: str, data_dir: str) -> dict[str, int]:
 
             # 2b. 查询关联表并写 _meta JSON。
             try:
-                relations = await _collect_relations(session, mem.id)
+                relations = await collect_memory_relations(session, mem.id)
                 meta_store.export_memory(str(mem.id), relations)
                 stats["meta_count"] += 1
             except Exception:
@@ -301,6 +281,10 @@ async def export_all(db_url: str, data_dir: str) -> dict[str, int]:
     print_message(f"  Capture notes:       {stats['capture_note_count']}")
     print_message(f"  Orphan _meta removed: {stats['orphan_meta_deleted']}")
     print_message(f"  Errors:              {stats['errors']}")
+
+    # 供 API 启动时判断是否需要立即补导出；有错误时不记录，让下次启动重试
+    if stats["errors"] == 0:
+        record_export()
 
     return stats
 
@@ -398,245 +382,6 @@ async def _export_capture(
     meta_store.export_capture(payload)
     stats["capture_session_count"] = len(payload["sessions"])
     stats["capture_note_count"] = len(payload["notes"])
-
-
-async def _collect_relations(session: AsyncSession, memory_id: uuid.UUID) -> dict[str, Any]:
-    """查询单条记忆在全部关联表中的行，返回 dict。"""
-    relations: dict[str, Any] = {}
-
-    # feedback（反馈）
-    rows = (
-        (await session.execute(select(MemoryFeedback).where(MemoryFeedback.memory_id == memory_id)))
-        .scalars()
-        .all()
-    )
-    relations["feedback"] = [
-        _serialize_row(
-            r,
-            [
-                "id",
-                "workspace_id",
-                "memory_id",
-                "feedback_type",
-                "source_type",
-                "source_id",
-                "reason",
-                "created_at",
-            ],
-        )
-        for r in rows
-    ]
-
-    # usage（使用记录）
-    rows = (
-        (await session.execute(select(MemoryUsage).where(MemoryUsage.memory_id == memory_id)))
-        .scalars()
-        .all()
-    )
-    relations["usage"] = [
-        _serialize_row(
-            r,
-            [
-                "id",
-                "workspace_id",
-                "memory_id",
-                "trace_id",
-                "session_id",
-                "position",
-                "stage",
-                "created_at",
-            ],
-        )
-        for r in rows
-    ]
-
-    # conflict（冲突）
-    rows = (
-        (await session.execute(select(MemoryConflict).where(MemoryConflict.memory_id == memory_id)))
-        .scalars()
-        .all()
-    )
-    relations["conflict"] = [
-        _serialize_row(
-            r,
-            [
-                "id",
-                "workspace_id",
-                "memory_id",
-                "candidate_id",
-                "conflict_type",
-                "description",
-                "evidence",
-                "status",
-                "resolution",
-                "created_at",
-                "resolved_at",
-            ],
-        )
-        for r in rows
-    ]
-
-    # review_schedule（复习计划，1:1）
-    row = (
-        await session.execute(select(ReviewSchedule).where(ReviewSchedule.memory_id == memory_id))
-    ).scalar_one_or_none()
-    if row:
-        relations["review_schedule"] = _serialize_row(
-            row,
-            [
-                "id",
-                "workspace_id",
-                "memory_id",
-                "ease_factor",
-                "interval_days",
-                "repetitions",
-                "next_review",
-                "last_review",
-                "total_reviews",
-                "created_at",
-                "updated_at",
-            ],
-        )
-    else:
-        relations["review_schedule"] = {}
-
-    # relation（作为 source 或 target 的关联）
-    rows = (
-        (
-            await session.execute(
-                select(MemoryRelation).where(
-                    (MemoryRelation.source_memory_id == memory_id)
-                    | (MemoryRelation.target_memory_id == memory_id)
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
-    relations["relation"] = [
-        _serialize_row(
-            r,
-            [
-                "id",
-                "source_memory_id",
-                "target_memory_id",
-                "relation_type",
-                "confidence",
-                "created_at",
-            ],
-        )
-        for r in rows
-    ]
-
-    # lifecycle_event（生命周期事件）
-    rows = (
-        (
-            await session.execute(
-                select(MemoryLifecycleEvent).where(MemoryLifecycleEvent.memory_id == memory_id)
-            )
-        )
-        .scalars()
-        .all()
-    )
-    relations["lifecycle_event"] = [
-        _serialize_row(
-            r,
-            ["id", "memory_id", "event_type", "metadata_json", "created_at"],
-        )
-        for r in rows
-    ]
-
-    # evidence（证据）
-    rows = (
-        (await session.execute(select(Evidence).where(Evidence.memory_id == memory_id)))
-        .scalars()
-        .all()
-    )
-    relations["evidence"] = [
-        _serialize_row(
-            r,
-            [
-                "id",
-                "memory_id",
-                "candidate_id",
-                "episode_id",
-                "event_id",
-                "source_type",
-                "source_ref",
-                "content",
-                "metadata",
-                "created_at",
-            ],
-        )
-        for r in rows
-    ]
-
-    # versions（版本快照）—— 按 version 降序截断到 meta_version_limit 条：
-    # 保留最新、丢弃最旧，既控制 _meta JSON 体积，也保住最常被回溯的
-    # 近期版本链。序列化时恢复升序，文件内版本链由旧到新便于阅读。
-    limit = storage_config.meta_version_limit
-    rows = (
-        (
-            await session.execute(
-                select(MemoryVersion)
-                .where(MemoryVersion.memory_id == memory_id)
-                .order_by(MemoryVersion.version.desc())
-            )
-        )
-        .scalars()
-        .all()
-    )
-    relations["versions"] = [
-        _serialize_row(
-            r,
-            [
-                "id",
-                "memory_id",
-                "version",
-                "title",
-                "content",
-                "change_type",
-                "changed_by_type",
-                "changed_by_id",
-                "reason",
-                "created_at",
-            ],
-        )
-        for r in reversed(rows[:limit])
-    ]
-
-    # review_history（复习事件史）—— 全量导出，行数通常很小。
-    rows = (
-        (await session.execute(select(ReviewHistory).where(ReviewHistory.memory_id == memory_id)))
-        .scalars()
-        .all()
-    )
-    relations["review_history"] = [
-        _serialize_row(
-            r,
-            [
-                "id",
-                "workspace_id",
-                "memory_id",
-                "quality",
-                "ease_factor_before",
-                "interval_before",
-                "repetitions_before",
-                "next_review_before",
-                "mastery_level_before",
-                "ease_factor_after",
-                "interval_after",
-                "repetitions_after",
-                "next_review_after",
-                "mastery_level_after",
-                "reviewed_at",
-                "created_at",
-            ],
-        )
-        for r in rows
-    ]
-
-    return relations
 
 
 # ---------------------------------------------------------------------------

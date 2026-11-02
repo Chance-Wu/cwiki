@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import func, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import set_committed_value
 
@@ -26,6 +27,7 @@ from packages.domain.types import TYPE_DEFINITIONS, validate_memory_content, val
 from packages.memory.content_security import validate_safe_content
 from packages.memory.duplicate_detection import batch_detect_duplicates_with_embedding
 from packages.memory.entity_extractor import extract_entities
+from packages.memory.evidence import attach_candidate_evidence
 from packages.memory.quality_gate import check_exclusion_list, compute_quality_gate
 from packages.memory.review_service import get_review_service
 
@@ -93,6 +95,32 @@ class CandidateStateError(AppError):
 
     def __init__(self, message: str) -> None:
         super().__init__("candidate_state_conflict", message, status_code=409)
+
+
+class DuplicateMemoryError(AppError):
+    """审批时发现与已有记忆重复；携带目标信息供调用方改为合并/更新。"""
+
+    def __init__(self, similar: SimilarItem) -> None:
+        self.similar = similar
+        self.memory_id = str(similar.id)
+        self.memory_title = similar.title
+        self.similarity = similar.similarity
+        self.source = similar.source
+        label = "待审候选" if similar.source == "candidate" else "已有记忆"
+        super().__init__(
+            "duplicate_memory",
+            f"候选内容与{label}「{similar.title}」重复"
+            f"（相似度 {similar.similarity:.0%}），请使用合并/更新，而不是批准为新记忆。",
+            status_code=409,
+            extra={
+                "duplicate": {
+                    "memory_id": str(similar.id),
+                    "title": similar.title,
+                    "source": similar.source,
+                    "similarity": round(similar.similarity, 4),
+                }
+            },
+        )
 
 
 async def snapshot_and_advance(
@@ -196,7 +224,7 @@ def _has_token_overlap(text_a: str, text_b: str) -> bool:
 
 async def _find_similar_in_batch(
     rows: list[Any],
-    candidate_dict: dict[str, str],
+    candidate_dict: dict[str, Any],
     combined_text: str,
     source: str,
 ) -> tuple[list[SimilarItem], float | None]:
@@ -240,22 +268,24 @@ async def _find_similar_at_submit(
     title: str,
     content: str,
     limit: int = 3,
+    *,
+    embedding: list[float] | None = None,
+    include_candidates: bool = True,
 ) -> tuple[list[SimilarItem], float | None]:
-    """提交时查找相似的已有记忆与待审候选。
+    """查找相似的已有记忆与（可选）待审候选。
 
     扫描范围由 memory.submit_dedup_scan_limit 控制；默认同工作区，
     memory.submit_dedup_cross_workspace=true 时跨全部工作区比对。
     正文取全文（不再截断）——词面预筛已能跳过大部分无关项。
+    ``embedding`` 传入时复用候选已存储向量，避免审批时重复推理。
     """
     similar_items: list[SimilarItem] = []
     max_similarity: float | None = None
 
     scan_limit, cross_workspace = _submit_dedup_scope()
     memory_conditions = [Memory.status == "active"]
-    candidate_conditions = [CandidateMemory.status == "pending_review"]
     if not cross_workspace:
         memory_conditions.append(Memory.workspace_id == workspace_id)
-        candidate_conditions.append(CandidateMemory.workspace_id == workspace_id)
 
     memory_stmt = (
         select(
@@ -271,28 +301,35 @@ async def _find_similar_at_submit(
     memory_result = await db.execute(memory_stmt)
     memories = memory_result.all()
 
-    candidate_stmt = (
-        select(
-            CandidateMemory.id,
-            CandidateMemory.title,
-            CandidateMemory.content,
-            CandidateMemory.embedding,
-        )
-        .where(*candidate_conditions)
-        .order_by(CandidateMemory.created_at.desc())
-        .limit(scan_limit)
-    )
-    candidate_result = await db.execute(candidate_stmt)
-    candidates = candidate_result.all()
-
-    candidate_dict = {"title": title, "content": content}
+    candidate_dict: dict[str, Any] = {"title": title, "content": content}
+    if embedding is not None:
+        candidate_dict["embedding"] = list(embedding)
     combined_text = format_memory_for_embedding(title, content)
 
-    for rows, source in [(memories, "memory"), (candidates, "candidate")]:
+    branches: list[tuple[list[Any], str]] = [(list(memories), "memory")]
+    if include_candidates:
+        candidate_conditions = [CandidateMemory.status == "pending_review"]
+        if not cross_workspace:
+            candidate_conditions.append(CandidateMemory.workspace_id == workspace_id)
+        candidate_stmt = (
+            select(
+                CandidateMemory.id,
+                CandidateMemory.title,
+                CandidateMemory.content,
+                CandidateMemory.embedding,
+            )
+            .where(*candidate_conditions)
+            .order_by(CandidateMemory.created_at.desc())
+            .limit(scan_limit)
+        )
+        candidates = (await db.execute(candidate_stmt)).all()
+        branches.append((list(candidates), "candidate"))
+
+    for rows, source in branches:
         if not rows:
             continue
         items, branch_max = await _find_similar_in_batch(
-            list(rows), candidate_dict, combined_text, source
+            rows, candidate_dict, combined_text, source
         )
         similar_items.extend(items)
         if branch_max is not None and (max_similarity is None or branch_max > max_similarity):
@@ -300,6 +337,107 @@ async def _find_similar_at_submit(
 
     similar_items.sort(key=lambda x: x.similarity, reverse=True)
     return similar_items[:limit], max_similarity
+
+
+async def find_duplicate_for_approval(
+    db: AsyncSession,
+    workspace_id: uuid.UUID,
+    title: str,
+    content: str,
+    *,
+    embedding: list[float] | None = None,
+) -> SimilarItem | None:
+    """审批前重新查重：精确正文相等优先，其次按高阈值融合相似度拦截。
+
+    精确正文匹配不依赖 embedding 与扫描窗口，可兜住「提交时查重通过、
+    审批前又写入一条相同内容」以及历史窗口外的重复。
+    近重复使用 relation_merge_threshold（默认 0.95），避免模板相似但
+    事实不同的记忆被误拦。
+    """
+    normalized_content = normalize_memory_content(content)
+    exact_stmt = (
+        select(Memory.id, Memory.title)
+        .where(
+            Memory.workspace_id == workspace_id,
+            Memory.status == "active",
+            Memory.content == normalized_content,
+        )
+        .limit(1)
+    )
+    exact = (await db.execute(exact_stmt)).first()
+    if exact is not None:
+        return SimilarItem(
+            id=exact.id,
+            title=exact.title,
+            content_preview=normalized_content[:200],
+            similarity=1.0,
+            source="memory",
+        )
+
+    items, _ = await _find_similar_at_submit(
+        db,
+        workspace_id,
+        title,
+        normalized_content,
+        limit=1,
+        embedding=embedding,
+        include_candidates=False,
+    )
+    if items and items[0].similarity >= settings.relation_merge_threshold:
+        return items[0]
+    return None
+
+
+async def claim_candidate(
+    db: AsyncSession,
+    candidate: CandidateMemory,
+    to_status: str,
+) -> None:
+    """原子占用候选：仅 pending_review 可迁移，避免并发双批准。
+
+    直接对 DB 行做条件 UPDATE，不依赖此前读到的 ORM 状态；
+    失败抛 CandidateStateError，调用方事务回滚时状态不变。
+    """
+    result = await db.execute(
+        update(CandidateMemory)
+        .where(
+            CandidateMemory.id == candidate.id,
+            CandidateMemory.status == "pending_review",
+        )
+        .values(status=to_status)
+        .returning(CandidateMemory.id)
+        .execution_options(synchronize_session=False)
+    )
+    if result.scalar_one_or_none() is None:
+        raise CandidateStateError(
+            "Candidate is no longer pending_review; another review may have completed."
+        )
+    set_committed_value(candidate, "status", to_status)
+
+
+async def _ensure_no_exact_duplicate(db: AsyncSession, memory: Memory) -> None:
+    """插入后的竞态兜底：同 workspace 已有 active 同正文记忆则回滚。"""
+    stmt = (
+        select(Memory.id, Memory.title)
+        .where(
+            Memory.workspace_id == memory.workspace_id,
+            Memory.status == "active",
+            Memory.id != memory.id,
+            Memory.content == memory.content,
+        )
+        .limit(1)
+    )
+    row = (await db.execute(stmt)).first()
+    if row is not None:
+        raise DuplicateMemoryError(
+            SimilarItem(
+                id=row.id,
+                title=row.title,
+                content_preview=memory.content[:200],
+                similarity=1.0,
+                source="memory",
+            )
+        )
 
 
 async def _workspace_name_for_policy(db: AsyncSession, workspace_id: uuid.UUID) -> str:
@@ -503,23 +641,24 @@ async def create_candidate(
     candidate.quality_gate_reason = qg.reason
     candidate.review_priority = qg.review_priority
 
-    db.add(candidate)
     if client_write_id:
-        # 用 savepoint 包裹：唯一约束冲突只回滚本次插入，不影响外层事务
-        async with db.begin_nested():
-            try:
+        # 先将 INSERT 放入 savepoint，避免 add 后的隐式预 flush 绕过冲突隔离。
+        try:
+            async with db.begin_nested():
+                db.add(candidate)
                 await db.flush()
-            except Exception:
-                # begin_nested 上下文退出时已自动回滚 savepoint
-                existing_stmt = select(CandidateMemory).where(
-                    CandidateMemory.workspace_id == workspace_id,
-                    CandidateMemory.client_write_id == client_write_id,
-                )
-                existing = (await db.execute(existing_stmt)).scalar_one_or_none()
-                if existing is not None:
-                    return existing, [], False
-                raise
+        except IntegrityError:
+            # savepoint 退出后再查询；此时外层事务仍可继续，且只吞唯一约束竞态。
+            existing_stmt = select(CandidateMemory).where(
+                CandidateMemory.workspace_id == workspace_id,
+                CandidateMemory.client_write_id == client_write_id,
+            )
+            existing = (await db.execute(existing_stmt)).scalar_one_or_none()
+            if existing is not None:
+                return existing, [], False
+            raise
     else:
+        db.add(candidate)
         await db.flush()
     await db.refresh(candidate)
     return candidate, similar_items, True
@@ -532,12 +671,16 @@ async def approve_candidate(
     title: str | None = None,
     content: str | None = None,
     project_id: uuid.UUID | None = None,
+    embedding: list[float] | None = None,
+    duplicate_checked: bool = False,
 ) -> Memory:
     """批准候选并创建正式记忆。
 
-    可选的 title/content/project_id 覆盖候选原值。
-    仅 pending_review 可批准：approved/merged/rejected 等终态候选
-    重复转正会创建重复记忆（任务队列 at-least-once 重放的主要风险面）。
+    可选的 title/content/project_id 覆盖候选原值。审批前重新查重：
+    精确正文重复或融合相似度达到 relation_merge_threshold 时拒绝，
+    防止「提交时通过、审批前又写入相同内容」造成重复落库。
+    ``duplicate_checked=True`` 用于调用方已完成同一份查重（auto-approve）。
+    仅 pending_review 可批准：原子条件 UPDATE 保证并发下最多一次成功。
     """
     if candidate.status != "pending_review":
         raise CandidateStateError(
@@ -554,6 +697,20 @@ async def approve_candidate(
         raise ContentFormatError(str(exc)) from exc
     if candidate.type not in TYPE_DEFINITIONS:
         raise ContentFormatError(f"Invalid candidate type: {candidate.type}")
+
+    if not duplicate_checked:
+        duplicate = await find_duplicate_for_approval(
+            db,
+            candidate.workspace_id,
+            approved_title,
+            approved_content,
+            embedding=embedding,
+        )
+        if duplicate is not None:
+            raise DuplicateMemoryError(duplicate)
+
+    await claim_candidate(db, candidate, "approved")
+
     # or 0.5：候选缺省（0/None）的置信度/重要度回退为中性默认值
     memory = Memory(
         workspace_id=candidate.workspace_id,
@@ -571,9 +728,12 @@ async def approve_candidate(
         version=1,
     )
     db.add(memory)
-    candidate.status = "approved"
     await db.flush()
+    # 竞态兜底：并发审批可能在查重与插入之间写入同正文记忆
+    await _ensure_no_exact_duplicate(db, memory)
     await db.refresh(memory)
+    # 转正即建立来源证据：候选 episode 证据改挂到记忆，并写一条 provenance
+    await attach_candidate_evidence(db, candidate, memory, change_type="approval")
 
     await _maybe_extract_and_store_entities(db, memory, approved_title, approved_content)
 
@@ -592,13 +752,15 @@ async def approve_candidate(
 
 async def _finalize_merge(
     db: AsyncSession,
-    candidate: CandidateMemory,
     target_memory: Memory,
 ) -> Memory:
-    """合并后的公共收尾：清空 embedding、标记候选、flush。"""
+    """合并后的公共收尾：清空 embedding、flush。
+
+    候选状态由调用方在操作开始时通过 claim_candidate 原子迁移，
+    避免并发审批在同一候选上继续创建记忆。
+    """
     # 正文已变，旧向量失效，置空待重算
     target_memory.embedding = None
-    candidate.status = "merged"
     await db.flush()
     await db.refresh(target_memory)
     return target_memory
@@ -618,6 +780,7 @@ async def merge_candidate(
         validate_memory_content(merged_content)
     except ValueError as exc:
         raise ContentFormatError(str(exc)) from exc
+    await claim_candidate(db, candidate, "merged")
     await snapshot_and_advance(
         db,
         target_memory,
@@ -632,11 +795,12 @@ async def merge_candidate(
         if candidate.permanent_reason:
             target_memory.permanent_reason = candidate.permanent_reason
 
+    await attach_candidate_evidence(db, candidate, target_memory, change_type="merge")
     await _maybe_extract_and_store_entities(
         db, target_memory, target_memory.title, target_memory.content
     )
 
-    return await _finalize_merge(db, candidate, target_memory)
+    return await _finalize_merge(db, target_memory)
 
 
 async def update_candidate_into(
@@ -652,6 +816,7 @@ async def update_candidate_into(
         raise ContentFormatError("Cannot update across workspaces")
     validate_safe_content(candidate.title)
     validate_safe_content(candidate.content)
+    await claim_candidate(db, candidate, "merged")
     await snapshot_and_advance(
         db,
         target_memory,
@@ -662,8 +827,9 @@ async def update_candidate_into(
     target_memory.title = candidate.title
     target_memory.content = candidate.content
 
+    await attach_candidate_evidence(db, candidate, target_memory, change_type="update")
     await _maybe_extract_and_store_entities(
         db, target_memory, target_memory.title, target_memory.content
     )
 
-    return await _finalize_merge(db, candidate, target_memory)
+    return await _finalize_merge(db, target_memory)

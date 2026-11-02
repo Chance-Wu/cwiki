@@ -1,7 +1,22 @@
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { api } from '../lib/api'
 
-export type SearchMode = 'text' | 'semantic' | 'hybrid'
+export type SearchMode = 'auto' | 'text' | 'semantic' | 'hybrid'
+
+/**
+ * auto 模式的前端启发式：短词/带引号走关键词，自然语言问句走向量，其余混合检索。
+ * 纯前端判断，不增加后端参数。
+ */
+export function resolveSearchMode(query: string, mode: SearchMode): Exclude<SearchMode, 'auto'> {
+  if (mode !== 'auto') return mode
+  const trimmed = query.trim()
+  if (!trimmed) return 'hybrid'
+  if (/["“”]/.test(trimmed) || trimmed.length <= 6) return 'text'
+  if (/[?？]$/.test(trimmed) || /^(如何|为什么|怎么|什么是|怎样|能否|是否)/.test(trimmed)) {
+    return 'semantic'
+  }
+  return 'hybrid'
+}
 
 export interface SearchResult {
   id?: string
@@ -9,8 +24,13 @@ export interface SearchResult {
   content: string
   type: string
   tags?: string[]
+  version?: number
   score?: number | null
   similarity_score?: number | null
+  confidence?: number | null
+  source?: string
+  updated_at?: string | null
+  evidence_count?: number
 }
 
 export interface SearchResponse {
@@ -61,7 +81,8 @@ async function executeSearch(
   mode: SearchMode,
   opts: { memoryType?: string; tags?: string[]; limit: number; offset: number },
 ): Promise<SearchResponse> {
-  if (mode === 'semantic') {
+  const resolved = resolveSearchMode(query, mode)
+  if (resolved === 'semantic') {
     const data = await api.semanticSearch(query, 50)
     // semantic 端点的相似度字段为 similarity_score，归一化为 score 供结果行统一展示
     const results = filterByTags(filterByType(data.results || [], opts.memoryType), opts.tags).map(
@@ -72,7 +93,7 @@ async function executeSearch(
     )
     return { results, total: results.length }
   }
-  if (mode === 'hybrid') {
+  if (resolved === 'hybrid') {
     const wsId = await api.getDefaultWorkspaceId()
     if (!wsId) throw new Error('No workspace')
     const data = await api.hybridSearch(query, wsId, {
@@ -98,7 +119,7 @@ export function useSearch(
   const tags = opts?.tags?.length ? opts.tags : undefined
   const page = opts?.page ?? 1
   const pageSize = opts?.pageSize ?? 10
-  const serverPaginated = mode === 'hybrid'
+  const serverPaginated = resolveSearchMode(query, mode) === 'hybrid'
   return useQuery({
     // 前端分页模式下 page/pageSize 固定写入 0，保证同一查询只占一份缓存
     queryKey: [

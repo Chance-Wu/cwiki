@@ -1,9 +1,17 @@
 import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react'
 import { motion } from 'framer-motion'
-import { Folder, Maximize2, Network, ZoomIn, ZoomOut } from 'lucide-react'
+import { Download, Folder, Maximize2, Network, ZoomIn, ZoomOut } from 'lucide-react'
 import { useTranslation } from '../i18n/I18nProvider'
 import { api, type FileMemory } from '../lib/api'
 import { TYPE_HEX, typeLabel } from '../lib/labels'
+import {
+  clampGraphScale,
+  panGraphView,
+  pinchGraphView,
+  simulationFramesForNodes,
+  zoomGraphView,
+  type GraphView,
+} from '../lib/graphView'
 import { useWorkspacesList } from '../hooks/useMemories'
 import { Select } from '../components/ui/Select'
 import { Button } from '../components/ui/Button'
@@ -12,6 +20,7 @@ import PageTitle from '../components/PageTitle'
 import ErrorAlert from '../components/ErrorAlert'
 import LoadingWrapper from '../components/LoadingWrapper'
 import { CardSkeleton } from '../components/Skeleton'
+import { MEMORY_TYPES } from '../components/memories/MemoryItem'
 
 const MemoryDetailModal = lazy(() => import('../components/memory/MemoryDetailModal'))
 
@@ -23,6 +32,11 @@ interface GraphNode {
   importance: number
   degree: number
   is_isolated: boolean
+  mastery_level?: string | null
+  next_review?: string | null
+  lapse_streak?: number
+  leech?: boolean
+  suspended?: boolean
   x: number
   y: number
   vx: number
@@ -55,7 +69,17 @@ const RELATION_COLORS: Record<string, string> = {
   refines: '#3b82f6',
 }
 
-const SIM_FRAMES = 240
+const RELATION_TYPES = ['related', 'supports', 'contradicts', 'supersedes', 'refines']
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 const KICK_FRAMES = 60
 const SETTLE_FRAMES = 45
 const ENERGY_THRESHOLD = 0.35
@@ -63,8 +87,14 @@ const ENERGY_THRESHOLD = 0.35
 // 布局在世界坐标系中计算（中心固定），显示时通过视口变换缩放/平移
 const WORLD_CX = 600
 const WORLD_CY = 300
-const MIN_SCALE = 0.25
-const MAX_SCALE = 3
+
+const MASTERY_HEX: Record<string, string> = {
+  new: '#94a3b8',
+  learning: '#f43f5e',
+  familiar: '#f59e0b',
+  proficient: '#3b82f6',
+  mastered: '#22c55e',
+}
 
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max)
 
@@ -90,6 +120,12 @@ export default function GraphPage() {
   const relationLabels = g.relation as Record<string, string>
   const workspacesQuery = useWorkspacesList()
   const [workspaceFilter, setWorkspaceFilter] = useState('all')
+  const [limit, setLimit] = useState(200)
+  const [typeFilter, setTypeFilter] = useState('')
+  const [relationFilter, setRelationFilter] = useState('')
+  const [minDegree, setMinDegree] = useState(0)
+  const [colorMode, setColorMode] = useState<'type' | 'mastery'>('type')
+  const [retryKey, setRetryKey] = useState(0)
   const [canvasEl, setCanvasEl] = useState<HTMLCanvasElement | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const nodesRef = useRef<GraphNode[]>([])
@@ -105,9 +141,21 @@ export default function GraphPage() {
   const gridRef = useRef<{ w: number; h: number; path: Path2D } | null>(null)
   // 视口变换：屏幕 = 世界 * scale + (tx, ty)
   const viewRef = useRef({ scale: 1, tx: 0, ty: 0 })
-  const dragRef = useRef<{ x: number; y: number; tx: number; ty: number; moved: boolean } | null>(
-    null,
-  )
+  const colorModeRef = useRef<'type' | 'mastery'>('type')
+  const pointersRef = useRef<Map<number, { x: number; y: number }>>(new Map())
+  const pinchRef = useRef<{
+    startView: GraphView
+    startDistance: number
+    startMid: { x: number; y: number }
+  } | null>(null)
+  const dragRef = useRef<{
+    pointerId: number
+    x: number
+    y: number
+    tx: number
+    ty: number
+    moved: boolean
+  } | null>(null)
   const suppressClickRef = useRef(false)
   const userAdjustedRef = useRef(false)
   const fitRef = useRef<(() => void) | null>(null)
@@ -133,22 +181,46 @@ export default function GraphPage() {
     const fetchGraph = async () => {
       try {
         setLoading(true)
-        const data = await api.getKnowledgeGraph(workspaceId, 200)
+        const data = await api.getKnowledgeGraph(workspaceId, limit)
 
-        const count = data.nodes.length
+        // 前端过滤：类型 + 最小度数；边只保留两端仍在节点集内的关系
+        const filteredNodes = data.nodes.filter(
+          (n) => (!typeFilter || n.type === typeFilter) && n.degree >= minDegree,
+        )
+        const keepIds = new Set(filteredNodes.map((n) => n.id))
+        const filteredEdges = data.edges.filter(
+          (edge) =>
+            keepIds.has(edge.source) &&
+            keepIds.has(edge.target) &&
+            (!relationFilter || edge.type === relationFilter),
+        )
+
+        // 过滤可能移除部分边，节点度数需按剩余边重算，否则孤立点统计会失真
+        const degreeMap = new Map<string, number>()
+        for (const edge of filteredEdges) {
+          degreeMap.set(edge.source, (degreeMap.get(edge.source) ?? 0) + 1)
+          degreeMap.set(edge.target, (degreeMap.get(edge.target) ?? 0) + 1)
+        }
+
+        const count = filteredNodes.length
         // Golden-angle 散布，避免对称死板；按节点量放大初始半径防挤压
         const rx = Math.min(70 + count * 2.2, 430)
         const ry = Math.min(50 + count * 1.6, 215)
-        const initializedNodes: GraphNode[] = data.nodes.map((n, i) => ({
-          ...n,
-          x: 600 + Math.cos(i * 2.399963) * rx,
-          y: 300 + Math.sin(i * 2.399963) * ry,
-          vx: 0,
-          vy: 0,
-        }))
+        const initializedNodes: GraphNode[] = filteredNodes.map((n, i) => {
+          const degree = degreeMap.get(n.id) ?? 0
+          return {
+            ...n,
+            degree,
+            is_isolated: degree === 0,
+            x: 600 + Math.cos(i * 2.399963) * rx,
+            y: 300 + Math.sin(i * 2.399963) * ry,
+            vx: 0,
+            vy: 0,
+          }
+        })
 
         const neighbors = new Map<string, string[]>()
-        for (const edge of data.edges) {
+        for (const edge of filteredEdges) {
           const targets = neighbors.get(edge.source) ?? []
           targets.push(edge.target)
           neighbors.set(edge.source, targets)
@@ -158,7 +230,7 @@ export default function GraphPage() {
         }
 
         nodesRef.current = initializedNodes
-        edgesRef.current = data.edges
+        edgesRef.current = filteredEdges
         neighborsRef.current = neighbors
         frameCountRef.current = 0
         userAdjustedRef.current = false
@@ -166,10 +238,10 @@ export default function GraphPage() {
         setZoomPct(100)
 
         const isolated = initializedNodes.filter((n) => n.is_isolated).length
-        const avgDegree = count > 0 ? (data.edges.length * 2) / count : 0
+        const avgDegree = count > 0 ? (filteredEdges.length * 2) / count : 0
         setStats({
           total: count,
-          edges: data.edges.length,
+          edges: filteredEdges.length,
           isolated,
           avgDegree: avgDegree.toFixed(2),
           totalActive: data.total_active ?? count,
@@ -186,7 +258,52 @@ export default function GraphPage() {
     }
 
     fetchGraph()
-  }, [workspaceFilter])
+  }, [workspaceFilter, limit, typeFilter, relationFilter, minDegree, retryKey])
+
+  const exportGraphJson = useCallback(() => {
+    const payload = {
+      nodes: nodesRef.current.map((node) => ({
+        id: node.id,
+        title: node.title,
+        type: node.type,
+        confidence: node.confidence,
+        importance: node.importance,
+        degree: node.degree,
+        is_isolated: node.is_isolated,
+        mastery_level: node.mastery_level ?? null,
+        next_review: node.next_review ?? null,
+        leech: Boolean(node.leech),
+        suspended: Boolean(node.suspended),
+      })),
+      edges: edgesRef.current,
+    }
+    downloadBlob(
+      new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }),
+      `cwiki-graph-${new Date().toISOString().slice(0, 10)}.json`,
+    )
+  }, [])
+
+  const exportGraphPng = useCallback(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    // 画布本身透明；导出时补一层主题实色背景，避免图片在深/浅底上看不清
+    const output = document.createElement('canvas')
+    output.width = canvas.width
+    output.height = canvas.height
+    const ctx = output.getContext('2d')
+    if (!ctx) return
+    const background =
+      getComputedStyle(document.documentElement).getPropertyValue('--surface-card-solid').trim() ||
+      '#ffffff'
+    ctx.fillStyle = background
+    ctx.fillRect(0, 0, output.width, output.height)
+    ctx.drawImage(canvas, 0, 0)
+    output.toBlob((blob) => {
+      if (blob) {
+        downloadBlob(blob, `cwiki-graph-${new Date().toISOString().slice(0, 10)}.png`)
+      }
+    }, 'image/png')
+  }, [])
 
   const attachCanvas = useCallback((el: HTMLCanvasElement | null) => {
     canvasRef.current = el
@@ -335,7 +452,12 @@ export default function GraphPage() {
 
         ctx.beginPath()
         ctx.arc(node.x, node.y, r, 0, Math.PI * 2)
-        const fill = TYPE_HEX[node.type] || colors.edgeDefault
+        const fill =
+          colorModeRef.current === 'mastery'
+            ? node.mastery_level
+              ? MASTERY_HEX[node.mastery_level] || colors.edgeDefault
+              : colors.edgeDefault
+            : TYPE_HEX[node.type] || colors.edgeDefault
         ctx.fillStyle = fill
         ctx.globalAlpha = alpha
         if (isHighlighted) {
@@ -412,7 +534,7 @@ export default function GraphPage() {
     if (loading || error) return
     if (nodesRef.current.length === 0) return
     frameCountRef.current = 0
-    requestRedraw(SIM_FRAMES)
+    requestRedraw(simulationFramesForNodes(nodesRef.current.length))
     const timers = [4200, 6000].map((delay) =>
       window.setTimeout(() => {
         if (!userAdjustedRef.current) fitRef.current?.()
@@ -478,6 +600,11 @@ export default function GraphPage() {
     selectedRef.current = selectedNode
   }, [selectedNode])
 
+  useEffect(() => {
+    colorModeRef.current = colorMode
+    requestRedraw()
+  }, [colorMode, requestRedraw])
+
   // hover/选中变化时单帧重绘
   useEffect(() => {
     requestRedraw()
@@ -529,10 +656,9 @@ export default function GraphPage() {
     const height = Math.max(maxY - minY, 1)
     // 留白覆盖标签半宽（标题居中于节点上方/下方），避免边缘标签被裁
     const pad = 48
-    const scale = clamp(
-      Math.min((cssW - pad * 2) / width, (cssH - pad * 2) / height),
-      MIN_SCALE,
+    const scale = Math.min(
       1.6,
+      clampGraphScale(Math.min((cssW - pad * 2) / width, (cssH - pad * 2) / height)),
     )
     viewRef.current = {
       scale,
@@ -549,16 +675,13 @@ export default function GraphPage() {
       const canvas = canvasRef.current
       if (!canvas) return
       const view = viewRef.current
-      const next = clamp(view.scale * factor, MIN_SCALE, MAX_SCALE)
-      if (next === view.scale) return
       const cx = canvas.clientWidth / 2
       const cy = canvas.clientHeight / 2
-      const ratio = next / view.scale
-      view.tx = cx - (cx - view.tx) * ratio
-      view.ty = cy - (cy - view.ty) * ratio
-      view.scale = next
+      const nextView = zoomGraphView(view, view.scale * factor, cx, cy)
+      if (nextView.scale === view.scale) return
+      viewRef.current = nextView
       userAdjustedRef.current = true
-      setZoomPct(Math.round(next * 100))
+      setZoomPct(Math.round(nextView.scale * 100))
       requestRedraw()
     },
     [requestRedraw],
@@ -577,41 +700,123 @@ export default function GraphPage() {
       const x = e.clientX - rect.left
       const y = e.clientY - rect.top
       const view = viewRef.current
-      const next = clamp(view.scale * Math.exp(-e.deltaY * 0.0015), MIN_SCALE, MAX_SCALE)
-      if (next === view.scale) return
-      const ratio = next / view.scale
-      // 光标下的世界点保持不动
-      view.tx = x - (x - view.tx) * ratio
-      view.ty = y - (y - view.ty) * ratio
-      view.scale = next
+      const nextView = zoomGraphView(view, view.scale * Math.exp(-e.deltaY * 0.0015), x, y)
+      if (nextView.scale === view.scale) return
+      viewRef.current = nextView
       userAdjustedRef.current = true
-      setZoomPct(Math.round(next * 100))
+      setZoomPct(Math.round(nextView.scale * 100))
       requestRedraw()
     }
     canvasEl.addEventListener('wheel', onWheel, { passive: false })
     return () => canvasEl.removeEventListener('wheel', onWheel)
   }, [canvasEl, requestRedraw])
 
-  const handleMouseDown = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
-    const view = viewRef.current
-    dragRef.current = { x: e.clientX, y: e.clientY, tx: view.tx, ty: view.ty, moved: false }
+  const handlePointerDown = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+    e.currentTarget.setPointerCapture(e.pointerId)
+    pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+    suppressClickRef.current = false
+    if (pointersRef.current.size === 2) {
+      const [a, b] = Array.from(pointersRef.current.values())
+      const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
+      pinchRef.current = {
+        startView: { ...viewRef.current },
+        startDistance: Math.hypot(a.x - b.x, a.y - b.y),
+        startMid: mid,
+      }
+      dragRef.current = null
+      return
+    }
+    if (pointersRef.current.size === 1) {
+      const view = viewRef.current
+      dragRef.current = {
+        pointerId: e.pointerId,
+        x: e.clientX,
+        y: e.clientY,
+        tx: view.tx,
+        ty: view.ty,
+        moved: false,
+      }
+    }
   }, [])
 
-  const handleMouseUp = useCallback(() => {
-    if (dragRef.current?.moved) suppressClickRef.current = true
-    dragRef.current = null
+  const handlePointerUp = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+    pointersRef.current.delete(e.pointerId)
+    if (pointersRef.current.size < 2) pinchRef.current = null
+    if (dragRef.current?.pointerId === e.pointerId) {
+      if (dragRef.current.moved) suppressClickRef.current = true
+      dragRef.current = null
+    }
+    // 双指松开一指：用剩余指针重启拖拽，避免画面跳变
+    if (pointersRef.current.size === 1) {
+      const [pointerId, point] = Array.from(pointersRef.current.entries())[0]
+      const view = viewRef.current
+      dragRef.current = {
+        pointerId,
+        x: point.x,
+        y: point.y,
+        tx: view.tx,
+        ty: view.ty,
+        moved: true,
+      }
+    }
   }, [])
 
-  const handleMouseMove = useCallback(
-    (e: React.MouseEvent<HTMLCanvasElement>) => {
+  const handlePointerCancel = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+    pointersRef.current.delete(e.pointerId)
+    if (pointersRef.current.size < 2) pinchRef.current = null
+    if (dragRef.current?.pointerId === e.pointerId) dragRef.current = null
+    suppressClickRef.current = true
+  }, [])
+
+  const handlePointerLeave = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+    // 按住拖出画布时不结束拖拽（pointer capture 会继续收到 up）；
+    // 仅在没有按键时清理悬停/残留指针。
+    if (e.buttons !== 0) return
+    pointersRef.current.delete(e.pointerId)
+    if (dragRef.current?.pointerId === e.pointerId) dragRef.current = null
+    if (hoveredRef.current) {
+      hoveredRef.current = null
+      setHoveredNode(null)
+    }
+  }, [])
+
+  const handlePointerMove = useCallback(
+    (e: React.PointerEvent<HTMLCanvasElement>) => {
+      if (!pointersRef.current.has(e.pointerId)) return
+      pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+
+      if (pointersRef.current.size >= 2 && pinchRef.current) {
+        const [a, b] = Array.from(pointersRef.current.values())
+        const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
+        viewRef.current = pinchGraphView(
+          pinchRef.current.startView,
+          pinchRef.current.startDistance,
+          Math.hypot(a.x - b.x, a.y - b.y),
+          pinchRef.current.startMid,
+          mid,
+        )
+        suppressClickRef.current = true
+        userAdjustedRef.current = true
+        setZoomPct(Math.round(viewRef.current.scale * 100))
+        if (hoveredRef.current) {
+          hoveredRef.current = null
+          setHoveredNode(null)
+        }
+        requestRedraw()
+        return
+      }
+
       const drag = dragRef.current
-      if (drag) {
+      if (drag && drag.pointerId === e.pointerId) {
         const dx = e.clientX - drag.x
         const dy = e.clientY - drag.y
         if (!drag.moved && Math.hypot(dx, dy) > 3) drag.moved = true
         if (drag.moved) {
-          viewRef.current.tx = drag.tx + dx
-          viewRef.current.ty = drag.ty + dy
+          viewRef.current = panGraphView(
+            { scale: viewRef.current.scale, tx: drag.tx, ty: drag.ty },
+            dx,
+            dy,
+          )
           userAdjustedRef.current = true
           if (hoveredRef.current) {
             hoveredRef.current = null
@@ -628,6 +833,54 @@ export default function GraphPage() {
       }
     },
     [findNodeAt, requestRedraw],
+  )
+
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLCanvasElement>) => {
+      const canvas = canvasRef.current
+      if (!canvas) return
+      const view = viewRef.current
+      let nextView: GraphView | null = null
+      if (e.key === '+' || e.key === '=') {
+        nextView = zoomGraphView(
+          view,
+          view.scale * 1.2,
+          canvas.clientWidth / 2,
+          canvas.clientHeight / 2,
+        )
+      } else if (e.key === '-' || e.key === '_') {
+        nextView = zoomGraphView(
+          view,
+          view.scale / 1.2,
+          canvas.clientWidth / 2,
+          canvas.clientHeight / 2,
+        )
+      } else if (e.key === 'ArrowLeft') {
+        nextView = panGraphView(view, 32, 0)
+      } else if (e.key === 'ArrowRight') {
+        nextView = panGraphView(view, -32, 0)
+      } else if (e.key === 'ArrowUp') {
+        nextView = panGraphView(view, 0, 32)
+      } else if (e.key === 'ArrowDown') {
+        nextView = panGraphView(view, 0, -32)
+      } else if (e.key === '0') {
+        e.preventDefault()
+        fitToContent()
+        return
+      } else if (e.key === 'Escape') {
+        e.preventDefault()
+        setSelectedNode(null)
+        return
+      }
+      if (nextView) {
+        e.preventDefault()
+        viewRef.current = nextView
+        userAdjustedRef.current = true
+        setZoomPct(Math.round(nextView.scale * 100))
+        requestRedraw()
+      }
+    },
+    [fitToContent, requestRedraw],
   )
 
   const handleClick = useCallback(
@@ -657,6 +910,26 @@ export default function GraphPage() {
     [findNodeAt],
   )
 
+  const graphLimitOptions = [
+    { value: '200', label: '200' },
+    { value: '500', label: '500' },
+    { value: '1000', label: '1000' },
+  ]
+  const graphTypeOptions = [
+    { value: '', label: t.inbox.typeAll },
+    ...MEMORY_TYPES.map((type) => ({ value: type, label: typeLabel(t.common, type) })),
+  ]
+  const graphRelationOptions = [
+    { value: '', label: g.allRelations },
+    ...RELATION_TYPES.map((type) => ({ value: type, label: relationLabels[type] ?? type })),
+  ]
+  const graphDegreeOptions = [
+    { value: '0', label: g.degreeAll },
+    { value: '1', label: '≥1' },
+    { value: '2', label: '≥2' },
+    { value: '3', label: '≥3' },
+  ]
+
   return (
     <PageShell
       maxWidth="max-w-7xl"
@@ -680,10 +953,72 @@ export default function GraphPage() {
       }
     >
       {error ? (
-        <ErrorAlert message={g.loadFailed} onRetry={() => window.location.reload()} />
+        <ErrorAlert message={g.loadFailed} onRetry={() => setRetryKey((key) => key + 1)} />
       ) : (
         <LoadingWrapper loading={loading} skeleton={<CardSkeleton cols={1} />}>
           <div className="space-y-4">
+            {/* 过滤与导出 */}
+            <div className="flex flex-wrap items-center gap-2">
+              <Select
+                options={graphLimitOptions}
+                value={String(limit)}
+                onChange={(v) => setLimit(Number(v))}
+                placeholder={g.nodeLimit}
+              />
+              <Select
+                options={graphTypeOptions}
+                value={typeFilter}
+                onChange={setTypeFilter}
+                placeholder={g.filterType}
+              />
+              <Select
+                options={graphRelationOptions}
+                value={relationFilter}
+                onChange={setRelationFilter}
+                placeholder={g.filterRelation}
+              />
+              <Select
+                options={graphDegreeOptions}
+                value={String(minDegree)}
+                onChange={(v) => setMinDegree(Number(v))}
+                placeholder={g.minDegree}
+              />
+              <Select
+                options={[
+                  { value: 'type', label: g.colorByType },
+                  { value: 'mastery', label: g.colorByMastery },
+                ]}
+                value={colorMode}
+                onChange={(v) => setColorMode(v as 'type' | 'mastery')}
+                placeholder={g.colorMode}
+              />
+              <div className="flex-1" />
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={exportGraphJson}
+                disabled={stats.total === 0}
+              >
+                <Download size={14} className="mr-1" aria-hidden="true" />
+                {g.exportJson}
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={exportGraphPng}
+                disabled={stats.total === 0}
+              >
+                <Download size={14} className="mr-1" aria-hidden="true" />
+                {g.exportPng}
+              </Button>
+            </div>
+
+            {stats.total > 500 && (
+              <p className="rounded-lg border border-warning/30 bg-warning/5 px-3 py-2 text-xs text-warning-fg">
+                {g.perfHint.replace('{n}', String(stats.total))}
+              </p>
+            )}
+
             {/* Stats */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               {[
@@ -719,11 +1054,16 @@ export default function GraphPage() {
             <div className="glass-card rounded-2xl p-4 relative overflow-hidden">
               <canvas
                 ref={attachCanvas}
-                className="w-full h-[600px] cursor-grab active:cursor-grabbing block"
-                onMouseMove={handleMouseMove}
-                onMouseDown={handleMouseDown}
-                onMouseUp={handleMouseUp}
-                onMouseLeave={handleMouseUp}
+                className="w-full h-[60vh] min-h-[360px] max-h-[720px] cursor-grab active:cursor-grabbing block touch-none rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-brand-500/60"
+                tabIndex={0}
+                role="application"
+                aria-label={g.canvasAria}
+                onPointerDown={handlePointerDown}
+                onPointerMove={handlePointerMove}
+                onPointerUp={handlePointerUp}
+                onPointerCancel={handlePointerCancel}
+                onPointerLeave={handlePointerLeave}
+                onKeyDown={handleKeyDown}
                 onClick={handleClick}
               />
               {/* 视口控制：缩放 / 适配全部 */}
@@ -761,8 +1101,23 @@ export default function GraphPage() {
                   </Button>
                 </div>
               )}
+              {colorMode === 'mastery' && stats.total > 0 && (
+                <div className="absolute bottom-4 left-4 flex max-w-[70%] flex-wrap items-center gap-x-2.5 gap-y-1 rounded-lg border border-[var(--border-default)] bg-[var(--surface-elevated)]/90 px-2.5 py-1.5 text-[10px] text-[var(--text-tertiary)] shadow-warm-sm backdrop-blur-sm">
+                  {Object.entries(MASTERY_HEX).map(([level, color]) => (
+                    <span key={level} className="inline-flex items-center gap-1">
+                      <span
+                        className="inline-block h-2 w-2 rounded-full"
+                        style={{ backgroundColor: color }}
+                        aria-hidden="true"
+                      />
+                      {(t.review as Record<string, string>)[`mastery_${level}`] ?? level}
+                    </span>
+                  ))}
+                </div>
+              )}
               <div className="absolute top-4 left-4 text-[11px] text-[var(--text-tertiary)] pointer-events-none select-none">
                 {g.dragHint}
+                <span className="block">{g.keyboardHint}</span>
               </div>
               {stats.total === 0 && (
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none">

@@ -17,16 +17,20 @@ TEST_DB_URL = "sqlite+aiosqlite:///:memory:"
 
 @pytest.fixture(scope="session", autouse=True)
 def _isolate_global_task_queue(tmp_path_factory):
-    """全局任务队列落盘到临时目录，避免测试任务写进真机 ~/.cwiki/state。"""
+    """全局任务队列与导出状态落盘到临时目录，避免写进真机 ~/.cwiki/state。"""
     from packages.domain import task_queue as task_queue_module
+    from packages.storage import export_state as export_state_module
 
     queue = task_queue_module.queue
     queue._persist_path = tmp_path_factory.mktemp("task-queue") / "task_queue.json"
     queue._tasks.clear()
     queue._pending_keys.clear()
+    original_state_path = export_state_module._STATE_PATH
+    export_state_module._STATE_PATH = tmp_path_factory.mktemp("export-state") / "meta_export.json"
     yield
     queue._tasks.clear()
     queue._pending_keys.clear()
+    export_state_module._STATE_PATH = original_state_path
 
 
 @pytest_asyncio.fixture(scope="session", loop_scope="session")

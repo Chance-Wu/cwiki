@@ -1,55 +1,55 @@
 # cwiki-qoder
 
-Qoder plugin for cwiki - persistent memory infrastructure for AI agents.
+cwiki 的 Qoder 插件——为 AI Agent 提供持久记忆基础设施。
 
-## What it does
+## 功能
 
-cwiki-qoder integrates cwiki into the Qoder agent lifecycle:
+cwiki-qoder 将 cwiki 集成进 Qoder 的 Agent 生命周期：
 
-- **Auto recall** - `UserPromptSubmit` reads the local SQLite index and injects a small, bounded memory context; it only calls the API when the local DB is unreadable
-- **Capture** - `PostCompact` stores the host summary, `PostToolUseFailure` stores redacted failures, and `SessionEnd` closes the agent session; transient network/DNS/timeout errors and tool-protocol misuse are dropped before entering the inbox, while build/test/business failures are kept
-- **Human review** - Captured notes are organized into candidates and go through approval before becoming verified knowledge
-- **Local-first reads** - `memory_search` returns a strong local BM25 hit without calling the API; weak/empty local hits fall through to hybrid retrieval, and connection failures or 5xx degrade back to local. `semantic` stays API-first. Only writes always require the API
+- **自动召回** — `UserPromptSubmit` 读取本地 SQLite 索引，注入一小段有界记忆上下文；仅在本地 DB 不可读时才调用 API
+- **捕获** — `PostCompact` 保存宿主摘要，`PostToolUseFailure` 保存脱敏后的失败信息，`SessionEnd` 关闭 Agent 会话；瞬时的网络/DNS/超时错误与工具协议误用会在进入收件箱前被丢弃，构建/测试/业务失败则保留
+- **人工审核** — 捕获的笔记整理为候选，经审批后成为已验证知识
+- **本地优先读取** — `memory_search` 命中强本地 BM25 结果时直接返回，不调用 API；本地弱命中/空命中回落到混合检索，连接失败或 5xx 时降级回本地。`semantic` 始终 API 优先。仅写入必须依赖 API
 
-## Installation
+## 安装
 
-1. From the repository root, run the setup script:
+1. 在仓库根目录运行安装脚本：
 
 ```sh
 python scripts/setup.py
 ```
 
-This installs the local plugin via `qodercli plugins install` (auto-run when the plugin cache is missing), refreshes cached plugin content (skills, commands, manifest) from source, patches the cached `.mcp.json` and `hooks/hooks.json` with the current venv python and project root, enables `cwiki-qoder@local` in `~/.qoder/settings.json` (so hooks take effect, cleaning stale bare/marketplace keys), injects a fallback cwiki entry into the global `~/.qoder/mcp.json`, syncs `AGENTS.md` and installs the `cwiki-save` skill. Hooks and MCP both use `python -m` module mode with `PYTHONPATH` pointing to the project root, avoiding `pip install -e .` generated executables that can be damaged by file encryption software.
+脚本会通过 `qodercli plugins install` 安装本地插件（插件缓存缺失时自动执行），从源码刷新缓存的插件内容（skills、commands、manifest），用当前 venv 的 python 与项目根路径修补缓存中的 `.mcp.json` 和 `hooks/hooks.json`，在 `~/.qoder/settings.json` 中启用 `cwiki-qoder@local`（使 hooks 生效，并清理过时的裸键/市场键），向全局 `~/.qoder/mcp.json` 注入 cwiki 兜底条目，同步 `AGENTS.md` 并安装 `cwiki-save` skill。Hooks 与 MCP 均使用 `python -m` 模块方式，`PYTHONPATH` 指向项目根，避免 `pip install -e .` 生成的可执行文件被文件加密软件破坏。
 
-The plugin workflow requires the Qoder CLI (`brew install qoderai/qoder/qodercli` or `npm install -g @qoder-ai/qodercli`). Without it, setup warns and the plugin MCP/hooks stay inactive, while the global `mcp.json` fallback still provides MCP. Restart Qoder after installation: plugin configs (MCP servers and hooks) are only read at host startup, and failed state is cached until restart.
+该插件工作流依赖 Qoder CLI（`brew install qoderai/qoder/qodercli` 或 `npm install -g @qoder-ai/qodercli`）。缺少 CLI 时脚本会告警，插件 MCP/hooks 保持不生效，但全局 `mcp.json` 兜底仍可提供 MCP。安装后需重启 Qoder：插件配置（MCP 服务器与 hooks）只在宿主启动时读取，失败状态会缓存至重启。
 
-Alternatively, manually load `adapters/qoder` using Qoder's plugin workflow. `hooks/hooks.json` is generated from the `qoder` HostProfile (checked by tests), not an installed global setting; `setup.py` regenerates the cache copy with absolute interpreter paths. Install/load `cwiki-save` separately and verify the host actually loaded the current skill, plugin and MCP tool schemas; reload/reconnect or start a new session as needed.
+也可以改用 Qoder 的插件工作流手动加载 `adapters/qoder`。`hooks/hooks.json` 由 `qoder` HostProfile 生成（有测试校验），并非已安装的全局设置；`setup.py` 会用绝对解释器路径重新生成缓存副本。`cwiki-save` 需单独安装/加载，并确认宿主确实加载了当前 skill、插件与 MCP 工具 schema；必要时重新加载/重连或新开会话。
 
-2. For MCP tools, start the API in a separate terminal from the repository root:
+2. 使用 MCP 工具时，在仓库根目录另开终端启动 API：
 
 ```sh
 python tasks.py serve
 ```
 
-Hooks are fail-open: when the API is unavailable, capture records are written to a local spool and delivered on the next session-start/session-end/drain. Reads do not depend on the API: search and recall use a read-only SQLite index at `cwiki-data/cwiki.db` (`CWIKI_DB_PATH` overrides the path). A strong local BM25 hit is returned directly; weak hits fall through to hybrid retrieval, and API connection failures degrade to keyword-only ranking.
+Hooks 采用 fail-open：API 不可用时，捕获记录写入本地暂存（spool），在下次 session-start/session-end/drain 时投递。读取不依赖 API：搜索与召回使用 `cwiki-data/cwiki.db` 的只读 SQLite 索引（可用 `CWIKI_DB_PATH` 覆盖路径）。强本地 BM25 命中直接返回；弱命中回落到混合检索，API 连接失败时降级为纯关键词排序。
 
-## Hook protocol
+## Hook 协议
 
-Hooks use the host-neutral runtime in `adapters/hooks` and follow the [Qoder CLI hooks protocol](https://docs.qoder.com/cli/hooks). Each command reads one UTF-8 JSON object from stdin (≤1 MiB), validates the native `hook_event_name`, and exits 0 even on invalid input. Host differences (native event names, project env vars, recall mode, capture set, context shape) are declared in one `HostProfile` per host in `adapters/hooks/profiles.py`; adding a host means registering a single profile.
+Hooks 使用 `adapters/hooks` 中的宿主无关运行时，遵循 [Qoder CLI hooks 协议](https://docs.qoder.com/cli/hooks)。每个命令从 stdin 读取一个 UTF-8 JSON 对象（≤1 MiB），校验原生 `hook_event_name`，即使输入非法也以 0 退出。宿主差异（原生事件名、项目环境变量、召回模式、捕获集合、上下文结构）在 `adapters/hooks/profiles.py` 中以每宿主一个 `HostProfile` 声明；新增宿主只需注册一个 profile。
 
-| Command | Event | Behavior |
+| 命令 | 事件 | 行为 |
 |---|---|---|
-| `python -m adapters.hooks qoder session-start` | `SessionStart` | Reminder + must-save hint + always_inject head (local SQLite) + spool drain |
-| `python -m adapters.hooks qoder user-prompt-submit` | `UserPromptSubmit` | Local recall (≤3 memories, ≤1200 chars, no trace): SQLite BM25 first, API semantic fallback |
-| `python -m adapters.hooks qoder pre-tool-use` | `PreToolUse` (matcher `mcp_call\|mcp__.*`) | Deterministic workspace attribution: inject `workspace_name` from the call's session `cwd` via `updatedInput` (never overrides explicit params; not applied to `memory_search`) |
-| `python -m adapters.hooks qoder post-compact` | `PostCompact` | Store `compact_summary` as a full capture note |
-| `python -m adapters.hooks qoder post-tool-failure` | `PostToolUseFailure` | Store redacted failure (skip user interrupts) |
-| `python -m adapters.hooks qoder session-end` | `SessionEnd` | Close session, drain spool |
-| `python -m adapters.hooks qoder drain` | manual | Flush spool to `/v1/integrations/agent/capture` |
+| `python -m adapters.hooks qoder session-start` | `SessionStart` | 提醒 + 必须保存提示 + always_inject 头部（本地 SQLite）+ 暂存投递 |
+| `python -m adapters.hooks qoder user-prompt-submit` | `UserPromptSubmit` | 本地召回（≤3 条记忆、≤1200 字符、不留痕）：优先 SQLite BM25，回落 API 语义检索 |
+| `python -m adapters.hooks qoder pre-tool-use` | `PreToolUse`（匹配 `mcp_call\|mcp__.*`） | 确定性 workspace 归属：通过 `updatedInput` 从调用所在会话的 `cwd` 注入 `workspace_name`（不覆盖显式参数；不作用于 `memory_search`） |
+| `python -m adapters.hooks qoder post-compact` | `PostCompact` | 将 `compact_summary` 存为完整捕获笔记 |
+| `python -m adapters.hooks qoder post-tool-failure` | `PostToolUseFailure` | 保存脱敏后的失败信息（跳过用户中断） |
+| `python -m adapters.hooks qoder session-end` | `SessionEnd` | 关闭会话，投递暂存 |
+| `python -m adapters.hooks qoder drain` | 手动 | 将暂存刷入 `/v1/integrations/agent/capture` |
 
-No transcript is read by default; prompts are used only for local retrieval and are not written to logs or retrieval traces. `adapters/qoder/hooks.py` remains as a compatibility shim for older installed configs; new installs use `adapters/hooks`.
+默认不读取对话记录；prompt 仅用于本地检索，不写入日志或检索追踪。`adapters/qoder/hooks.py` 保留为旧安装配置的兼容垫片；新安装使用 `adapters/hooks`。
 
-## Configuration
+## 配置
 
 `config.yaml` 的 `agent_policy` 控制 Agent 侧策略：
 
@@ -77,64 +77,64 @@ agent_policy:
 
 写入决策（`write/skip/update`，优先级 skip > update > write）决定“是否写入/更新”；写入后的自动生效/人工审核/拒绝由 `memory.write_policy` 管理；命中结果随候选持久化，并在 `memory_save` 响应中以 `policy` / `decision` 字段回显。把一条记忆设为常驻：`memory_update(memory_id=..., is_permanent=true, permanent_reason="...")`。
 
-Environment variables:
+环境变量：
 
-| Variable | Default | Description |
+| 变量 | 默认值 | 说明 |
 |---|---|---|
-| `PYTHONPATH` | Project root | Set by hooks/MCP config so `python -m` can find project modules without `pip install -e .` |
-| `CWIKI_API_URL` | `http://127.0.0.1:5172` | cwiki API base URL（避免 Windows 下 localhost→`::1` 解析延迟） |
-| `CWIKI_WORKSPACE` | `default` | Default workspace name or UUID |
-| `CWIKI_TIMEOUT` | `10.0` | API request timeout in seconds |
+| `PYTHONPATH` | 项目根目录 | 由 hooks/MCP 配置设置，使 `python -m` 无需 `pip install -e .` 即可找到项目模块 |
+| `CWIKI_API_URL` | `http://127.0.0.1:5172` | cwiki API 基础地址（避免 Windows 下 localhost→`::1` 解析延迟） |
+| `CWIKI_WORKSPACE` | `default` | 默认 workspace 名称或 UUID |
+| `CWIKI_TIMEOUT` | `10.0` | API 请求超时（秒） |
 
-## Available commands
+## 可用命令
 
-| Command | Description |
+| 命令 | 说明 |
 |---|---|
-| `/memory-status` | Show cwiki integration status and stats |
-| `/memory-search <query>` | Search for relevant memories |
-| `/memory-review` | Review pending candidate memories |
-| `/memory-pin` | Mark a memory as permanent so it is injected at session start |
+| `/memory-status` | 查看 cwiki 集成状态与统计 |
+| `/memory-search <query>` | 搜索相关记忆 |
+| `/memory-review` | 审核待处理的候选记忆 |
+| `/memory-pin` | 将记忆标记为永久，会话开始时注入 |
 
-## MCP tools
+## MCP 工具
 
-19 tools:
+共 19 个工具：
 
-| Tool | Description |
+| 工具 | 说明 |
 |---|---|
-| `memory_search` | Search memories or retrieve curated context |
-| `memory_save` | Submit a memory candidate for human review (optional tags) |
-| `memory_status` | Show workspace statistics and outbox backlog |
-| `memory_tags` | List tags with usage counts, or filter memories by tags (AND logic) |
-| `memory_types` | View available memory types |
-| `memory_history` | View lifecycle events or content version history |
-| `memory_relations` | Query memory relationships |
-| `memory_relation_create` | Create a relationship between two memories |
-| `memory_relation_delete` | Delete a memory relationship |
-| `memory_update` | Update an existing memory (supports tags) |
-| `memory_feedback` | Mark a memory useful/not_useful/outdated/wrong |
-| `memory_forget` | Archive a wrong or unwanted memory (restorable) |
-| `memory_retry_failed` | Retry failed memory writes |
-| `memory_checkpoint` | Extract candidates from collected events/notes |
-| `memory_export` | Export workspace data |
-| `memory_import` | Import workspace data |
-| `memory_review_due` | Get memories due for review |
-| `memory_review_submit` | Submit review quality score |
-| `memory_review_stats` | Get review statistics and trends |
+| `memory_search` | 搜索记忆或获取精选上下文 |
+| `memory_save` | 提交记忆候选等待人工审核（可选标签） |
+| `memory_status` | 查看 workspace 统计与 outbox 积压 |
+| `memory_tags` | 列出标签及使用次数，或按标签过滤记忆（AND 逻辑） |
+| `memory_types` | 查看可用记忆类型 |
+| `memory_history` | 查看生命周期事件或内容版本历史 |
+| `memory_relations` | 查询记忆关系 |
+| `memory_relation_create` | 创建两条记忆之间的关系 |
+| `memory_relation_delete` | 删除记忆关系 |
+| `memory_update` | 更新已有记忆（支持标签） |
+| `memory_feedback` | 标记记忆为有用/无用/过时/错误 |
+| `memory_forget` | 物理删除错误或不需要的记忆（不可恢复） |
+| `memory_retry_failed` | 重试失败的记忆写入 |
+| `memory_checkpoint` | 从已采集的事件/笔记中提取候选 |
+| `memory_export` | 导出 workspace 数据 |
+| `memory_import` | 导入 workspace 数据 |
+| `memory_review_due` | 获取到期需复习的记忆 |
+| `memory_review_submit` | 提交复习质量评分 |
+| `memory_review_stats` | 获取复习统计与趋势 |
 
-- `memory_search` defaults to `curated=false`; only this mode uses `mode` (`hybrid` by default, or `semantic`) and `filters` (`type` for memory type, `min_confidence` for minimum confidence 0.0–1.0). `limit` defaults to 10 (1–100); regular search retains the backend limit range. Omitting `workspace_name` searches across all workspaces; pass it to scope recall to one workspace.
-- With `curated=true`, search returns the original `get_context` result, including `context`, `items` and optional `_hints`. `limit` replaces `max_items` and accepts 1–50; `max_tokens` is 100–20000 (default 5000), and the optional `project` context filter is preserved. `max_tokens` and `project` apply only to curated context. Curated context is always assembled per workspace: an omitted `workspace_name` falls back to the default workspace.
-- `memory_history` defaults to `view="lifecycle"`; `view="content"` returns stored content version history, not the current memory body. Its `limit` is 1–50 (default 10) and applies only to the content view.
-- Tool schemas are strict (`additionalProperties: false`): unknown parameter names are rejected. The workspace parameter is `workspace_name` (name or UUID), supported by `memory_search`, `memory_save`, `memory_checkpoint`, `memory_status`, `memory_tags`, `memory_export`, `memory_import`, `memory_review_due`, `memory_review_submit` and `memory_review_stats`; `memory_update`, `memory_types`, `memory_relations`, `memory_relation_create`, `memory_relation_delete`, `memory_history` and `memory_retry_failed` take no workspace parameter; `memory_feedback` and `memory_forget` accept `workspace_name` for scoping.
+- `memory_search` 默认 `curated=false`；仅该模式使用 `mode`（默认 `hybrid`，或 `semantic`）与 `filters`（`type` 指定记忆类型，`min_confidence` 指定最低置信度 0.0–1.0）。`limit` 默认 10（1–100）；普通搜索沿用后端上限范围。省略 `workspace_name` 时跨全部 workspace 搜索；传入则限定单个 workspace。
+- `curated=true` 时返回原始 `get_context` 结果，包含 `context`、`items` 与可选的 `_hints`。`limit` 取代 `max_items`，取值 1–50；`max_tokens` 为 100–20000（默认 5000），可选的 `project` 上下文过滤器保留。`max_tokens` 与 `project` 仅作用于 curated 上下文。Curated 上下文始终按 workspace 组装：省略 `workspace_name` 时回落到默认 workspace。
+- `memory_history` 默认 `view="lifecycle"`；`view="content"` 返回已存储的内容版本历史，而非当前记忆正文。其 `limit` 为 1–50（默认 10），仅作用于 content 视图。
+- 工具 schema 严格（`additionalProperties: false`）：未知参数名会被拒绝。workspace 参数为 `workspace_name`（名称或 UUID），由 `memory_search`、`memory_save`、`memory_checkpoint`、`memory_status`、`memory_tags`、`memory_export`、`memory_import`、`memory_review_due`、`memory_review_submit` 与 `memory_review_stats` 支持；`memory_update`、`memory_types`、`memory_relations`、`memory_relation_create`、`memory_relation_delete`、`memory_history` 与 `memory_retry_failed` 不接受 workspace 参数；`memory_feedback` 接受 `workspace_name` 限定范围；`memory_forget` 按全局唯一 `memory_id` 删除，`workspace_name` 仅作兼容字段。
 
-Backend APIs remain available. Extraction strategy stays in `cwiki-save`; reminder hooks do not supply checkpoint events/notes.
+后端 API 仍然可用。提取策略仍由 `cwiki-save` 负责；提醒类 hooks 不提供检查点事件/笔记。
 
 ## Skills
 
-| Skill | Description |
+| Skill | 说明 |
 |---|---|
-| `memory-recall` | Guides the agent to consult cwiki before starting work |
+| `memory-recall` | 引导 Agent 在开工前先查询 cwiki |
 
-## Architecture
+## 架构
 
 ```
 Qoder Agent
@@ -142,13 +142,13 @@ Qoder Agent
   |-- hooks (SessionStart / UserPromptSubmit / PreToolUse / PostCompact / PostToolUseFailure / SessionEnd)
   |     |
   |     v
-  |   python -m adapters.hooks -> additionalContext + spool capture -> Qoder Agent
+  |   python -m adapters.hooks -> additionalContext + 暂存捕获 -> Qoder Agent
   |
   |-- MCP (stdio)
         |
         v
       python -m adapters.qoder.mcp_server
-        |-- read:  local_index -> cwiki-data/cwiki.db (mode=ro, BM25)
-        |          strong hit -> return; weak hit -> API hybrid
-        |-- write: cwiki API (port 5172) /v1/candidates
+        |-- 读：local_index -> cwiki-data/cwiki.db (mode=ro, BM25)
+        |        强命中 -> 直接返回；弱命中 -> API 混合检索
+        |-- 写：cwiki API（端口 5172）/v1/candidates
 ```

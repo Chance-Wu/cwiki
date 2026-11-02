@@ -225,7 +225,7 @@ async def test_unrelated_and_directory_events_are_ignored(
     [
         ("Before.md", "After.MD"),
         ("Case.MD", "case.md"),
-        ("Before.MD", "Archived.txt"),
+        ("Before.MD", "Superseded.txt"),
         ("Untracked.txt", "Restored.MD"),
     ],
 )
@@ -350,25 +350,25 @@ async def test_sync_repairs_legacy_paths_and_commits_orphan_cleanup(
 
 
 @pytest.mark.parametrize("rewrite", [False, True])
-async def test_sync_never_keeps_vectors_for_archived_files(indexer, memory, rewrite):
-    """归档文件保留 SQLite 行，但其向量会被剪除且不再回加。"""
-    archived = MemoryFile(
-        id="archived-one", title="Archived memory", content="Archived body.", status="archived"
+async def test_sync_never_keeps_vectors_for_superseded_files(indexer, memory, rewrite):
+    """已取代文件保留 SQLite 行，但其向量会被剪除且不再回加。"""
+    superseded = MemoryFile(
+        id="superseded-one", title="Superseded memory", content="Superseded body.", status="superseded"
     )
     active_path = save_as(indexer, memory, "Active.MD")
-    archived_path = save_as(indexer, archived, "Archived.MD")
+    superseded_path = save_as(indexer, superseded, "Superseded.MD")
     await indexer.index_memory(memory, [1.0, 0.0, 0.0], file_path=active_path)
-    await indexer.index_memory(archived, update_vector=False, file_path=archived_path)
-    # 模拟历史残留：一条仍持有向量的归档记忆。
-    indexer.vector_index.add(archived.id, [0.0, 1.0, 0.0])
+    await indexer.index_memory(superseded, update_vector=False, file_path=superseded_path)
+    # 模拟历史残留：一条仍持有向量的已取代记忆。
+    indexer.vector_index.add(superseded.id, [0.0, 1.0, 0.0])
     await indexer.save_vector_index()
 
     if rewrite:
-        # 强制走重索引分支：待重索引的文件已归档。
+        # 强制走重索引分支：待重索引的文件已已取代。
         db = await indexer._get_db()
         await db.execute(
             "UPDATE memory_index SET updated = ? WHERE id = ?",
-            ("2000-01-01T00:00:00+00:00", archived.id),
+            ("2000-01-01T00:00:00+00:00", superseded.id),
         )
         await db.commit()
 
@@ -377,22 +377,22 @@ async def test_sync_never_keeps_vectors_for_archived_files(indexer, memory, rewr
     assert set(indexer.vector_index.vectors) == {memory.id}
     reloaded = VectorIndex(dimensions=3, index_path=str(indexer.vector_index.index_path))
     assert set(reloaded.vectors) == {memory.id}
-    assert (await indexer.get_memory(archived.id))["status"] == "archived"
+    assert (await indexer.get_memory(superseded.id))["status"] == "superseded"
     assert (await indexer.get_memory(memory.id))["status"] == "active"
 
 
 async def test_change_event_archives_and_persists_vector_removal(indexer, watcher, memory):
-    path = save_as(indexer, memory, "Flips to archived.MD")
+    path = save_as(indexer, memory, "Flips to superseded.MD")
     await indexer.index_memory(memory, [0.5, 0.5, 0.0], file_path=path)
     await indexer.save_vector_index()
     assert memory.id in indexer.vector_index.vectors
 
-    memory.status = "archived"
+    memory.status = "superseded"
     path.write_text(indexer.file_store._serialize(memory), encoding="utf-8")
 
     await dispatch(watcher, "on_modified", path)
 
-    assert (await indexer.get_memory(memory.id))["status"] == "archived"
+    assert (await indexer.get_memory(memory.id))["status"] == "superseded"
     assert memory.id not in indexer.vector_index.vectors
     reloaded = VectorIndex(dimensions=3, index_path=str(indexer.vector_index.index_path))
     assert reloaded.vectors == {}

@@ -383,12 +383,14 @@ async def batch_detect_duplicates_with_embedding(
     cand_combined_ts = cand_title_t.token_set | cand_content_t.token_set
     cand_combined_list = cand_title_t.token_list + cand_content_t.token_list
 
-    # 候选 embedding 只生成一次
-    cand_text = format_memory_for_embedding(
-        candidate.get("title", ""), candidate.get("content", "")
-    )
+    # 候选 embedding 优先复用（审批时可直接传入已存储向量），缺失才生成
     embedding_service = get_embedding_service()
-    cand_embedding = await embedding_service.generate_embedding(cand_text)
+    cand_embedding = candidate.get("embedding")
+    if cand_embedding is None:
+        cand_text = format_memory_for_embedding(
+            candidate.get("title", ""), candidate.get("content", "")
+        )
+        cand_embedding = await embedding_service.generate_embedding(cand_text)
 
     # 区分已存 embedding 与需现场生成的项
     stored_embeddings: list[tuple[int, list[float]]] = []

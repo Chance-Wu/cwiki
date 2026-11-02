@@ -9,6 +9,9 @@ export const getCandidates = (opts?: {
   status?: string
   limit?: number
   offset?: number
+  minQualityGate?: number
+  minValue?: number
+  maxDuplicate?: number
 }) => {
   const params = new URLSearchParams()
   const status = opts?.status ?? 'pending_review'
@@ -18,6 +21,10 @@ export const getCandidates = (opts?: {
   if (opts?.title) params.set('title', opts.title)
   if (opts?.limit) params.set('limit', String(opts.limit))
   if (opts?.offset) params.set('offset', String(opts.offset))
+  if (opts?.minQualityGate !== undefined)
+    params.set('min_quality_gate', String(opts.minQualityGate))
+  if (opts?.minValue !== undefined) params.set('min_value', String(opts.minValue))
+  if (opts?.maxDuplicate !== undefined) params.set('max_duplicate', String(opts.maxDuplicate))
   return request<PaginatedResponse<Candidate>>(`/candidates?${params.toString()}`)
 }
 
@@ -36,7 +43,7 @@ export const createCandidate = (body: {
     body: JSON.stringify(body),
   })
 
-/** 撤销自动生效：归档生成的正式记忆并留痕，候选保持 approved；
+/** 撤销自动生效：物理删除生成的正式记忆并留痕，候选保持 approved；
  *  候选不存在或无 auto_approve 审核记录时后端返回 404 */
 export const revertAutoApprove = (id: string) =>
   request<Candidate>(`/candidates/${id}/revert-auto-approve`, { method: 'POST' })

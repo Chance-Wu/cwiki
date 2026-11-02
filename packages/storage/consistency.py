@@ -37,8 +37,9 @@ async def run_consistency_check(
 ) -> ConsistencyReport:
     """对 DB / MD / index.db / vectors 做只读对账，返回差异报告。
 
-    只比对 active 记忆：archived 记忆在 MD 与 index.db 中保留镜像但不参与
-    检索（indexer.sync_all 的既有约定），纳入比对会把合法归档误报为漂移。
+    只比对 active 记忆：非 active 记忆（superseded/deprecated 等）在 MD 与
+    index.db 中保留镜像但不参与检索（indexer.sync_all 的既有约定），纳入比对
+    会把合法状态误报为漂移。
 
     路径参数默认取 storage 配置，可注入以便测试。单个载体读取失败不抛
     异常，在 errors 中按载体名记录原因；全程只读——不写文件、不改 DB。
@@ -147,6 +148,10 @@ def _read_vector_ids(vector_index_path: Path, errors: dict[str, str]) -> set[str
         ids = meta.get("ids", [])
         with np.load(vector_index_path) as data:
             row_count = len(data["vectors"])
+            embedded_ids = data["ids"].tolist() if "ids" in data.files else None
+        if embedded_ids is not None and [str(i) for i in embedded_ids] != [str(i) for i in ids]:
+            errors["vectors"] = "vector index corruption: embedded ids mismatch"
+            return set()
         if len(ids) != row_count:
             errors["vectors"] = f"vector index corruption: {len(ids)} ids vs {row_count} vectors"
             return set()

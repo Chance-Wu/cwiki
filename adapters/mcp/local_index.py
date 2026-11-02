@@ -144,7 +144,8 @@ def _load_rows(conn: sqlite3.Connection) -> dict[str, dict[str, Any]]:
         """
         SELECT m.id, m.workspace_id, w.name AS workspace, m.title, m.content,
                m.type, m.tags, m.version, m.confidence, m.importance,
-               m.valid_to, m.usage_count, m.is_permanent
+               m.valid_to, m.usage_count, m.is_permanent, m.source, m.updated_at,
+               (SELECT COUNT(*) FROM evidence e WHERE e.memory_id = m.id) AS evidence_count
         FROM memory m
         JOIN workspace w ON w.id = m.workspace_id
         WHERE m.status = 'active'
@@ -166,6 +167,9 @@ def _load_rows(conn: sqlite3.Connection) -> dict[str, dict[str, Any]]:
             "valid_to": None if row[10] is None else str(row[10]),
             "usage_count": int(row[11] or 0),
             "is_permanent": bool(row[12]),
+            "source": str(row[13] or "mcp"),
+            "updated_at": None if row[14] is None else str(row[14]),
+            "evidence_count": int(row[15] or 0),
         }
     return rows
 
@@ -364,6 +368,9 @@ def search_local(
                 "score": round(raw_score / max_score, 4),
                 "coverage": round(coverage, 4),
                 "confidence": row["confidence"],
+                "source": row["source"],
+                "updated_at": row["updated_at"],
+                "evidence_count": row["evidence_count"],
                 "valid_to": row["valid_to"],
                 "is_stale": _is_stale(row["valid_to"]),
             }
@@ -507,7 +514,10 @@ def build_local_context(
                 "type": row["type"],
                 "version": row["version"],
                 "score": row["score"],
-                "source": "memory",
+                "source": row["source"],
+                "confidence": row["confidence"],
+                "updated_at": row["updated_at"],
+                "evidence_count": row["evidence_count"],
                 "metadata": {
                     "local": True,
                     "truncated": truncated,
@@ -521,6 +531,19 @@ def build_local_context(
         "available": True,
         "context": "\n".join(parts),
         "items": items,
+        "citations": [
+            {
+                "memory_id": item["memory_id"],
+                "title": item["title"],
+                "source": item["source"],
+                "version": item["version"],
+                "updated_at": item["updated_at"],
+                "confidence": item["confidence"],
+                "evidence_count": item["evidence_count"],
+                "score": item["score"],
+            }
+            for item in items
+        ],
         "total": len(items),
         "source": "local",
     }

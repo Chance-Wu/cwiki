@@ -34,18 +34,19 @@ class TestWeightsForIntent:
         base = RerankerWeights.from_settings()
         assert w.confidence > base.confidence
 
-    def test_weights_sum_to_one(self):
+    def test_group_weights_sum_to_one(self):
         for intent in ["fact", "procedure", "lesson", "project_rule", "constraint", "decision"]:
             w = RerankerWeights.for_intent(intent)
-            total = (
-                w.rrf + w.semantic + w.confidence + w.importance + w.freshness + w.usage + w.intent
-            )
-            assert abs(total - 1.0) < 1e-6, f"{intent} weights sum to {total}"
+            relevance_total = w.rrf + w.semantic + w.bm25
+            meta_total = w.confidence + w.importance + w.freshness + w.usage
+            assert abs(relevance_total - 1.0) < 1e-6, f"{intent} relevance={relevance_total}"
+            assert abs(meta_total - 1.0) < 1e-6, f"{intent} meta={meta_total}"
 
-    def test_project_rule_boosts_rrf(self):
+    def test_project_rule_shifts_meta_weights_not_rrf(self):
         w = RerankerWeights.for_intent("project_rule")
         base = RerankerWeights.from_settings()
-        assert w.rrf > base.rrf
+        assert w.rrf == base.rrf
+        assert w.freshness < base.freshness
 
 
 class TestDiversityLimit:
@@ -68,16 +69,16 @@ class TestDiversityLimit:
 class TestRerankWithIntentConfidence:
     def test_low_confidence_uses_base_weights(self):
         candidates = [
-            _make_input("a", rrf_score=0.9, freshness=0.1),
-            _make_input("b", rrf_score=0.1, freshness=0.9),
+            _make_input("a", rrf_score=0.0164, freshness=0.1),
+            _make_input("b", rrf_score=0.0082, freshness=0.9),
         ]
         result = rerank(candidates, query_intent="procedure", intent_confidence=0.1)
         assert result[0][0] == "a"
 
     def test_high_confidence_uses_dynamic_weights(self):
         candidates = [
-            _make_input("a", rrf_score=0.5, freshness=0.1, usage_score=0.1),
-            _make_input("b", rrf_score=0.5, freshness=0.9, usage_score=0.9),
+            _make_input("a", rrf_score=0.0164, freshness=0.1, usage_score=0.1),
+            _make_input("b", rrf_score=0.0164, freshness=0.9, usage_score=0.9),
         ]
         result = rerank(
             candidates,
@@ -88,11 +89,18 @@ class TestRerankWithIntentConfidence:
 
     def test_explicit_weights_override_dynamic(self):
         candidates = [
-            _make_input("a", rrf_score=0.9),
-            _make_input("b", rrf_score=0.1),
+            _make_input("a", rrf_score=0.0164),
+            _make_input("b", rrf_score=0.0020),
         ]
         w = RerankerWeights(
-            rrf=1.0, confidence=0.0, importance=0.0, freshness=0.0, usage=0.0, intent=0.0
+            rrf=1.0,
+            semantic=0.0,
+            confidence=0.0,
+            importance=0.0,
+            freshness=0.0,
+            usage=0.0,
+            intent=0.0,
+            bm25=0.0,
         )
         result = rerank(
             candidates,

@@ -32,9 +32,10 @@ from packages.domain.schemas import (
     ReviewRead,
 )
 from packages.domain.task_queue import queue as task_queue
-from packages.domain.text_utils import format_memory_for_embedding
+from packages.domain.text_utils import format_memory_for_embedding, normalize_memory_content
 from packages.memory.service import (
     approve_candidate,
+    claim_candidate,
     merge_candidate,
     update_candidate_into,
 )
@@ -57,14 +58,19 @@ async def _prepare_review_embedding(memory: Memory) -> list[float] | None:
     关系检测与写时冲突检测共用这一份向量，每次批准只生成一次。
     尽力而为：失败时异步 generate_embedding 任务仍会补齐并索引。
     """
+    return await _prepare_review_embedding_for_text(memory.title, memory.content)
+
+
+async def _prepare_review_embedding_for_text(title: str, content: str) -> list[float] | None:
+    """按最终标题/正文生成审核向量；审批查重、关系与冲突检测共用。"""
     try:
         from packages.retrieval.embedding import get_embedding_service
 
-        text = format_memory_for_embedding(memory.title, memory.content)
+        text = format_memory_for_embedding(title, content)
         embedding = await get_embedding_service().generate_embedding(text)
         return list(embedding) if embedding else None
     except Exception:
-        logger.warning("Failed to embed memory %s for review checks", memory.id, exc_info=True)
+        logger.warning("Failed to embed review content for checks", exc_info=True)
         return None
 
 
@@ -254,7 +260,11 @@ def _batch_failure(candidate_id: str, action: str, error: str) -> dict[str, str 
 
 
 async def _apply_simple_review_action(
-    db: AsyncSession, candidate: CandidateMemory, action: str
+    db: AsyncSession,
+    candidate: CandidateMemory,
+    action: str,
+    *,
+    embedding: list[float] | None = None,
 ) -> Memory | None:
     """执行单审与批审共享的简单审核动作。
 
@@ -263,70 +273,39 @@ async def _apply_simple_review_action(
     动作不是 approve/reject/later 时抛 ValueError。
     """
     if action == "approve":
-        return await approve_candidate(db, candidate)
+        return await approve_candidate(db, candidate, embedding=embedding)
     if action == "reject":
-        candidate.status = "rejected"
+        await claim_candidate(db, candidate, "rejected")
         return None
     if action == "later":
-        candidate.status = "deferred"
+        await claim_candidate(db, candidate, "deferred")
         return None
     raise ValueError(f"Unsupported simple action: {action}")
 
 
 async def _check_write_time_conflicts(
-    memory: Memory, db: AsyncSession, embedding: list[float] | None = None
+    memory: Memory,
+    db: AsyncSession,
+    embedding: list[float] | None = None,
+    *,
+    candidate_id: uuid.UUID | None = None,
 ) -> None:
     """检查新批准记忆与高相似已有记忆是否矛盾。
 
-    ``embedding`` 复用审核流程生成的向量（批准时 DB 列尚为
-    NULL）；其他调用方可省略，回退到 ``memory.embedding``。
+    冲突行登记 candidate_id，使 auto-approve 的 open 冲突守卫真正生效。
+    尽力而为：冲突检测属补充信息，失败不得阻断审核流程。
     """
     try:
-        from packages.domain.models.memory import MemoryConflict
-        from packages.retrieval.context.conflict import has_contradiction_text
+        from packages.memory.conflict_detection import detect_write_time_conflicts
 
-        effective_embedding = embedding if embedding is not None else memory.embedding
-        if effective_embedding is None:
-            return
-
-        import numpy as np
-
-        stmt = select(Memory.id, Memory.title, Memory.content, Memory.embedding).where(
-            Memory.workspace_id == memory.workspace_id,
-            Memory.id != memory.id,
-            Memory.status == "active",
-            Memory.embedding.isnot(None),
+        await detect_write_time_conflicts(
+            db,
+            workspace_id=memory.workspace_id,
+            content=memory.content,
+            embedding=embedding if embedding is not None else memory.embedding,
+            new_memory_id=memory.id,
+            candidate_id=candidate_id,
         )
-        result = await db.execute(stmt)
-        rows = result.all()
-
-        new_emb = np.array(list(effective_embedding), dtype=np.float32)
-        new_norm = np.linalg.norm(new_emb)
-        if new_norm == 0:
-            return
-
-        for row in rows:
-            existing_emb = np.array(list(row.embedding), dtype=np.float32)
-            existing_norm = np.linalg.norm(existing_emb)
-            if existing_norm == 0:
-                continue
-            cosine = float(np.dot(new_emb, existing_emb) / (new_norm * existing_norm))
-            if cosine > 0.7 and has_contradiction_text(memory.content, row.content):
-                existing_conflict = await db.execute(
-                    select(MemoryConflict).where(
-                        MemoryConflict.memory_id == row.id,
-                        MemoryConflict.status == "open",
-                    )
-                )
-                if existing_conflict.scalar_one_or_none() is None:
-                    conflict = MemoryConflict(
-                        workspace_id=memory.workspace_id,
-                        memory_id=row.id,
-                        conflict_type="contradiction",
-                        evidence={"similarity": cosine, "new_memory_id": str(memory.id)},
-                    )
-                    db.add(conflict)
-    # 尽力而为：冲突检测属补充信息，失败不得阻断审核流程
     except Exception:
         logger.warning("Write-time conflict check failed", exc_info=True)
 
@@ -386,10 +365,17 @@ async def create_review(
 
     action = body.action
     memory: Memory | None = None
+    review_embedding: list[float] | None = None
 
     try:
         if action in ("approve", "reject", "later"):
-            memory = await _apply_simple_review_action(db, candidate, action)
+            if action == "approve":
+                review_embedding = await _prepare_review_embedding_for_text(
+                    candidate.title, candidate.content
+                )
+            memory = await _apply_simple_review_action(
+                db, candidate, action, embedding=review_embedding
+            )
         elif action == "edit":
             if body.edited_content is None:
                 raise HTTPException(
@@ -401,8 +387,16 @@ async def create_review(
                 project_id = body.project_id
             else:
                 project_id = candidate.project_id
+            review_embedding = await _prepare_review_embedding_for_text(
+                title, normalize_memory_content(body.edited_content)
+            )
             memory = await approve_candidate(
-                db, candidate, title=title, content=body.edited_content, project_id=project_id
+                db,
+                candidate,
+                title=title,
+                content=body.edited_content,
+                project_id=project_id,
+                embedding=review_embedding,
             )
         elif action == "merge":
             if body.merged_content is None or body.merge_target_memory_id is None:
@@ -445,11 +439,14 @@ async def create_review(
             )
 
         # 一份向量同时服务关系与冲突检测：此时 DB 列仍为 NULL，
-        # 检测逻辑不能依赖它
-        review_embedding: list[float] | None = None
-        if memory is not None and (
-            parasitic_evolution_config.memory_relations_enabled
-            or parasitic_evolution_config.write_time_conflict_enabled
+        # 检测逻辑不能依赖它；approve/edit 已预先按最终正文生成
+        if (
+            memory is not None
+            and review_embedding is None
+            and (
+                parasitic_evolution_config.memory_relations_enabled
+                or parasitic_evolution_config.write_time_conflict_enabled
+            )
         ):
             review_embedding = await _prepare_review_embedding(memory)
 
@@ -457,7 +454,12 @@ async def create_review(
             await _auto_detect_relations(memory, db, new_embedding=review_embedding)
 
         if memory is not None and parasitic_evolution_config.write_time_conflict_enabled:
-            await _check_write_time_conflicts(memory, db, embedding=review_embedding)
+            await _check_write_time_conflicts(
+                memory,
+                db,
+                embedding=review_embedding,
+                candidate_id=body.candidate_id,
+            )
 
         # reject 现为隔离留存（状态标记），与其他动作一样创建 Review 留痕
         review = Review(
@@ -592,9 +594,17 @@ async def batch_review(
 
                 memory: Memory | None = None
                 action = item.action
+                review_embedding: list[float] | None = None
+
+                if action == "approve":
+                    review_embedding = await _prepare_review_embedding_for_text(
+                        candidate.title, candidate.content
+                    )
 
                 if action in ("approve", "reject", "later"):
-                    memory = await _apply_simple_review_action(db, candidate, action)
+                    memory = await _apply_simple_review_action(
+                        db, candidate, action, embedding=review_embedding
+                    )
                 else:
                     results.append(
                         _batch_failure(
@@ -607,8 +617,7 @@ async def batch_review(
                     continue
 
                 if memory is not None:
-                    review_embedding: list[float] | None = None
-                    if (
+                    if review_embedding is None and (
                         parasitic_evolution_config.memory_relations_enabled
                         or parasitic_evolution_config.write_time_conflict_enabled
                     ):
@@ -626,7 +635,12 @@ async def batch_review(
                         new_embedding=review_embedding,
                     )
                     if parasitic_evolution_config.write_time_conflict_enabled:
-                        await _check_write_time_conflicts(memory, db, embedding=review_embedding)
+                        await _check_write_time_conflicts(
+                            memory,
+                            db,
+                            embedding=review_embedding,
+                            candidate_id=item.candidate_id,
+                        )
                     memories_for_side_effects.append(memory)
 
                 review = Review(

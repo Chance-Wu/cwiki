@@ -203,9 +203,6 @@ agent_policy:
           type: [fact, reference, procedure]
 parasitic_evolution:
   agent_profile_enabled: true
-  auto_consolidate_enabled: true
-  auto_merge_enabled: true
-  auto_merge_threshold: 0.92
   entity_extraction_enabled: true
   episodic_retrieval_enabled: false
   # 基于 episode 的 problems/solutions 信号按规则生成 lesson 候选：
@@ -230,7 +227,6 @@ parasitic_evolution:
   write_time_conflict_enabled: true
 # 周期调度器：在 API 进程内按固定间隔触发后台任务
 scheduler:
-  auto_consolidate_interval_hours: 6
   review_reminders_interval_hours: 24
   meta_export_interval_hours: 12
   auto_relation_interval_hours: 6
@@ -238,18 +234,20 @@ scheduler:
 retrieval:
   bm25_weight: 0.6
   vector_weight: 0.4
-  reranker_confidence_weight: 0.10
-  reranker_freshness_weight: 0.10
-  reranker_importance_weight: 0.12
-  reranker_intent_weight: 0.09
+  # 相关性组（组内归一）：RRF 名次、向量余弦、BM25 池内相对分、意图-类型匹配
+  reranker_rrf_weight: 0.40
+  reranker_semantic_weight: 0.30
+  reranker_bm25_weight: 0.30
+  reranker_intent_weight: 0.15
+  # 元数据组（组内归一，仅在 relevance_band 内生效）：
+  # 最终分 = (1-band)×相关性 + band×元数据，元数据不能跨带压过相关性
+  reranker_confidence_weight: 0.35
+  reranker_importance_weight: 0.30
+  reranker_freshness_weight: 0.20
+  reranker_usage_weight: 0.15
   reranker_key_term_bonus: 0.08
-  reranker_rrf_weight: 0.38
-  reranker_usage_weight: 0.06
-  # 语义相似度权重：向量余弦是相关性信号（与 RRF 同类，不参与元数据封顶），
-  # 用于制衡「元数据占优但语义无关」的候选挤掉双路命中的相关记忆
-  reranker_semantic_weight: 0.15
-  # 效用分权重：上下文组装排序中同优先级内按 score + utility_weight × utility_score 排序，
-  # utility 缺省 0 时退化为纯 score 排序（向后兼容）
+  reranker_relevance_band: 0.05
+  # 效用分在组装排序带内的占比：类型优先级与效用共享同一个 band
   utility_weight: 0.15
   # 候选过滤三档（none/demote/hard）：过期与低置信候选的处理方式。
   # demote=压分保留可见性（默认）；hard=直接剔除；是否升 hard 由评测负例数据决定
@@ -270,9 +268,6 @@ performance:
   context_cache_max_size: 128
   context_token_budget: 2000
   dedup_top_k: 20
-  merge_suggestions_threshold: 0.5
-  auto_consolidate_limit: 200
-  auto_consolidate_top_k: 20
 skills:
   # skills/import 允许导入的源路径前缀（空 = 不限制，单用户本地部署默认不限制）
   import_allowed_paths: []

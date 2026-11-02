@@ -1321,24 +1321,19 @@ class MCPServer:
         if not isinstance(memory_id, str) or not memory_id:
             return {"error": "memory_id 为必填字符串"}
         try:
-            result = await self.client.update_memory(
-                memory_id=memory_id,
-                status="archived",
-                reason=arguments.get("reason") or "agent requested forget",
+            result = await self.client.delete_memory(
+                memory_id, reason=arguments.get("reason") or "agent requested forget"
             )
-        except MemoryUpdateUncertainError:
-            return {
-                "error": "归档结果不确定，可能已生效；未自动重试。",
-                "delivery": "unconfirmed",
-                "hint": "请先查询记忆状态确认；已归档可恢复为 active。",
-            }
         except Exception as exc:
             return {"error": _safe_error(exc)}
         return {
-            "status": "archived",
-            "restorable": True,
+            "deleted": True,
+            "restorable": False,
             "memory_id": memory_id,
-            "memory": result,
+            "already_absent": bool(result.get("already_absent"))
+            if isinstance(result, dict)
+            else False,
+            "assets_removed": result.get("assets_removed") if isinstance(result, dict) else None,
         }
 
     async def _handle_memory_retry_failed(self, arguments: dict[str, Any]) -> dict[str, Any]:

@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Eye } from 'lucide-react'
 import MarkdownContent from './MarkdownContent'
@@ -7,6 +8,7 @@ import { Card } from './ui/Card'
 import { spring } from '../lib/motion'
 import { formatTimeShort } from '../lib/format'
 import { typeLabel, TYPE_COLORS } from '../lib/labels'
+import { buildCloze } from '../lib/cloze'
 import zh from '../i18n/locales/zh'
 
 type TranslationDict = typeof zh
@@ -27,6 +29,8 @@ interface ReviewItem {
   memory_type: string
   source?: string | null
   confidence?: number | null
+  tags?: string[]
+  importance?: number | null
   updated_at?: string | null
   ease_factor: number
   interval_days: number
@@ -46,6 +50,9 @@ export function ReviewCard({
   locale,
   maxHeight,
   mode = 'learn',
+  preferCloze = true,
+  onQuizSubmit,
+  quizPending = false,
 }: {
   item: ReviewItem
   showAnswer: boolean
@@ -54,8 +61,34 @@ export function ReviewCard({
   locale: string
   maxHeight?: string
   mode?: 'learn' | 'test'
+  /** 测试模式下是否优先填空；关闭后直接翻面自评 */
+  preferCloze?: boolean
+  /** 提供时渲染填空输入并由后端判分；不提供则保持原翻面自评 */
+  onQuizSubmit?: (answers: string[]) => void
+  quizPending?: boolean
 }) {
   const contentVisible = mode === 'learn' || showAnswer
+  // 测试模式优先出确定性填空；找不到可用术语时回退翻面自评
+  const cloze = useMemo(
+    () =>
+      mode === 'test' && preferCloze ? buildCloze(item.content, item.title, item.tags ?? []) : null,
+    [mode, preferCloze, item.content, item.title, item.tags],
+  )
+  const isCloze = !contentVisible && cloze !== null
+  const blankCount = cloze?.terms.length ?? 0
+  const [answers, setAnswers] = useState<string[]>([])
+
+  useEffect(() => {
+    setAnswers(Array(blankCount).fill(''))
+  }, [item.memory_id, blankCount])
+
+  const setAnswerAt = (index: number, value: string) => {
+    setAnswers((prev) => {
+      const next = [...prev]
+      next[index] = value
+      return next
+    })
+  }
   return (
     <Card className="overflow-hidden">
       <div className="px-6 py-5 border-b border-[var(--border-default)]">
@@ -77,9 +110,13 @@ export function ReviewCard({
             </span>
           )}
         </div>
-        <h2 className="text-lg font-semibold text-[var(--text-primary)] break-words leading-snug">
-          {item.title}
-        </h2>
+        {isCloze ? (
+          <p className="text-xs font-medium text-[var(--text-tertiary)]">{t.review.clozeHint}</p>
+        ) : (
+          <h2 className="text-lg font-semibold text-[var(--text-primary)] break-words leading-snug">
+            {item.title}
+          </h2>
+        )}
       </div>
 
       <div className={`px-6 py-5 overflow-y-auto scrollbar-thin ${maxHeight ?? 'max-h-64'}`}>
@@ -93,6 +130,42 @@ export function ReviewCard({
               transition={spring.gentle}
             >
               <MarkdownContent content={item.content} />
+            </motion.div>
+          ) : isCloze ? (
+            <motion.div
+              key="cloze"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={spring.gentle}
+            >
+              <MarkdownContent content={cloze.text} />
+              {onQuizSubmit ? (
+                <div className="mt-4 space-y-2">
+                  {Array.from({ length: blankCount }).map((_, index) => (
+                    <input
+                      key={index}
+                      value={answers[index] ?? ''}
+                      onChange={(event) => setAnswerAt(index, event.target.value)}
+                      placeholder={t.review.quizPlaceholder.replace('{n}', String(index + 1))}
+                      autoComplete="off"
+                      disabled={quizPending}
+                      className="w-full rounded-lg border border-[var(--border-default)] bg-surface px-3 py-2 text-sm text-[var(--text-primary)] outline-none transition-colors focus:border-brand-border"
+                    />
+                  ))}
+                  <Button
+                    onClick={() => onQuizSubmit(answers)}
+                    disabled={quizPending || answers.every((answer) => !answer.trim())}
+                    className="w-full"
+                  >
+                    {quizPending ? t.review.quizChecking : t.review.quizCheck}
+                  </Button>
+                </div>
+              ) : (
+                <p className="mt-4 text-xs text-[var(--text-tertiary)]">
+                  {t.review.clozeRevealHint}
+                </p>
+              )}
             </motion.div>
           ) : (
             <motion.div
@@ -130,6 +203,16 @@ export function ReviewCard({
         {item.last_review && (
           <span>
             {t.review.lastReview}: {formatTimeShort(item.last_review, locale)}
+          </span>
+        )}
+        {item.tags?.slice(0, 4).map((tag) => (
+          <span key={tag} className="text-brand-fg">
+            #{tag}
+          </span>
+        ))}
+        {item.importance != null && (
+          <span className="tabular-nums">
+            {t.review.importance}: {item.importance.toFixed(2)}
           </span>
         )}
       </div>

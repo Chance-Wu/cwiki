@@ -17,7 +17,6 @@ const STATUS_CONFIG: Record<
   { labelKey: string; color: 'success' | 'warning' | 'danger' | 'info' | 'brand' }
 > = {
   active: { labelKey: 'statusActive', color: 'success' },
-  archived: { labelKey: 'archived', color: 'info' },
   deprecated: { labelKey: 'statusDeprecated', color: 'warning' },
   superseded: { labelKey: 'statusSuperseded', color: 'danger' },
   conflicted: { labelKey: 'statusConflicted', color: 'danger' },
@@ -28,7 +27,6 @@ const EVENT_CONFIG: Record<string, { labelKey: string; icon: string; color: stri
   updated: { labelKey: 'eventUpdated', icon: '✎', color: 'bg-brand-500' },
   status_changed: { labelKey: 'eventStatusChanged', icon: '⟳', color: 'bg-warning' },
   merged: { labelKey: 'eventMerged', icon: '⊕', color: 'bg-info' },
-  archived: { labelKey: 'eventArchived', icon: '◼', color: 'bg-[var(--text-tertiary)]' },
   deprecated: { labelKey: 'eventDeprecated', icon: '⊘', color: 'bg-warning' },
   restored: { labelKey: 'eventRestored', icon: '↺', color: 'bg-success' },
   reviewed: { labelKey: 'eventReviewed', icon: '✓', color: 'bg-brand-500' },

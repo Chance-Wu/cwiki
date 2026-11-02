@@ -15,6 +15,15 @@ export function useMemories(
     max_importance?: number
     usage?: 'unused' | 'low' | 'medium' | 'high'
     decay?: 'fresh' | 'aging' | 'stale'
+    review_status?:
+      | 'due'
+      | 'new'
+      | 'learning'
+      | 'familiar'
+      | 'proficient'
+      | 'mastered'
+      | 'suspended'
+      | 'unscheduled'
   },
   queryOpts?: { enabled?: boolean },
 ) {
@@ -35,10 +44,10 @@ export function useWorkspacesList() {
   })
 }
 
-export function useMemoryStats() {
+export function useMemoryStats(status?: string) {
   return useQuery({
-    queryKey: ['memory-stats'],
-    queryFn: () => api.getMemoryStats(),
+    queryKey: ['memory-stats', status ?? 'all'],
+    queryFn: () => api.getMemoryStats(status),
     staleTime: 60_000,
   })
 }
@@ -83,54 +92,6 @@ export function useApplyMemoryUpdate() {
     }) => api.applyMemoryUpdate(memoryId, body),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['memories'] })
-    },
-  })
-}
-
-export function useMergeSuggestions(workspaceId: string | null) {
-  return useQuery({
-    queryKey: ['merge-suggestions', workspaceId],
-    queryFn: () => api.getMergeSuggestions(workspaceId!),
-    enabled: !!workspaceId,
-    staleTime: 60_000,
-  })
-}
-
-export function useMergeMemories() {
-  const queryClient = useQueryClient()
-
-  return useMutation({
-    mutationFn: ({
-      sourceId,
-      targetId,
-      mergedContent,
-      similarity,
-      strategy,
-    }: {
-      sourceId: string
-      targetId: string
-      mergedContent: string
-      similarity?: number
-      strategy?: string
-    }) => api.mergeMemories(sourceId, targetId, mergedContent, similarity, strategy),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['memories'] })
-      queryClient.invalidateQueries({ queryKey: ['merge-suggestions'] })
-      queryClient.invalidateQueries({ queryKey: ['merge-history'] })
-    },
-  })
-}
-
-export function useTriggerConsolidate() {
-  const queryClient = useQueryClient()
-
-  return useMutation({
-    mutationFn: () => api.triggerConsolidate(),
-    onSuccess: () => {
-      // 整理是异步任务，延迟失效合并建议缓存，等任务落库后再重新拉取
-      setTimeout(() => {
-        queryClient.invalidateQueries({ queryKey: ['merge-suggestions'] })
-      }, 2000)
     },
   })
 }

@@ -614,3 +614,201 @@ class TestWriteTimeConflictDetection:
         assert len(conflicts) == 1
         assert conflicts[0].memory_id == existing_id
         assert conflicts[0].evidence["similarity"] > 0.7
+
+
+@pytest.fixture
+def isolated_review_checks(monkeypatch: pytest.MonkeyPatch) -> None:
+    """关闭外部 embedding/关系/冲突，专注审批与引用字段本身。"""
+    from packages.domain.config import parasitic_evolution_config
+
+    monkeypatch.setattr(
+        "apps.api.routes.reviews._prepare_review_embedding_for_text",
+        AsyncMock(return_value=None),
+    )
+    monkeypatch.setattr(
+        "apps.api.routes.reviews._prepare_review_embedding",
+        AsyncMock(return_value=None),
+    )
+    monkeypatch.setattr(parasitic_evolution_config, "memory_relations_enabled", False)
+    monkeypatch.setattr(parasitic_evolution_config, "write_time_conflict_enabled", False)
+
+
+class TestApprovalDedup:
+    """审批时重新查重：重复候选不得转正，编辑与批量同样受约束。"""
+
+    async def test_approve_exact_duplicate_returns_409(
+        self,
+        review_client: AsyncClient,
+        review_env: str,
+        isolated_review_checks: None,
+    ) -> None:
+        content = (
+            "## 场景\n审批去重测试。\n\n"
+            "## 知识\n同一条唯一内容不得在审批时生成两条正式记忆。\n\n"
+            "## 原因\n验证审批阶段会重新查重而不是只信提交时快照。"
+        )
+        first = await make_candidate_with_content(review_client, review_env, content)
+        r = await review_client.post(
+            "/v1/reviews",
+            json={"candidate_id": first, "reviewer_type": "human", "action": "approve"},
+        )
+        assert r.status_code == 201, r.text
+
+        second = await make_candidate_with_content(review_client, review_env, content)
+        r = await review_client.post(
+            "/v1/reviews",
+            json={"candidate_id": second, "reviewer_type": "human", "action": "approve"},
+        )
+        assert r.status_code == 409, r.text
+        body = r.json()
+        assert body["code"] == "duplicate_memory"
+        assert body["duplicate"]["source"] == "memory"
+        assert body["duplicate"]["similarity"] == 1.0
+        assert await candidate_status(review_client, second) == "pending_review"
+
+        listing = await review_client.get(f"/v1/memories?workspace_id={review_env}&limit=100")
+        assert listing.json()["total"] == 1
+
+    async def test_edit_to_duplicate_returns_409(
+        self,
+        review_client: AsyncClient,
+        review_env: str,
+        isolated_review_checks: None,
+    ) -> None:
+        content_a = (
+            "## 场景\n编辑去重测试。\n\n"
+            "## 知识\n已有记忆 A 的唯一正文。\n\n"
+            "## 原因\n验证编辑后内容仍要重新查重。"
+        )
+        content_b = (
+            "## 场景\n编辑去重测试。\n\n"
+            "## 知识\n候选 B 的原始不同正文。\n\n"
+            "## 原因\n验证编辑后内容仍要重新查重。"
+        )
+        first = await make_candidate_with_content(review_client, review_env, content_a)
+        r = await review_client.post(
+            "/v1/reviews",
+            json={"candidate_id": first, "reviewer_type": "human", "action": "approve"},
+        )
+        assert r.status_code == 201, r.text
+
+        second = await make_candidate_with_content(review_client, review_env, content_b)
+        r = await review_client.post(
+            "/v1/reviews",
+            json={
+                "candidate_id": second,
+                "reviewer_type": "human",
+                "action": "edit",
+                "edited_title": "编辑后重复标题",
+                "edited_content": content_a,
+            },
+        )
+        assert r.status_code == 409, r.text
+        assert r.json()["code"] == "duplicate_memory"
+        assert await candidate_status(review_client, second) == "pending_review"
+
+        listing = await review_client.get(f"/v1/memories?workspace_id={review_env}&limit=100")
+        assert listing.json()["total"] == 1
+
+    async def test_batch_approve_duplicate_partial_failure(
+        self,
+        review_client: AsyncClient,
+        review_env: str,
+        isolated_review_checks: None,
+    ) -> None:
+        content = (
+            "## 场景\n批量审批去重测试。\n\n"
+            "## 知识\n批量审批同一条唯一内容只允许成功一次。\n\n"
+            "## 原因\n验证批量模式逐条回滚而不是整批失败。"
+        )
+        first = await make_candidate_with_content(review_client, review_env, content)
+        second = await make_candidate_with_content(review_client, review_env, content)
+
+        r = await review_client.post(
+            "/v1/reviews/batch",
+            json={
+                "items": [
+                    {"candidate_id": first, "action": "approve"},
+                    {"candidate_id": second, "action": "approve"},
+                ],
+                "reviewer_type": "human",
+            },
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["succeeded"] == 1
+        assert body["failed"] == 1
+        failures = [item for item in body["results"] if not item["success"]]
+        assert len(failures) == 1
+        assert "重复" in failures[0]["error"]
+
+        listing = await review_client.get(f"/v1/memories?workspace_id={review_env}&limit=100")
+        assert listing.json()["total"] == 1
+
+
+class TestCitationExposure:
+    """审批后检索/上下文必须带来源与证据引用。"""
+
+    async def test_search_and_context_expose_citation(
+        self,
+        review_client: AsyncClient,
+        review_env: str,
+        isolated_review_checks: None,
+    ) -> None:
+        content = (
+            "## 场景\n引用追溯测试。\n\n"
+            "## 知识\n唯一引用关键词 CitationProbe42：审批后应能追溯到来源。\n\n"
+            "## 原因\n验证检索结果与上下文都带 citation 字段。"
+        )
+        candidate = await make_candidate_with_content(review_client, review_env, content)
+        r = await review_client.post(
+            "/v1/reviews",
+            json={"candidate_id": candidate, "reviewer_type": "human", "action": "approve"},
+        )
+        assert r.status_code == 201, r.text
+
+        search = await review_client.post(
+            "/v1/search",
+            json={"workspace_id": review_env, "keyword": "CitationProbe42", "limit": 10},
+        )
+        assert search.status_code == 200, search.text
+        results = search.json()["results"]
+        assert len(results) == 1
+        result = results[0]
+        assert result["source"] == "mcp"
+        assert result["version"] == 1
+        assert result["evidence_count"] == 1
+        assert result["updated_at"]
+
+        listing = await review_client.get(f"/v1/memories?workspace_id={review_env}&limit=100")
+        assert listing.status_code == 200, listing.text
+        listed = listing.json()["items"][0]
+        assert listed["evidence_count"] == 1
+
+        context = await review_client.post(
+            "/v1/context",
+            json={
+                "workspace_id": review_env,
+                "agent_id": str(uuid.uuid4()),
+                "session_id": str(uuid.uuid4()),
+                "keyword": "CitationProbe42",
+                "max_tokens": 2000,
+            },
+        )
+        assert context.status_code == 200, context.text
+        body = context.json()
+        assert len(body["items"]) == 1
+        item = body["items"][0]
+        assert item["id"] == result["id"]
+        assert item["source"] == "mcp"
+        assert item["confidence"] == 0.5
+        assert item["evidence_count"] == 1
+        assert item["updated_at"]
+
+        assert len(body["citations"]) == 1
+        citation = body["citations"][0]
+        assert citation["memory_id"] == result["id"]
+        assert citation["source"] == "mcp"
+        assert citation["evidence_count"] == 1
+        assert 'source="mcp"' in body["context"]
+        assert 'evidence="1"' in body["context"]

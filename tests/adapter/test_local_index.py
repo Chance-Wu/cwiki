@@ -31,7 +31,14 @@ CREATE TABLE memory (
     usage_count INTEGER NOT NULL DEFAULT 0,
     tags JSON,
     is_permanent INTEGER NOT NULL DEFAULT 0,
+    source TEXT NOT NULL DEFAULT 'mcp',
     updated_at TEXT
+);
+CREATE TABLE evidence (
+    id TEXT PRIMARY KEY,
+    memory_id TEXT,
+    candidate_id TEXT,
+    source_type TEXT NOT NULL DEFAULT 'candidate_approval'
 );
 """
 
@@ -104,10 +111,10 @@ def db_path(tmp_path: Path) -> Path:
         path,
         id="m3",
         workspace_id="w1",
-        title="归档的旧记忆",
+        title="已取代的旧记忆",
         content="Redis 旧版本配置说明。",
         type="fact",
-        status="archived",
+        status="superseded",
     )
     reset_cache()
     return path
@@ -122,7 +129,32 @@ def test_search_returns_active_memory_with_normalized_score(db_path: Path):
     assert data["insufficient"] is False
 
 
-def test_archived_memory_is_excluded(db_path: Path):
+def test_search_and_context_include_citation_fields(db_path: Path):
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute(
+            "INSERT INTO evidence (id, memory_id, source_type) "
+            "VALUES ('e1', 'm1', 'candidate_approval')"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    reset_cache()
+
+    data = search_local("redis 槽位", workspace="web", db_path=db_path)
+    result = data["results"][0]
+    assert result["source"] == "mcp"
+    assert result["evidence_count"] == 1
+    assert result["updated_at"] == "2026-10-23 00:00:00"
+
+    context = build_local_context(workspace="web", query="redis 槽位", db_path=db_path)
+    assert context["items"][0]["source"] == "mcp"
+    assert context["items"][0]["evidence_count"] == 1
+    assert context["citations"][0]["memory_id"] == "m1"
+    assert context["citations"][0]["evidence_count"] == 1
+
+
+def test_superseded_memory_is_excluded(db_path: Path):
     data = search_local("redis", workspace="web", db_path=db_path)
     assert {item["id"] for item in data["results"]} == {"m1"}
 

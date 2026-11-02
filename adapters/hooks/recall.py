@@ -171,10 +171,14 @@ def build_context(prompt: str, workspace: str) -> str:
         content = str(item.get("content") or "")[:PER_MEMORY_CHARS]
         if not content:
             continue
+        source = html.escape(str(item.get("source") or "memory"))
+        version = item.get("version")
+        version_attr = f' v="{version}"' if version is not None else ""
         block = (
             f'\n<memory id="{html.escape(str(item.get("id", "")))}" '
             f'type="{html.escape(str(item.get("type", "")))}" '
-            f'title="{html.escape(str(item.get("title", "")))}">'
+            f'title="{html.escape(str(item.get("title", "")))}" '
+            f'source="{source}"{version_attr}>'
             f"{html.escape(content)}</memory>"
         )
         if used + len(block) > MAX_CHARS:

@@ -12,6 +12,7 @@ import {
   Moon,
   Monitor,
   Settings,
+  Bell,
 } from 'lucide-react'
 import { api } from '../lib/api'
 import { useTranslation } from '../i18n/I18nProvider'
@@ -27,6 +28,7 @@ import { Card } from '../components/ui/Card'
 import RuntimeMonitor from '../components/settings/RuntimeMonitor'
 import IntegrityCard from '../components/settings/IntegrityCard'
 import { useHealth, useConfig } from '../hooks/useSettings'
+import { isReviewReminderEnabled, setReviewReminderEnabled } from '../hooks/useReviewReminder'
 import { useTheme } from '../theme/ThemeProvider'
 
 function InfoRow({
@@ -71,11 +73,32 @@ export default function SettingsPage() {
 
   const [exporting, setExporting] = useState(false)
   const [importing, setImporting] = useState(false)
+  const [reminderEnabled, setReminderEnabled] = useState(() => isReviewReminderEnabled())
 
   const loading = healthLoading
   const error = healthError && !health
 
   const toggleLocale = () => setLocale(locale === 'zh' ? 'en' : 'zh')
+
+  const toggleReminder = async () => {
+    if (reminderEnabled) {
+      setReviewReminderEnabled(false)
+      setReminderEnabled(false)
+      return
+    }
+    if (typeof Notification === 'undefined') {
+      toast(t.settings.reviewReminderUnsupported, 'error')
+      return
+    }
+    const permission = await Notification.requestPermission()
+    if (permission !== 'granted') {
+      toast(t.settings.reviewReminderDenied, 'error')
+      return
+    }
+    setReviewReminderEnabled(true)
+    setReminderEnabled(true)
+    toast(t.settings.reviewReminderOn, 'success')
+  }
 
   // 首页异常告警条跳转 /settings#monitor：监控卡数据晚于页面加载，
   // 卡片高度变化会把目标推走，短时间内反复对齐直到布局稳定
@@ -318,6 +341,36 @@ export default function SettingsPage() {
                       </button>
                     ))}
                   </div>
+                </div>
+              </Card>
+            </motion.div>
+
+            {/* 复习提醒 */}
+            <motion.div
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ ...spring.snappy, delay: 0.15 }}
+            >
+              <Card className="p-4 md:p-5 transition-all duration-150 hover:shadow-warm-md hover:border-[var(--border-strong)]">
+                <div className="flex items-center gap-2.5 mb-3">
+                  <motion.div
+                    className="flex items-center justify-center w-8 h-8 rounded-lg bg-gradient-to-br from-info/18 to-info/8 shrink-0 ring-1 ring-info/30 border border-info/25 shadow-warm-xs"
+                    whileHover={{ scale: 1.08, rotate: [-3, 3, 0] }}
+                    transition={{ duration: duration.modal }}
+                  >
+                    <Bell size={15} className="text-info-fg" aria-hidden="true" />
+                  </motion.div>
+                  <h3 className="text-base font-semibold text-[var(--text-primary)]">
+                    {t.settings.reviewReminder}
+                  </h3>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-xs text-[var(--text-secondary)] font-medium flex-1">
+                    {t.settings.reviewReminderDesc}
+                  </p>
+                  <Button onClick={toggleReminder} variant="secondary">
+                    {reminderEnabled ? t.settings.reviewReminderOn : t.settings.reviewReminderOff}
+                  </Button>
                 </div>
               </Card>
             </motion.div>

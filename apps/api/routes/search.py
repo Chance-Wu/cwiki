@@ -129,6 +129,9 @@ async def search(
             version=m["version"],
             score=m["score"],
             confidence=m.get("confidence"),
+            source=m.get("source", "mcp"),
+            updated_at=m.get("updated_at"),
+            evidence_count=int(m.get("evidence_count", 0) or 0),
             valid_to=str(m["valid_to"]) if m.get("valid_to") else None,
             is_stale=_is_stale(m.get("valid_to")),
         )

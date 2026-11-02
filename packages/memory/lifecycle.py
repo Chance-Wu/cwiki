@@ -16,18 +16,16 @@ class InvalidStatusTransition(Exception):
         super().__init__(f"非法状态转换: {current!r} → {target!r}，允许的目标状态: {allowed}")
 
 
-# 正式记忆合法状态转换表
-# active: 可更新、归档、取代、标记冲突/废弃
+# 正式记忆合法状态转换表。归档已移除：不再有软删除状态，删除即物理删除。
+# active: 可取代、标记冲突/废弃
 # superseded: 可恢复为 active（需显式撤销取代）
-# conflicted: 冲突解决后可恢复 active 或归档
-# archived: 可恢复为 active
-# deprecated: 可归档
+# conflicted: 冲突解决后可恢复 active 或被取代
+# deprecated: 可恢复为 active
 MEMORY_STATUS_TRANSITIONS: dict[str, list[str]] = {
-    "active": ["superseded", "conflicted", "archived", "deprecated"],
-    "superseded": ["active", "archived"],
-    "conflicted": ["active", "superseded", "archived"],
-    "archived": ["active"],
-    "deprecated": ["archived"],
+    "active": ["superseded", "conflicted", "deprecated"],
+    "superseded": ["active"],
+    "conflicted": ["active", "superseded"],
+    "deprecated": ["active"],
 }
 
 # 候选记忆合法状态转换表

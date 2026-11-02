@@ -13,10 +13,10 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { spring } from '../lib/motion'
 import { Plus, Loader2, RefreshCw, Database } from 'lucide-react'
 import { useTranslation, translate } from '../i18n/I18nProvider'
-import { api, type FileMemory, type MergeSuggestion } from '../lib/api'
+import { api, type FileMemory } from '../lib/api'
 import { type MemoryListItem, type MemoryListRecord } from '../lib/api/memories'
 import { ensureUtc } from '../lib/format'
-import { typeLabel } from '../lib/labels'
+import { typeLabel, MEMORY_STATUSES } from '../lib/labels'
 import Pagination from '../components/Pagination'
 import { useToast } from '../components/Toast'
 import { ListSkeleton } from '../components/Skeleton'
@@ -30,11 +30,8 @@ import { Card } from '../components/ui/Card'
 import type { SearchBoxHandle } from '../components/SearchBox'
 import type { OptimizePreview } from '../components/memory/MemoryDetailModal'
 import MemoryItem, { MEMORY_TYPES } from '../components/memories/MemoryItem'
-import BatchActionBar from '../components/memories/BatchActionBar'
-import MergeDialog from '../components/memories/MergeDialog'
+import BatchActionBar, { type BatchUpdatePatch } from '../components/memories/BatchActionBar'
 import MemoriesFilterPanel from '../components/memories/MemoriesFilterPanel'
-import MergeSuggestionsBanner from '../components/memories/MergeSuggestionsBanner'
-import MergeHistoryPanel from '../components/memories/MergeHistoryPanel'
 import MemoryListHeader from '../components/memories/MemoryListHeader'
 
 const MemoryDetailModal = lazy(() => import('../components/memory/MemoryDetailModal'))
@@ -49,11 +46,8 @@ import {
   useMemoryStats,
   useRebuildIndex,
   useApplyMemoryUpdate,
-  useMergeSuggestions,
-  useMergeMemories,
-  useTriggerConsolidate,
 } from '../hooks/useMemories'
-import { useSearch, type SearchMode } from '../hooks/useSearch'
+import { useSearch, resolveSearchMode, type SearchMode } from '../hooks/useSearch'
 import { useSearchHistory } from '../hooks/useSearchHistory'
 import { useListKeyboardNav } from '../hooks/useListKeyboardNav'
 import { useBatchSelection } from '../hooks/useBatchSelection'
@@ -71,6 +65,7 @@ export default function MemoriesPage() {
   const typeParam = searchParams.get('type')
   const validTypeParam = typeParam && MEMORY_TYPES.includes(typeParam) ? typeParam : null
   const memoryIdParam = searchParams.get('memoryId')
+  const titleParam = searchParams.get('title')
   // 质量分布页下钻：分箱过滤通过 URL 参数传入
   const usageParam = searchParams.get('usage')
   const decayParam = searchParams.get('decay')
@@ -124,9 +119,20 @@ export default function MemoriesPage() {
   const [workspaceFilter, setWorkspaceFilter] = useState(searchParams.get('workspace') ?? 'all')
   const statusParam = searchParams.get('status')
   const [statusFilter, setStatusFilter] = useState(
-    statusParam === 'active' || statusParam === 'archived' ? statusParam : 'all',
+    (MEMORY_STATUSES as readonly string[]).includes(statusParam ?? '') ? statusParam! : 'all',
   )
   const [timeRange, setTimeRange] = useState('all')
+  const [reviewStatusFilter, setReviewStatusFilter] = useState<
+    | 'all'
+    | 'due'
+    | 'new'
+    | 'learning'
+    | 'familiar'
+    | 'proficient'
+    | 'mastered'
+    | 'suspended'
+    | 'unscheduled'
+  >('all')
   const [selectedTags, setSelectedTags] = useState<string[]>(
     searchParams.get('tags')?.split(',').filter(Boolean) ?? [],
   )
@@ -134,16 +140,9 @@ export default function MemoriesPage() {
   const [pageSize, setPageSize] = useState(10)
   const [error, setError] = useState<string | null>(null)
 
-  const [mergeTarget, setMergeTarget] = useState<MergeSuggestion | null>(null)
-  const [mergedContent, setMergedContent] = useState('')
-  const [mergeSourceContent, setMergeSourceContent] = useState('')
-  const [mergeTargetContent, setMergeTargetContent] = useState('')
-  const [mergeSourceFilePath, setMergeSourceFilePath] = useState('')
-  const [mergeTargetFilePath, setMergeTargetFilePath] = useState('')
-  const [mergeLoading, setMergeLoading] = useState(false)
-
   const [batchDeleteConfirm, setBatchDeleteConfirm] = useState(false)
   const [batchDeleteLoading, setBatchDeleteLoading] = useState(false)
+  const [batchUpdateLoading, setBatchUpdateLoading] = useState(false)
 
   const [searchMode, setSearchMode] = useState<SearchMode>('text')
   const { history: searchHistory, addHistory, removeHistory, clearHistory } = useSearchHistory()
@@ -163,6 +162,7 @@ export default function MemoriesPage() {
           offset: (page - 1) * pageSize,
           usage: qualityUsage,
           decay: qualityDecay,
+          review_status: reviewStatusFilter !== 'all' ? reviewStatusFilter : undefined,
           min_confidence: qualityMinConfidence,
           max_confidence: qualityMaxConfidence,
           min_importance: qualityMinImportance,
@@ -174,7 +174,7 @@ export default function MemoriesPage() {
     memoryType: typeFilter !== 'all' ? typeFilter : undefined,
     tags: selectedTags,
   })
-  const statsQuery = useMemoryStats()
+  const statsQuery = useMemoryStats(statusFilter !== 'all' ? statusFilter : undefined)
   const workspacesQuery = useWorkspacesList()
 
   // 标签列表：与工作区/状态筛选保持一致，并清理已不存在的已选标签
@@ -223,7 +223,8 @@ export default function MemoriesPage() {
 
   const total = memoriesQuery.data?.total ?? 0
   const searchResults = (searchQuery.data?.results ?? null) as FileMemory[] | null
-  const isServerPaginated = isSearching && searchMode === 'hybrid'
+  const isServerPaginated =
+    isSearching && resolveSearchMode(deferredQuery.trim(), searchMode) === 'hybrid'
   const loading = isSearching ? searchQuery.isLoading : memoriesQuery.isLoading
 
   useEffect(() => {
@@ -244,34 +245,17 @@ export default function MemoriesPage() {
   const rebuildMutation = useRebuildIndex()
   const applyMutation = useApplyMemoryUpdate()
 
-  const workspaceId = memories[0]?.workspace ?? null
-  const mergeSuggestionsQuery = useMergeSuggestions(workspaceId)
-  const mergeSuggestions = mergeSuggestionsQuery.data?.items ?? []
-  const mergeGeneratedAt = mergeSuggestionsQuery.data?.generated_at ?? null
-  const mergeMutation = useMergeMemories()
-  const consolidateMutation = useTriggerConsolidate()
-
-  // 类型筛选同步到 URL query，刷新/分享链接可保留筛选状态
+  // 类型/状态/标签筛选合并同步到 URL，避免多次 setSearchParams 互相覆盖
   useEffect(() => {
     const next = new URLSearchParams(searchParams)
-    if (typeFilter !== 'all') {
-      next.set('type', typeFilter)
-    } else {
-      next.delete('type')
-    }
+    if (typeFilter !== 'all') next.set('type', typeFilter)
+    else next.delete('type')
+    if (statusFilter !== 'all') next.set('status', statusFilter)
+    else next.delete('status')
+    if (selectedTags.length > 0) next.set('tags', selectedTags.join(','))
+    else next.delete('tags')
     setSearchParams(next, { replace: true })
-  }, [typeFilter]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // 标签筛选同步到 URL query，刷新/分享链接可保留筛选状态
-  useEffect(() => {
-    const next = new URLSearchParams(searchParams)
-    if (selectedTags.length > 0) {
-      next.set('tags', selectedTags.join(','))
-    } else {
-      next.delete('tags')
-    }
-    setSearchParams(next, { replace: true })
-  }, [selectedTags]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [typeFilter, statusFilter, selectedTags]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleRebuildIndex = async () => {
     try {
@@ -302,62 +286,6 @@ export default function MemoriesPage() {
       setPreview(null)
     } catch {
       setError(t.memories.optimizationFailed)
-    }
-  }
-
-  const handleOpenMerge = async (s: MergeSuggestion) => {
-    setMergeTarget(s)
-    setMergeLoading(true)
-    try {
-      const [source, target] = await Promise.all([
-        api.getMemoryDetail(s.source_id),
-        api.getMemoryDetail(s.target_id),
-      ])
-      setMergeSourceContent(source.content)
-      setMergeTargetContent(target.content)
-      setMergeSourceFilePath(source.file_path)
-      setMergeTargetFilePath(target.file_path)
-      setMergedContent(target.content + '\n\n' + source.content)
-    } catch {
-      setMergeSourceContent(s.source_content_preview)
-      setMergeTargetContent(s.target_content_preview)
-      setMergeSourceFilePath('')
-      setMergeTargetFilePath('')
-      setMergedContent(s.target_content_preview + '\n\n' + s.source_content_preview)
-    } finally {
-      setMergeLoading(false)
-    }
-  }
-
-  const handleMergeConfirm = async () => {
-    if (!mergeTarget) return
-    try {
-      await mergeMutation.mutateAsync({
-        sourceId: mergeTarget.source_id,
-        targetId: mergeTarget.target_id,
-        mergedContent,
-        similarity: mergeTarget.similarity,
-        strategy: mergeSuggestionsQuery.data?.strategy,
-      })
-      toast(t.memories.mergeSuccess, 'success')
-      setMergeTarget(null)
-      mergeSuggestionsQuery.refetch()
-    } catch {
-      toast(t.memories.mergeFailed, 'error')
-    }
-  }
-
-  const handleDismissSuggestion = async (suggestion: MergeSuggestion) => {
-    try {
-      await api.dismissMergeSuggestion(
-        workspaceId ?? undefined,
-        suggestion.source_id,
-        suggestion.target_id,
-      )
-      toast(t.memories.mergeDismissSuccess, 'success')
-      mergeSuggestionsQuery.refetch()
-    } catch {
-      toast(t.memories.mergeDismissFailed, 'error')
     }
   }
 
@@ -399,6 +327,52 @@ export default function MemoriesPage() {
       toast(t.memories.batchDeleteFailed, 'error')
     } finally {
       setBatchDeleteLoading(false)
+    }
+  }
+
+  const handleBatchUpdate = async (patch: BatchUpdatePatch) => {
+    if (selectedIds.size === 0) return
+    setBatchUpdateLoading(true)
+    try {
+      const res = await api.batchUpdateMemories(Array.from(selectedIds), patch)
+      if (res.failed === 0) {
+        toast(translate(t.memories.batchUpdateSuccess, { n: res.succeeded }), 'success')
+      } else {
+        toast(
+          translate(t.memories.batchUpdatePartial, {
+            success: res.succeeded,
+            failed: res.failed,
+          }),
+          'error',
+        )
+      }
+      clearSelection()
+      memoriesQuery.refetch()
+      statsQuery.refetch()
+    } catch {
+      toast(t.memories.batchUpdateFailed, 'error')
+    } finally {
+      setBatchUpdateLoading(false)
+    }
+  }
+
+  const handleExportSelected = async () => {
+    if (selectedIds.size === 0) return
+    try {
+      const res = await api.exportMarkdown(
+        workspaceFilter !== 'all' ? workspaceFilter : undefined,
+        Array.from(selectedIds),
+      )
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `cwiki-selected-${new Date().toISOString().slice(0, 10)}.md`
+      a.click()
+      URL.revokeObjectURL(url)
+      toast(t.memories.exportSelectedSuccess, 'success')
+    } catch {
+      toast(t.memories.exportSelectedFailed, 'error')
     }
   }
 
@@ -458,7 +432,7 @@ export default function MemoriesPage() {
   const { selectedIds, toggleSelect, toggleSelectAll, clearSelection } =
     useBatchSelection(displayItemIds)
 
-  const modalOpen = !!(detailMemory || preview || mergeTarget || showCreate)
+  const modalOpen = !!(detailMemory || preview || showCreate)
 
   const { focusedIndex, setFocusedIndex } = useListKeyboardNav({
     itemCount: visibleItems.length,
@@ -480,6 +454,7 @@ export default function MemoriesPage() {
     workspaceFilter,
     statusFilter,
     timeRange,
+    reviewStatusFilter,
     qualityUsage,
     qualityDecay,
     qualityMinConfidence,
@@ -494,6 +469,7 @@ export default function MemoriesPage() {
     workspaceFilter !== 'all' ||
     statusFilter !== 'all' ||
     timeRange !== 'all' ||
+    reviewStatusFilter !== 'all' ||
     selectedTags.length > 0 ||
     hasQualityFilters
 
@@ -517,6 +493,7 @@ export default function MemoriesPage() {
     setWorkspaceFilter('all')
     setStatusFilter('all')
     setTimeRange('all')
+    setReviewStatusFilter('all')
     setSelectedTags([])
     setPage(1)
     clearQualityFilters()
@@ -626,6 +603,12 @@ export default function MemoriesPage() {
         onWorkspaceFilterChange={setWorkspaceFilter}
         statusFilter={statusFilter}
         onStatusFilterChange={setStatusFilter}
+        reviewStatusFilter={reviewStatusFilter}
+        onReviewStatusFilterChange={(v) => {
+          setReviewStatusFilter(v as typeof reviewStatusFilter)
+          setPage(1)
+          setFocusedIndex(-1)
+        }}
         timeRange={timeRange}
         onTimeRangeChange={setTimeRange}
         tagsList={tagsList}
@@ -687,68 +670,6 @@ export default function MemoriesPage() {
         </div>
       )}
 
-      {/* 合并建议横幅 */}
-      <MergeSuggestionsBanner
-        suggestions={mergeSuggestions}
-        generatedAt={mergeGeneratedAt}
-        consolidatePending={consolidateMutation.isPending}
-        strategy={mergeSuggestionsQuery.data?.strategy}
-        onConsolidate={() => consolidateMutation.mutate()}
-        onOpenMerge={handleOpenMerge}
-        onDismissSuggestion={handleDismissSuggestion}
-        onBatchMerge={async (selected) => {
-          // 批量合并：拉取全文后依次执行每个合并，跟踪进度与成功/失败数
-          let successCount = 0
-          let failCount = 0
-          for (let i = 0; i < selected.length; i++) {
-            const s = selected[i]
-            try {
-              // 拉取全文（与单条合并一致），失败时降级用 preview
-              let mergedContent: string
-              try {
-                const [sourceDetail, targetDetail] = await Promise.all([
-                  api.getMemoryDetail(s.source_id),
-                  api.getMemoryDetail(s.target_id),
-                ])
-                mergedContent = targetDetail.content + '\n\n' + sourceDetail.content
-              } catch {
-                mergedContent = s.target_content_preview + '\n\n' + s.source_content_preview
-              }
-              await mergeMutation.mutateAsync({
-                sourceId: s.source_id,
-                targetId: s.target_id,
-                mergedContent,
-                similarity: s.similarity,
-                strategy: mergeSuggestionsQuery.data?.strategy,
-              })
-              successCount++
-            } catch (err) {
-              failCount++
-              console.error('Batch merge failed for pair:', s, err)
-            }
-          }
-          mergeSuggestionsQuery.refetch()
-          if (failCount === 0) {
-            toast(t.memories.batchMergeComplete.replace('{n}', String(successCount)), 'success')
-          } else {
-            toast(
-              t.memories.batchMergePartial
-                .replace('{success}', String(successCount))
-                .replace('{total}', String(selected.length))
-                .replace('{failed}', String(failCount)),
-              'error',
-            )
-          }
-        }}
-      />
-
-      {/* 合并历史 */}
-      {workspaceId && (
-        <div className="mb-5">
-          <MergeHistoryPanel workspaceId={workspaceId} />
-        </div>
-      )}
-
       {error && (
         <ErrorAlert
           message={error}
@@ -777,12 +698,15 @@ export default function MemoriesPage() {
           selectedCount={selectedIds.size}
           batchDeleteConfirm={batchDeleteConfirm}
           batchDeleteLoading={batchDeleteLoading}
+          batchUpdateLoading={batchUpdateLoading}
           onCancel={() => {
             if (batchDeleteConfirm) setBatchDeleteConfirm(false)
             else clearSelection()
           }}
           onDeleteClick={() => setBatchDeleteConfirm(true)}
           onBatchDelete={handleBatchDelete}
+          onBatchUpdate={handleBatchUpdate}
+          onExportSelected={handleExportSelected}
         />
       )}
 
@@ -873,26 +797,12 @@ export default function MemoriesPage() {
       <Suspense fallback={null}>
         <MemoryCreateModal
           open={showCreate}
+          defaultTitle={titleParam ?? undefined}
           onClose={() => setShowCreate(false)}
           onCreated={() => memoriesQuery.refetch()}
           defaultType={validTypeParam ?? undefined}
         />
       </Suspense>
-
-      {/* 合并确认弹窗 */}
-      <MergeDialog
-        mergeTarget={mergeTarget}
-        mergedContent={mergedContent}
-        mergeSourceContent={mergeSourceContent}
-        mergeTargetContent={mergeTargetContent}
-        mergeSourceFilePath={mergeSourceFilePath}
-        mergeTargetFilePath={mergeTargetFilePath}
-        mergeLoading={mergeLoading}
-        mergeMutationPending={mergeMutation.isPending}
-        onClose={() => setMergeTarget(null)}
-        onMergedChange={setMergedContent}
-        onConfirm={handleMergeConfirm}
-      />
     </PageShell>
   )
 }

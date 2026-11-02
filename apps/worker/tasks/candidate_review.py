@@ -9,14 +9,22 @@ from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import set_committed_value
 
 from apps.worker.scoring import score_candidate
 from apps.worker.tasks._shared import _resolve_embedding_service
-from packages.domain.config import settings
+from packages.domain.config import parasitic_evolution_config, settings
 from packages.domain.database import async_session_maker
 from packages.domain.models import CandidateMemory, Memory
 from packages.domain.models.memory import MemoryConflict, Review
 from packages.domain.task_queue import TaskQueue
+from packages.memory.conflict_detection import detect_write_time_conflicts
+from packages.memory.service import (
+    CandidateStateError,
+    DuplicateMemoryError,
+    approve_candidate,
+    find_duplicate_for_approval,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -158,12 +166,14 @@ def _auto_approve_reason(
     candidate: CandidateMemory,
     thresholds: dict[str, float],
     memory_id: str,
+    memory_version: int,
     *,
     forced: bool = False,
 ) -> str:
     """构造自动生效 Review 的决策明细 JSON（各分项 + 阈值 + 生成记忆 ID）。"""
     payload = {
         "memory_id": memory_id,
+        "memory_version": memory_version,
         "value_score": candidate.value_score,
         "confidence": candidate.confidence,
         "quality_gate_score": candidate.quality_gate_score,
@@ -224,6 +234,49 @@ async def _maybe_auto_approve(
         )
         return None
 
+    # 审批前重新查重：重复候选留在人工审核，并把目标写回候选供 UI 展示
+    candidate_embedding = list(candidate.embedding) if candidate.embedding else None
+    duplicate = await find_duplicate_for_approval(
+        db_session,
+        candidate.workspace_id,
+        candidate.title,
+        candidate.content,
+        embedding=candidate_embedding,
+    )
+    if duplicate is not None:
+        candidate.duplicate_probability = duplicate.similarity
+        candidate.similar_memory_id = duplicate.id
+        candidate.similar_memory_source = duplicate.source
+        logger.info(
+            "Auto-approve skipped for candidate %s: duplicate of %s",
+            candidate.id,
+            duplicate.id,
+        )
+        return None
+
+    # 审批前用候选向量预检冲突；检测失败时保守留在人工审核，避免冲突守卫被绕过。
+    if parasitic_evolution_config.write_time_conflict_enabled:
+        if candidate_embedding is None:
+            logger.info(
+                "Auto-approve skipped for candidate %s: no embedding for conflict check",
+                candidate.id,
+            )
+            return None
+        try:
+            await detect_write_time_conflicts(
+                db_session,
+                workspace_id=candidate.workspace_id,
+                content=candidate.content,
+                embedding=candidate_embedding,
+                candidate_id=candidate.id,
+            )
+        except Exception:
+            logger.warning(
+                "Auto-approve conflict pre-check failed; keeping candidate pending",
+                exc_info=True,
+            )
+            return None
+
     conflict_stmt = select(func.count(MemoryConflict.id)).where(
         MemoryConflict.candidate_id == candidate.id,
         MemoryConflict.status == "open",
@@ -237,9 +290,27 @@ async def _maybe_auto_approve(
         )
         return None
 
-    from packages.memory.service import approve_candidate
-
-    memory = await approve_candidate(db_session, candidate)
+    await db_session.flush()
+    try:
+        # savepoint 隔离审批：重复/状态竞态只回滚本次转正，保留已算出的评分
+        async with db_session.begin_nested():
+            memory = await approve_candidate(
+                db_session,
+                candidate,
+                embedding=candidate_embedding,
+                duplicate_checked=True,
+            )
+    except DuplicateMemoryError as exc:
+        candidate.duplicate_probability = exc.similarity
+        candidate.similar_memory_id = exc.similar.id
+        candidate.similar_memory_source = exc.source
+        set_committed_value(candidate, "status", "pending_review")
+        logger.info("Auto-approve blocked for candidate %s: duplicate", candidate.id)
+        return None
+    except CandidateStateError:
+        set_committed_value(candidate, "status", "pending_review")
+        logger.info("Auto-approve skipped for candidate %s: state changed", candidate.id)
+        return None
     await db_session.flush()
 
     review = Review(
@@ -247,7 +318,9 @@ async def _maybe_auto_approve(
         reviewer_type="system",
         reviewer_id="write_policy" if force else "auto_tier_v1",
         action="auto_approve",
-        reason=_auto_approve_reason(candidate, thresholds, str(memory.id), forced=force),
+        reason=_auto_approve_reason(
+            candidate, thresholds, str(memory.id), memory.version, forced=force
+        ),
     )
     db_session.add(review)
     await db_session.commit()

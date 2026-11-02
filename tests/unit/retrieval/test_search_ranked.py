@@ -65,7 +65,9 @@ async def search_env(tmp_path, monkeypatch):
         db.add_all([mem_a, mem_b, mem_c])
         await db.commit()
 
-        monkeypatch.setattr("packages.retrieval.engine.get_embedding_service", lambda: _StubEmbedding())
+        monkeypatch.setattr(
+            "packages.retrieval.engine.get_embedding_service", lambda: _StubEmbedding()
+        )
         monkeypatch.setattr(
             "packages.retrieval.context.assembler.get_embedding_service", lambda: _StubEmbedding()
         )
@@ -110,12 +112,15 @@ async def test_search_ranked_returns_sorted_memories(search_env):
 async def test_search_ranked_fallback_when_no_match(search_env, monkeypatch):
     """无候选时走 fallback 路径，返回重要性排序结果并标记 fallback=True。"""
     env = search_env
+
     # 用零向量让 vector search 返回空，BM25 也无匹配
     class _ZeroEmbedding:
         async def generate_embedding(self, text: str) -> list[float]:
             return [0.0, 0.0]
+
         async def generate_embeddings_batch(self, texts: list[str]) -> list[list[float]]:
             return [[0.0, 0.0] for _ in texts]
+
     monkeypatch.setattr("packages.retrieval.engine.get_embedding_service", lambda: _ZeroEmbedding())
     result = await env.engine.search_ranked(
         db=env.db,
@@ -266,9 +271,9 @@ async def test_search_ranked_record_trace(search_env):
 
     # 先确认没有 trace
     result_before = await env.db.execute(
-        __import__("sqlalchemy").select(RetrievalTrace).where(
-            RetrievalTrace.workspace_id == env.workspace.id
-        )
+        __import__("sqlalchemy")
+        .select(RetrievalTrace)
+        .where(RetrievalTrace.workspace_id == env.workspace.id)
     )
     count_before = len(result_before.all())
 
@@ -281,9 +286,9 @@ async def test_search_ranked_record_trace(search_env):
     )
 
     result_after = await env.db.execute(
-        __import__("sqlalchemy").select(RetrievalTrace).where(
-            RetrievalTrace.workspace_id == env.workspace.id
-        )
+        __import__("sqlalchemy")
+        .select(RetrievalTrace)
+        .where(RetrievalTrace.workspace_id == env.workspace.id)
     )
     count_after = len(result_after.all())
     assert count_after == count_before + 1

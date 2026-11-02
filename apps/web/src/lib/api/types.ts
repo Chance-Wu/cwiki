@@ -26,6 +26,11 @@ export interface FileMemory {
   last_used_at?: string
   score?: number
   confidence?: number
+  evidence_count?: number
+  mastery_level?: string | null
+  next_review?: string | null
+  lapse_streak?: number
+  leech?: boolean
   usage_count?: number
 }
 
@@ -101,7 +106,13 @@ export interface SearchResult {
   title: string
   content: string
   type: string
+  version?: number
+  tags?: string[]
   score: number | null
+  confidence?: number | null
+  source?: string
+  updated_at?: string | null
+  evidence_count?: number
 }
 
 export interface VersionCommit {
@@ -194,36 +205,6 @@ export interface RelatedMemory {
   id: string
   title: string
   type: string
-}
-
-export interface MergeSuggestion {
-  source_id: string
-  source_title: string
-  source_content_preview: string
-  target_id: string
-  target_title: string
-  target_content_preview: string
-  similarity: number
-  relation_type: string
-  strategy?: string
-}
-
-export interface MergeHistoryItem {
-  event_id: string
-  merged_at: string
-  event_type: 'merged' | 'auto_merged'
-  keeper_memory: {
-    id: string
-    title: string
-    status: string
-  }
-  archived_memories: Array<{
-    id: string
-    title: string
-    status: string
-  }>
-  similarity?: number
-  strategy?: string
 }
 
 export interface EvolutionMetrics {
@@ -337,13 +318,10 @@ export interface ConfigData {
     memory_relations_enabled: boolean
     agent_profile_enabled: boolean
     memory_version_tracking_enabled: boolean
-    auto_consolidate_enabled: boolean
     review_reminders_enabled: boolean
     mastery_coupled_decay_enabled: boolean
     entity_extraction_enabled: boolean
     write_time_conflict_enabled: boolean
-    auto_merge_enabled: boolean
-    auto_merge_threshold: number
     episodic_retrieval_enabled: boolean
     auto_relation_enabled: boolean
     auto_relation_threshold: number
@@ -371,9 +349,6 @@ export interface ConfigData {
     context_cache_max_size: number
     context_token_budget: number
     dedup_top_k: number
-    merge_suggestions_threshold: number
-    auto_consolidate_limit: number
-    auto_consolidate_top_k: number
   }
   retrieval: {
     bm25_weight: number
@@ -655,6 +630,10 @@ export interface ReviewItem {
   title: string
   content: string
   memory_type: string
+  source?: string | null
+  confidence?: number | null
+  tags?: string[]
+  importance?: number | null
   ease_factor: number
   interval_days: number
   repetitions: number
@@ -663,6 +642,16 @@ export interface ReviewItem {
   days_overdue: number
   mastery_level: string
   total_reviews: number
+  lapse_streak?: number
+  leech?: boolean
+}
+
+export interface SuspendedReview {
+  memory_id: string
+  title: string
+  memory_type: string
+  suspended_at: string | null
+  lapse_streak: number
 }
 
 export interface ReviewResult {
@@ -674,13 +663,43 @@ export interface ReviewResult {
   last_review: string
   mastery_level: string
   total_reviews: number
+  lapse_streak?: number
+  leech?: boolean
+}
+
+export interface ReviewQuiz {
+  memory_id: string
+  kind: 'cloze'
+  prompt: string
+  blank_count: number
+}
+
+export interface ReviewQuizResult extends ReviewResult {
+  correct: boolean
+  matched: number
+  total: number
+  expected_terms: string[]
+  quality: number
+}
+
+export interface ReviewPreferences {
+  daily_goal: number
+  updated_at: string | null
 }
 
 export interface ReviewStats {
   total_scheduled: number
   due_now: number
   due_today: number
+  /** 当天复习过的去重记忆数 */
   reviewed_today: number
+  /** 当天复习事件数（同一记忆多次复习计多次） */
+  review_count_today: number
+  /** 连续有复习记录的自然天数 */
+  streak_days: number
   mastery_distribution: Record<string, number>
   review_trend: Array<{ date: string; count: number }>
+  quiz_attempts?: number
+  quiz_correct?: number
+  quiz_accuracy?: number | null
 }

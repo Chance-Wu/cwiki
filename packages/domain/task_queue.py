@@ -185,7 +185,7 @@ class TaskQueue:
             self._persist_task = None
         self._pending_keys.clear()
 
-        # 关闭前把剩余 PENDING 任务落盘
+        # 关闭前把剩余 PENDING/RUNNING 任务落盘
         self._persist_dirty = True
         self._persist_snapshot()
         logger.info("Stopped task workers")
@@ -213,6 +213,9 @@ class TaskQueue:
 
                 try:
                     task.status = TaskStatus.RUNNING
+                    # Persist the claim immediately; a snapshot during execution
+                    # must retain the task and startup converts RUNNING to pending.
+                    self._persist_dirty = True
                     func = self._functions.get(task.name)
                     if not func:
                         raise ValueError(f"Unknown task: {task.name}")
@@ -222,6 +225,14 @@ class TaskQueue:
                     task.status = TaskStatus.COMPLETED
                     task.completed_at = datetime.now(UTC)
 
+                except asyncio.CancelledError:
+                    # stop() may cancel an in-flight task.  Persist it as pending so
+                    # the next process can retry it instead of silently losing it.
+                    if task.status == TaskStatus.RUNNING:
+                        task.status = TaskStatus.PENDING
+                        self._pending_keys[dedup_key] = task.id
+                        self._persist_dirty = True
+                    raise
                 except Exception as e:
                     if task.retry_count < self._max_retries:
                         task.retry_count += 1
@@ -405,17 +416,12 @@ class TaskQueue:
     # ── 持久化 ───────────────────────────────────────────────────
 
     def _persist_snapshot(self) -> None:
-        """原子地把 PENDING 与 FAILED 任务写入磁盘（状态变化时调用）。
+        """原子地把未完成与 FAILED 任务写入磁盘。
 
-        PENDING 用于重启续跑（at-least-once）；FAILED 是死信的持久
-        形态 —— 死信若仅存内存，进程重启后失败证据与手动重放入口
-        一起消失。RUNNING 不落盘：崩溃后由上次快照中的 PENDING 恢复，
-        语义为重复执行。
+        RUNNING 也落盘；启动时统一按 PENDING 恢复，保证停止/崩溃期间不丢任务。
         """
         if not self._persist_dirty:
             return
-        self._persist_dirty = False
-
         entries = [
             {
                 "id": t.id,
@@ -429,13 +435,14 @@ class TaskQueue:
                 "completed_at": t.completed_at.isoformat() if t.completed_at else None,
             }
             for t in self._tasks.values()
-            if t.status in (TaskStatus.PENDING, TaskStatus.FAILED)
+            if t.status in (TaskStatus.PENDING, TaskStatus.RUNNING, TaskStatus.FAILED)
         ]
-        if not entries:
-            self._persist_path.unlink(missing_ok=True)
-            return
-
         try:
+            if not entries:
+                self._persist_path.unlink(missing_ok=True)
+                self._persist_dirty = False
+                return
+
             self._persist_path.parent.mkdir(parents=True, exist_ok=True)
             # 先写临时文件再 os.replace 原子替换，避免崩溃留下半写文件
             fd, tmp = tempfile.mkstemp(suffix=".tmp", dir=self._persist_path.parent)
@@ -453,6 +460,11 @@ class TaskQueue:
         except TypeError as e:
             # 任务参数不可序列化（default=str 已兜底大部分），同样不应崩队列
             logger.error("Failed to serialize task queue snapshot: %s", e)
+        except Exception as e:
+            logger.error("Failed to persist task queue snapshot: %s", e)
+        else:
+            # Clear dirty only after the complete snapshot has been committed.
+            self._persist_dirty = False
 
     def _restore_persisted(self) -> tuple[int, int]:
         """从磁盘恢复 PENDING 与 FAILED 任务，返回 ``(pending, failed)`` 数量。

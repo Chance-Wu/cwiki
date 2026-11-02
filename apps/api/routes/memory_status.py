@@ -38,6 +38,7 @@ from packages.domain.models import (
 from packages.domain.time_utils import days_since
 from packages.memory.evolution_metrics import compute_evolution_metrics
 from packages.memory.health import compute_health
+from packages.memory.spaced_repetition import calculate_mastery_level
 from packages.memory.utility_score import compute_utility_score
 from packages.retrieval.embedding import get_embedding_metrics
 
@@ -745,19 +746,40 @@ async def get_knowledge_graph(
             "truncated": False,
         }
 
-    nodes = [
-        {
-            "id": str(memory.id),
-            "title": memory.title,
-            "type": memory.type,
-            "confidence": memory.confidence,
-            "importance": memory.importance,
-            "degree": int(degree or 0),
-            "is_isolated": int(degree or 0) == 0,
-        }
-        for memory, degree in rows
-    ]
+    nodes = []
     top_ids = [memory.id for memory, _ in rows]
+    schedule_rows = (
+        await db.execute(
+            select(
+                ReviewSchedule.memory_id,
+                ReviewSchedule.repetitions,
+                ReviewSchedule.ease_factor,
+                ReviewSchedule.next_review,
+                ReviewSchedule.lapse_streak,
+                ReviewSchedule.suspended_at,
+            ).where(ReviewSchedule.memory_id.in_(top_ids))
+        )
+    ).all()
+    schedule_map = {str(row[0]): row for row in schedule_rows}
+    for memory, degree in rows:
+        sched = schedule_map.get(str(memory.id))
+        mastery = calculate_mastery_level(sched[1], sched[2]) if sched is not None else None
+        nodes.append(
+            {
+                "id": str(memory.id),
+                "title": memory.title,
+                "type": memory.type,
+                "confidence": memory.confidence,
+                "importance": memory.importance,
+                "degree": int(degree or 0),
+                "is_isolated": int(degree or 0) == 0,
+                "mastery_level": mastery,
+                "next_review": (sched[3].isoformat() if sched is not None and sched[3] else None),
+                "lapse_streak": int(sched[4]) if sched is not None else 0,
+                "leech": bool(sched is not None and sched[4] >= 3),
+                "suspended": bool(sched is not None and sched[5] is not None),
+            }
+        )
 
     edge_stmt = (
         select(MemoryRelation)

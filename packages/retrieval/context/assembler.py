@@ -3,13 +3,14 @@
 
 from __future__ import annotations
 
+import html
 import logging
 import uuid
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from packages.domain.config import settings
-from packages.domain.text_utils import format_memory_for_embedding
+from packages.domain.text_utils import format_memory_for_embedding, preprocess_query_for_embedding
 from packages.retrieval.context.compression import (
     DEFAULT_RESERVE_TYPES,
     apply_per_memory_cap,
@@ -57,6 +58,10 @@ class ContextMemory:
     utility_score: float
     priority: float
     evidence_count: int
+    source: str = "memory"
+    version: int | None = None
+    confidence: float | None = None
+    updated_at: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -84,13 +89,21 @@ def _format_memory_text(mem: dict[str, Any], index: int) -> str:
     mem_type = mem.get("type", "fact").upper()
     title = mem.get("title", "Untitled")
     content = mem.get("content", "")
-    memory_id = str(mem.get("id", ""))
-    return (
-        f"[{index}] [{mem_type}] {title}\n"
-        f'<memory type="{mem.get("type", "fact")}" id="{memory_id}">\n'
-        f"{content}\n"
-        f"</memory>"
-    )
+    memory_id = html.escape(str(mem.get("id", "")), quote=True)
+    source = html.escape(str(mem.get("source") or "memory"), quote=True)
+    attrs = [f'type="{html.escape(str(mem.get("type", "fact")), quote=True)}"', f'id="{memory_id}"']
+    attrs.append(f'source="{source}"')
+    version = mem.get("version")
+    if version is not None:
+        attrs.append(f'version="{version}"')
+    confidence = mem.get("confidence")
+    if confidence is not None:
+        attrs.append(f'confidence="{float(confidence):.2f}"')
+    attrs.append(f'evidence="{int(mem.get("evidence_count", 0) or 0)}"')
+    updated_at = mem.get("updated_at")
+    if updated_at:
+        attrs.append(f'updated="{html.escape(str(updated_at)[:10], quote=True)}"')
+    return f"[{index}] [{mem_type}] {title}\n<memory {' '.join(attrs)}>\n{content}\n</memory>"
 
 
 def _build_conflict_warning(conflicts: list[ConflictReference]) -> str:
@@ -161,6 +174,10 @@ def _format_context_result(
                 utility_score=mem.get("utility_score", 0),
                 priority=float(i),
                 evidence_count=mem.get("evidence_count", 0),
+                source=str(mem.get("source") or "memory"),
+                version=mem.get("version"),
+                confidence=mem.get("confidence"),
+                updated_at=mem.get("updated_at"),
             )
         )
 
@@ -380,12 +397,12 @@ async def assemble_context_with_embedding(
     intent: str = "unknown",
     max_tokens: int = DEFAULT_BUDGET,
     max_per_type: int = 3,
-    embedding_weight: float = 0.3,
+    embedding_weight: float = 0.03,
     per_memory_cap_ratio: float = 0.25,
 ) -> ContextResult:
-    """运行完整上下文流水线（带 embedding 增强排序）。
+    """运行完整上下文流水线（带 embedding 带内微调）。
 
-    流水线：去重 -> 冲突检测 -> 优先级排序 -> Embedding 重排
+    流水线：去重 -> 冲突检测 -> Embedding 带内微调 -> 优先级排序
             -> 多样性 -> L1+L2 压缩 -> token 预算 -> 格式化
 
     Args:
@@ -394,7 +411,7 @@ async def assemble_context_with_embedding(
         intent: 查询分析器给出的意图。
         max_tokens: token 预算（500/1000/2000/4000/8000）。
         max_per_type: 多样性过滤中同类型记忆上限。
-        embedding_weight: 重排中 embedding 相似度的权重（0.0 到 1.0）。
+        embedding_weight: embedding 微调的带内上限（0.0 到 1.0）。
         per_memory_cap_ratio: 单条记忆占预算的最大比例（L1）。
 
     Returns:
@@ -415,6 +432,7 @@ async def assemble_context_with_embedding(
         )
 
     reasons: list[FilterReason] = []
+    analyzed = analyze_query(query)
     entry_passed, entry_events = apply_entry_filters(
         memories,
         stale_mode=settings.stale_filter_mode,
@@ -422,18 +440,25 @@ async def assemble_context_with_embedding(
         confidence_floor=settings.confidence_floor,
         relevance_mode=settings.relevance_floor_mode,
         relevance_floor=settings.relevance_floor,
-        skip_stale=analyze_query(query).is_historical_query,
+        skip_stale=analyzed.is_historical_query,
     )
     for mem_id, stage, reason in entry_events:
         reasons.append(FilterReason(memory_id=mem_id, stage=stage, reason=reason))
     deduped = _dedup_stage(entry_passed, reasons)
     conflicts = detect_conflicts(deduped)
-    ranked = rank_by_priority(deduped, intent=intent)
 
-    # 有查询词且权重 > 0 时，用 embedding 相似度重排
-    if query and embedding_weight > 0 and len(ranked) > 1:
-        logger.debug("Applying embedding re-ranking with weight=%s", embedding_weight)
-        ranked = await _rerank_with_embedding(ranked, query, embedding_weight)
+    # embedding 只做带内微调，先于类型/效用排序执行，保证最终排序
+    # 仍由相关性主导；两者都不能跨带翻转相关性差。
+    reranked = deduped
+    if query and embedding_weight > 0 and len(deduped) > 1:
+        logger.debug("Applying bounded embedding tie-break with band=%s", embedding_weight)
+        reranked = await _rerank_with_embedding(
+            deduped,
+            query,
+            embedding_weight,
+            analyzed=analyzed,
+        )
+    ranked = rank_by_priority(reranked, intent=intent)
 
     filtered = _diversity_stage(ranked, max_per_type, reasons)
 
@@ -445,16 +470,21 @@ async def assemble_context_with_embedding(
 async def _rerank_with_embedding(
     memories: list[dict[str, Any]],
     query: str,
-    embedding_weight: float,
+    embedding_band: float,
+    analyzed: Any | None = None,
 ) -> list[dict[str, Any]]:
-    """用与查询的 embedding 相似度重排记忆。
+    """用与查询的 embedding 相似度做带内微调。
 
-    最终得分 = 原始分与 embedding 相似度的线性加权组合；
-    优先复用已存储的向量，避免重复生成。
+    最终得分 = (1-band)×原始分 + band×余弦相似度。band 默认 0.03，
+    语义相似度只能翻转原始分差 ≤band 的候选，不重复架空检索相关性。
+    查询走与检索引擎相同的预处理，避免两处向量口径不一致。
     """
     embedding_service = get_embedding_service()
+    band = min(max(embedding_band, 0.0), 1.0)
 
-    query_embedding = await embedding_service.generate_embedding(query)
+    query_embedding = await embedding_service.generate_embedding(
+        preprocess_query_for_embedding(query, analyzed)
+    )
     if query_embedding is None:
         return memories
 
@@ -497,10 +527,11 @@ async def _rerank_with_embedding(
         else:
             emb_sim = 0.0
 
-        # 线性加权：默认 embedding_weight=0.3——语义相似度补足检索分的盲区，
-        # 又不至于架空关键词/图信号
-        original_score = mem.get("score", 0)
-        combined_score = (1 - embedding_weight) * original_score + embedding_weight * emb_sim
+        # 带内微调：默认 band=0.03——语义相似度只补足检索分的近邻并列，
+        # 不架空关键词/图信号，也不与检索侧的语义信号重复主导排序
+        original_score = float(mem.get("score", 0) or 0.0)
+        sim01 = min(max(float(emb_sim), 0.0), 1.0)
+        combined_score = (1 - band) * original_score + band * sim01
         logger.debug(
             "Memory '%s': original=%.4f, embedding=%.4f, combined=%.4f",
             mem.get("title", "")[:30],

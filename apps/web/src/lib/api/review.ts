@@ -1,5 +1,15 @@
 import { request } from './base'
-import type { Review, Conflict, Feedback, ReviewItem, ReviewResult, ReviewStats } from './types'
+import type {
+  Review,
+  Conflict,
+  Feedback,
+  ReviewItem,
+  ReviewPreferences,
+  ReviewQuiz,
+  ReviewQuizResult,
+  ReviewResult,
+  ReviewStats,
+} from './types'
 
 // --- Candidate Reviews ---
 
@@ -74,9 +84,36 @@ export const submitReview = (memoryId: string, quality: number) =>
     body: JSON.stringify({ quality }),
   })
 
+export const getReviewQuiz = (memoryId: string, workspaceId?: string) => {
+  const params = new URLSearchParams()
+  if (workspaceId) params.set('workspace_id', workspaceId)
+  const qs = params.toString()
+  return request<ReviewQuiz>(`/review/quiz/${memoryId}${qs ? `?${qs}` : ''}`)
+}
+
+export const submitReviewQuiz = (memoryId: string, answers: string[], workspaceId?: string) => {
+  const params = new URLSearchParams()
+  if (workspaceId) params.set('workspace_id', workspaceId)
+  const qs = params.toString()
+  return request<ReviewQuizResult>(`/review/quiz/${memoryId}${qs ? `?${qs}` : ''}`, {
+    method: 'POST',
+    body: JSON.stringify({ kind: 'cloze', answers }),
+  })
+}
+
+export const getReviewPreferences = () => request<ReviewPreferences>('/review/preferences')
+
+export const updateReviewPreferences = (dailyGoal: number) =>
+  request<ReviewPreferences>('/review/preferences', {
+    method: 'PUT',
+    body: JSON.stringify({ daily_goal: dailyGoal }),
+  })
+
 export const getReviewStats = (workspaceId?: string) => {
   const params = new URLSearchParams()
   if (workspaceId) params.set('workspace_id', workspaceId)
+  // 后端按客户端本地自然日划分「今天」：getTimezoneOffset() 东八区返回 -480，取负即 +480
+  params.set('tz_offset_minutes', String(-new Date().getTimezoneOffset()))
   const qs = params.toString()
   return request<ReviewStats>(`/review/stats${qs ? `?${qs}` : ''}`)
 }
@@ -97,6 +134,56 @@ export const undoReview = (memoryId: string, workspaceId?: string) => {
   const qs = params.toString()
   return request<{ status: string; memory_id: string; schedule: Record<string, unknown> }>(
     `/review/undo/${memoryId}${qs ? `?${qs}` : ''}`,
+    { method: 'POST' },
+  )
+}
+
+// --- Leech / pause management ---
+
+export const getSuspendedReviews = (workspaceId?: string) => {
+  const params = new URLSearchParams()
+  if (workspaceId) params.set('workspace_id', workspaceId)
+  const qs = params.toString()
+  return request<import('./types').SuspendedReview[]>(`/review/suspended${qs ? `?${qs}` : ''}`)
+}
+
+export const suspendReview = (memoryId: string, workspaceId?: string) => {
+  const params = new URLSearchParams()
+  if (workspaceId) params.set('workspace_id', workspaceId)
+  const qs = params.toString()
+  return request<{ memory_id: string; suspended_at: string }>(
+    `/review/suspend/${memoryId}${qs ? `?${qs}` : ''}`,
+    { method: 'POST' },
+  )
+}
+
+export const resumeReview = (memoryId: string, workspaceId?: string) => {
+  const params = new URLSearchParams()
+  if (workspaceId) params.set('workspace_id', workspaceId)
+  const qs = params.toString()
+  return request<{ memory_id: string; status: string }>(
+    `/review/resume/${memoryId}${qs ? `?${qs}` : ''}`,
+    { method: 'POST' },
+  )
+}
+
+export const postponeReview = (memoryId: string, days: number, workspaceId?: string) => {
+  const params = new URLSearchParams()
+  if (workspaceId) params.set('workspace_id', workspaceId)
+  params.set('days', String(days))
+  const qs = params.toString()
+  return request<{ memory_id: string; next_review: string; postponed_days: number }>(
+    `/review/postpone/${memoryId}?${qs}`,
+    { method: 'POST' },
+  )
+}
+
+export const resetReview = (memoryId: string, workspaceId?: string) => {
+  const params = new URLSearchParams()
+  if (workspaceId) params.set('workspace_id', workspaceId)
+  const qs = params.toString()
+  return request<{ memory_id: string; next_review: string; mastery_level: string }>(
+    `/review/reset/${memoryId}${qs ? `?${qs}` : ''}`,
     { method: 'POST' },
   )
 }

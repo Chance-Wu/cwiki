@@ -4,11 +4,15 @@
 逐管线对比 recall_at_10 / mrr / ndcg_at_10 / useful_at_10，
 超出容差的指标下降标记 FAIL，否则 PASS。
 
+额外跨管线守门：hybrid_rrf_rerank 的 recall@10 / MRR / NDCG@10
+不得低于 hybrid_rrf 超过 0.005，防止再次发布负收益重排。
+
 用法：
     python -m benchmarks.runners.compare_reports \
         [--baseline benchmarks/reports/baseline.json] \
         [--current benchmarks/reports/eval-fixture] \
-        [--dataset eval-fixture] [--tolerance 0.03]
+        [--dataset eval-fixture] [--tolerance 0.03] \
+        [--cross-tolerance 0.005]
 """
 
 from __future__ import annotations
@@ -19,6 +23,11 @@ from pathlib import Path
 
 METRICS = ["recall_at_10", "mrr", "ndcg_at_10", "useful_at_10", "useful_at_10_ratio"]
 DEFAULT_BASELINE = Path(__file__).parent.parent / "reports" / "baseline.json"
+
+# 重排不得劣于纯 RRF：full_pipeline 会因多样性主动截断同类型条目，
+# 因此只比较 rerank-only 与 hybrid_rrf 三项核心排序指标。
+CROSS_PIPELINE = ("hybrid_rrf_rerank", "hybrid_rrf", ("recall_at_10", "mrr", "ndcg_at_10"))
+CROSS_TOLERANCE = 0.005
 
 
 def load_baseline(path: Path) -> dict[str, dict[str, float]]:
@@ -39,6 +48,7 @@ def compare(
     baseline: dict[str, dict[str, float]],
     current: dict[str, dict[str, float]],
     tolerance: float,
+    cross_tolerance: float = CROSS_TOLERANCE,
 ) -> tuple[list[str], list[str]]:
     """返回 (markdown 行, 失败原因列表)。指标下降超出容差记失败。"""
     lines = [
@@ -67,6 +77,30 @@ def compare(
             lines.append(
                 f"| {pipeline} | {metric} | {b:.4f} | {c:.4f} | {delta:+.4f} | {verdict} |"
             )
+
+    candidate, reference, cross_metrics = CROSS_PIPELINE
+    if candidate in current and reference in current:
+        lines.extend(
+            [
+                "",
+                f"## Cross-pipeline: {candidate} vs {reference} (tolerance {cross_tolerance})",
+                "",
+                "| Metric | Candidate | Reference | Delta | Verdict |",
+                "|--------|-----------|-----------|-------|---------|",
+            ]
+        )
+        for metric in cross_metrics:
+            c = current[candidate][metric]
+            r = current[reference][metric]
+            delta = c - r
+            fail = delta < -cross_tolerance
+            if fail:
+                failures.append(
+                    f"{candidate}.{metric} below {reference}: {c:.4f} vs {r:.4f} ({delta:+.4f})"
+                )
+            lines.append(
+                f"| {metric} | {c:.4f} | {r:.4f} | {delta:+.4f} | {'FAIL' if fail else 'PASS'} |"
+            )
     return lines, failures
 
 
@@ -76,12 +110,18 @@ def main() -> int:
     parser.add_argument("--current", type=Path, required=True, help="报告目录")
     parser.add_argument("--dataset", type=str, default="eval-fixture")
     parser.add_argument("--tolerance", type=float, default=0.03)
+    parser.add_argument("--cross-tolerance", type=float, default=CROSS_TOLERANCE)
     parser.add_argument("--output", type=Path, default=None, help="MD 输出路径（缺省打印 stdout）")
     args = parser.parse_args()
 
     baseline = load_baseline(args.baseline)
     current = load_current(args.current, args.dataset)
-    lines, failures = compare(baseline, current, args.tolerance)
+    lines, failures = compare(
+        baseline,
+        current,
+        args.tolerance,
+        cross_tolerance=args.cross_tolerance,
+    )
 
     header = [
         "# Retrieval Regression Comparison",

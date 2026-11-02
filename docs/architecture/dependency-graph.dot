@@ -74,11 +74,11 @@ digraph cwiki_dependencies {
     // ===== App Dependencies =====
     api_main -> api_routes [label="挂载路由"]
     api_main -> pkg_domain [label="config, DB, queue"]
-    api_routes -> pkg_memory [label="create_candidate,\nlifecycle, merge"]
+    api_routes -> pkg_memory [label="create_candidate,\nlifecycle"]
     api_routes -> pkg_retrieval [label="search_ranked,\nretrieve"]
     api_routes -> pkg_storage [label="FileStore,\nMemoryIndexer"]
     api_routes -> pkg_domain [label="ORM models,\nschemas"]
-    worker_tasks -> pkg_memory [label="scoring, dedup,\nconsolidate"]
+    worker_tasks -> pkg_memory [label="scoring, dedup"]
     worker_tasks -> pkg_retrieval [label="embedding,\nreindex"]
     worker_tasks -> pkg_storage [label="dual-write,\nvector sync"]
     worker_tasks -> pkg_domain [label="TaskQueue,\nmodels"]

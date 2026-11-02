@@ -53,6 +53,8 @@ jobs:
       - working-directory: apps/web
         run: npm ci
       - working-directory: apps/web
+        run: npm run test:run
+      - working-directory: apps/web
         run: npm run build
 
   benchmark:

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import os
+import tempfile
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -192,6 +194,20 @@ class FileStore:
                 continue
         return None
 
+    def find_all_by_id(self, memory_id: str) -> list[Path]:
+        """Find every mirror of an ID, including old types/workspaces and duplicates."""
+        matches: list[Path] = []
+        for workspace in self.base_path.iterdir():
+            if not workspace.is_dir() or workspace.name.startswith((".", "_")):
+                continue
+            for path in workspace.glob("*/*.md"):
+                if not path.resolve().is_relative_to(self.base_path.resolve()):
+                    continue
+                metadata, _ = self._parse_frontmatter(path.read_text(encoding="utf-8"))
+                if isinstance(metadata, dict) and str(metadata.get("id")) == memory_id:
+                    matches.append(path)
+        return matches
+
     def save(self, memory: MemoryFile, workspace_name: str | None = None) -> Path:
         """将记忆保存为 Markdown 文件。
 
@@ -203,7 +219,13 @@ class FileStore:
         file_path = self._get_file_path(ws, memory.type, filename)
 
         content = self._serialize(memory)
-        file_path.write_text(content, encoding="utf-8")
+        fd, temporary = tempfile.mkstemp(suffix=".tmp", dir=file_path.parent)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as stream:
+                stream.write(content)
+            os.replace(temporary, file_path)
+        finally:
+            Path(temporary).unlink(missing_ok=True)
 
         return file_path
 

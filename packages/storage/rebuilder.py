@@ -270,12 +270,40 @@ class DatabaseRebuilder:
         await self._ensure_schema()
 
         async with self._session_factory() as session:
+            # 导入的是既有镜像，不应为每个恢复行再生成镜像任务。
+            session.info["skip_file_sync_intents"] = True
             try:
                 # 1. 构建 workspace 名称 → UUID 映射（行缺失时从
                 #    _meta/_workspaces.json 恢复）。
                 ws_map = await self._build_workspace_map(session)
                 result.workspace_map = ws_map
                 logger.info("Found %d workspaces: %s", len(ws_map), list(ws_map.keys()))
+
+                # 重建不能消费尚未补偿的镜像，否则可能丢更新或复活删除。
+                has_jobs = True
+                if "sqlite" in self.db_url:
+                    has_jobs = bool(
+                        await session.scalar(
+                            text(
+                                "SELECT name FROM sqlite_master WHERE type='table' AND name='file_sync_job'"
+                            )
+                        )
+                    )
+                pending = (
+                    await session.scalar(text("SELECT COUNT(*) FROM file_sync_job"))
+                    if has_jobs
+                    else 0
+                )
+                if pending:
+                    raise RuntimeError(
+                        "Pending memory mirror repairs; start API to replay before rebuild"
+                    )
+                source_files = await asyncio.to_thread(self.file_store.list)
+                seen_ids: set[str] = set()
+                for source in source_files:
+                    if source.id in seen_ids:
+                        raise ValueError(f"Duplicate Markdown memory id: {source.id}")
+                    seen_ids.add(source.id)
 
                 # 2. 清空记忆相关表。
                 await self._clear_tables(session)
@@ -1063,6 +1091,8 @@ class DatabaseRebuilder:
                         or datetime.now(UTC).replace(tzinfo=None),
                         last_review=_parse_dt(rs.get("last_review")),
                         total_reviews=rs.get("total_reviews", 0),
+                        lapse_streak=int(rs.get("lapse_streak", 0) or 0),
+                        suspended_at=_parse_dt(rs.get("suspended_at")),
                         created_at=_parse_dt(rs.get("created_at")),
                         updated_at=_parse_dt(rs.get("updated_at")),
                     )
@@ -1211,6 +1241,11 @@ class DatabaseRebuilder:
                     "workspace_id": uuid.UUID(item["workspace_id"]),
                     "memory_id": uuid.UUID(memory_id_str),
                     "quality": int(item["quality"]),
+                    "quiz_type": item.get("quiz_type"),
+                    "quiz_correct": item.get("quiz_correct"),
+                    "quiz_prompt": item.get("quiz_prompt"),
+                    "quiz_expected": item.get("quiz_expected"),
+                    "quiz_response": item.get("quiz_response"),
                     "ease_factor_before": float(item["ease_factor_before"]),
                     "interval_before": int(item["interval_before"]),
                     "repetitions_before": int(item["repetitions_before"]),

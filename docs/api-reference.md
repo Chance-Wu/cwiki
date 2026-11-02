@@ -40,11 +40,13 @@
 | `POST` | `/v1/events` | 上报 Agent 事件（支持批量） |
 | `GET` | `/v1/candidates` | 候选记忆列表 |
 | `POST` | `/v1/candidates/{id}/restore` | 把 `rejected` / `deferred` / `needs_enrichment`（及历史 `quarantined` / `discarded`）恢复为 `pending_review` |
-| `POST` | `/v1/candidates/{id}/revert-auto-approve` | 撤销自动生效：归档生成的正式记忆，候选保持 `approved` |
+| `POST` | `/v1/candidates/{id}/revert-auto-approve` | 撤销自动生效：物理删除生成的正式记忆，候选回到 `pending_review` |
 | `POST` | `/v1/reviews` | 提交审核结果（approve / edit / reject / later / merge / update） |
-| `GET` | `/v1/memories` | 正式记忆列表；支持 `tags` 参数（逗号分隔，AND 逻辑） |
-| `PATCH` | `/v1/memories/{id}` | 更新记忆；`status=archived` 即软遗忘（可恢复）；支持 `tags` 字段更新 |
-| `GET` | `/v1/tags` | 标签列表（含计数）；`workspace_id` 限定工作区，`status` 限定状态（不传含归档） |
+| `GET` | `/v1/memories` | 正式记忆列表；支持 `tags`、`review_status=due|new|learning|familiar|proficient|mastered|suspended|unscheduled`；列表项含 `mastery_level/next_review/lapse_streak/leech/evidence_count` |
+| `GET` | `/v1/graph` | 知识图谱节点/边；节点含 `mastery_level/next_review/lapse_streak/leech/suspended`，用于按掌握度着色与学习视图 |
+| `PATCH` | `/v1/memories/{id}` | 更新记忆；`status` 支持 `active / superseded / conflicted / deprecated`；支持 `tags` 字段更新 |
+| `DELETE` | `/v1/memories/{id}` | 物理删除记忆及其 Markdown、索引、向量与 `_meta` 资产（不可恢复）；响应含 `assets_removed` |
+| `GET` | `/v1/tags` | 标签列表（含计数）；`workspace_id` 限定工作区，`status` 限定状态（不传含全部状态） |
 | `PUT` | `/v1/tags/{tag}` | 重命名标签（覆盖全部状态；`workspace_id` 限定工作区） |
 | `POST` | `/v1/tags/merge` | 合并多个标签（覆盖全部状态；`workspace_id` 限定工作区） |
 | `DELETE` | `/v1/tags/{tag}` | 删除标签（覆盖全部状态；`workspace_id` 限定工作区） |
@@ -61,12 +63,28 @@
 
 `PATCH /v1/memories/{id}` 支持可选 `expected_version`（≥1）。先读取当前记忆的完整正文与版本，修改时带上该版本；若已被更新，返回 `409 / memory_version_conflict`，重新读取并合并后再提交。
 
+### 审批失败语义
+
+- `409 / duplicate_memory`：approve/edit 时发现与 active 记忆重复。响应 `duplicate` 字段含 `memory_id / title / source / similarity`；应改用 `merge` 或 `update`，不要重复批准。
+- `409 / candidate_state_conflict`：候选已不是 `pending_review`（并发审批或已处理）。原子条件更新保证最多一次批准成功。
+- 批量审核逐条回滚：单条重复/状态冲突只让该条失败，其余条目继续。
+
+### 检索结果引用
+
+`POST /v1/search` 的每条 `results` 与 `POST /v1/context` 的每条 `items` 都带
+`source / version / confidence / updated_at / evidence_count`。`/v1/context`
+额外返回结构化 `citations`（`memory_id / title / source / version /
+updated_at / confidence / evidence_count / score`），并保留兼容的
+`sources` 字符串列表（`memory:<id>`）。`confidence` 对 MCP 未显式提供置信度的
+写入默认为 0.5，应视为先验而非实测分；`evidence_count` 来自审批/合并生成的
+provenance 证据。
+
 - 未提供的字段不变，`content` 是完整替换，历史版本保留修改前的正文
 - 客户端遇到超时或 5xx 不自动重复 PATCH，应先确认是否已生效
 
 ### 缓存失效
 
-所有记忆写操作（create / update / delete / merge / review）完成后自动失效检索缓存和上下文缓存，确保后续读请求获取最新数据。
+所有记忆写操作（create / update / delete / review）完成后自动失效检索缓存和上下文缓存，确保后续读请求获取最新数据。
 
 ### 工作区名称唯一
 
@@ -112,7 +130,7 @@
 | `GET/POST/PUT/DELETE` | `/v1/workspaces` | 工作区 CRUD |
 | `GET/POST` | `/v1/agents` | Agent 注册 |
 | `GET` | `/v1/agent-sessions` | Agent 会话列表 |
-| `GET/PATCH` | `/v1/notes` | 会话笔记 CRUD |
+| `GET/POST/DELETE` | `/v1/session-notes` | 会话笔记 CRUD（创建/列表/搜索/详情/整理/删除） |
 | `GET` | `/v1/memory-quality/{id}` | 质量评分详情 |
 
 ## 文件与数据
@@ -120,8 +138,8 @@
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | `POST` | `/v1/file-memories/rebuild-index` | 重建 SQLite + 向量索引 |
-| `GET/POST` | `/v1/data-io/export` | 数据导出 |
-| `POST` | `/v1/data-io/import` | 数据导入 |
+| `POST` | `/v1/data/export` | 数据导出 |
+| `POST` | `/v1/data/import` | 数据导入 |
 
 ## 配置与系统
 
@@ -130,7 +148,12 @@
 | `GET/PUT` | `/v1/config` | 配置读写 |
 | `GET` | `/v1/skills/agents` | 列出可发布技能的目标 Agent（来自 `config.yaml` 的 `skills.agents`，含 `dsh`） |
 | `GET/POST/DELETE` | `/v1/skills` | 技能管理（项目 skills + 各 Agent 目录扫描） |
-| `POST` | `/v1/spaced-review` | 提交复习结果 |
+| `GET` | `/v1/review/due` | 到期复习列表 |
+| `POST` | `/v1/review/{memory_id}` | 提交自评复习结果（quality 0-5） |
+| `GET` | `/v1/review/quiz/{memory_id}` | 获取填空复习题（只返回题干与空格数，不泄题） |
+| `POST` | `/v1/review/quiz/{memory_id}` | 提交填空答案：后端判分、映射 quality 并更新 SM-2 |
+| `GET/PUT` | `/v1/review/preferences` | 读取/更新跨设备每日复习目标（`_meta/_review_prefs.json`） |
+| `GET` | `/v1/review/stats` | 复习统计（含近 30 天判分次数/正确数/准确率） |
 | `POST` | `/v1/system/restart` | 重启服务 |
 
 > 完整路由实现见 `apps/api/routes/` 目录。

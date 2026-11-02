@@ -44,6 +44,22 @@ def _payload_direct(tool: str, arguments: dict, cwd: str) -> dict:
 LEARNING = "/Users/alice/code-space/learning-os"
 
 
+class TestToolSuffix:
+    def test_wrapped_and_direct_memory_save(self):
+        assert (
+            workspace_inject.tool_suffix(_payload_qoder("memory_save", {}, LEARNING))
+            == "memory_save"
+        )
+        assert (
+            workspace_inject.tool_suffix(_payload_direct("memory_save", {}, LEARNING))
+            == "memory_save"
+        )
+
+    def test_unknown_and_malformed_payloads(self):
+        assert workspace_inject.tool_suffix({"tool_name": "Bash", "tool_input": {}}) == "Bash"
+        assert workspace_inject.tool_suffix({"tool_name": "mcp_call", "tool_input": {}}) == ""
+
+
 class TestUpdatedInput:
     def test_qoder_wrapped_save_injected(self):
         payload = _payload_qoder("memory_save", {"title": "t", "content": "c"}, LEARNING)

@@ -25,14 +25,18 @@ LOCAL_CONFIG_PATH = CONFIG_PATH.with_name("config.local.yaml")
 API_V1_PREFIX = "/v1"
 
 _DEFAULT_RERANKER_WEIGHTS: dict[str, float] = {
-    "rrf_weight": 0.38,
-    "semantic_weight": 0.15,
-    "confidence_weight": 0.10,
-    "importance_weight": 0.12,
-    "freshness_weight": 0.10,
-    "usage_weight": 0.06,
-    "intent_weight": 0.09,
+    # 相关性组（组内归一）
+    "rrf_weight": 0.40,
+    "semantic_weight": 0.30,
+    "bm25_weight": 0.30,
+    "intent_weight": 0.15,
+    # 元数据组（组内归一，仅 band 内生效）
+    "confidence_weight": 0.35,
+    "importance_weight": 0.30,
+    "freshness_weight": 0.20,
+    "usage_weight": 0.15,
     "key_term_bonus": 0.08,
+    "relevance_band": 0.05,
 }
 
 _DEFAULT_MEMORY_TITLE_MAX_LENGTH = 80
@@ -140,6 +144,9 @@ class Settings:
         self.reranker_semantic_weight = retrieval_cfg.get(
             "reranker_semantic_weight", _DEFAULT_RERANKER_WEIGHTS["semantic_weight"]
         )
+        self.reranker_bm25_weight = retrieval_cfg.get(
+            "reranker_bm25_weight", _DEFAULT_RERANKER_WEIGHTS["bm25_weight"]
+        )
         self.reranker_confidence_weight = retrieval_cfg.get(
             "reranker_confidence_weight", _DEFAULT_RERANKER_WEIGHTS["confidence_weight"]
         )
@@ -157,6 +164,11 @@ class Settings:
         )
         self.reranker_key_term_bonus = retrieval_cfg.get(
             "reranker_key_term_bonus", _DEFAULT_RERANKER_WEIGHTS["key_term_bonus"]
+        )
+        # 元数据组总影响力上限：最终分 = (1-band)×相关性 + band×元数据，
+        # 元数据只能翻转相关性差 ≤band 的候选，不能跨带压过相关性
+        self.reranker_relevance_band: float = retrieval_cfg.get(
+            "reranker_relevance_band", _DEFAULT_RERANKER_WEIGHTS["relevance_band"]
         )
         # 效用分权重：上下文优先级排序中同优先级内按 score + w×utility 排序，
         # 让「检索到且实际有用」的记忆在同分候选中更靠前
@@ -256,9 +268,6 @@ class Settings:
         self.context_cache_max_size: int = perf_cfg.get("context_cache_max_size", 256)
         self.context_token_budget: int = perf_cfg.get("context_token_budget", 2000)
         self.dedup_top_k: int = perf_cfg.get("dedup_top_k", 20)
-        self.merge_suggestions_threshold: float = perf_cfg.get("merge_suggestions_threshold", 0.5)
-        self.auto_consolidate_limit: int = perf_cfg.get("auto_consolidate_limit", 500)
-        self.auto_consolidate_top_k: int = perf_cfg.get("auto_consolidate_top_k", 20)
 
     @property
     def is_sqlite(self) -> bool:
@@ -308,13 +317,10 @@ class ParasiticEvolutionConfig:
         self.memory_version_tracking_enabled: bool = cfg.get(
             "memory_version_tracking_enabled", False
         )
-        self.auto_consolidate_enabled: bool = cfg.get("auto_consolidate_enabled", False)
         self.review_reminders_enabled: bool = cfg.get("review_reminders_enabled", False)
         self.mastery_coupled_decay_enabled: bool = cfg.get("mastery_coupled_decay_enabled", False)
         self.entity_extraction_enabled: bool = cfg.get("entity_extraction_enabled", False)
         self.write_time_conflict_enabled: bool = cfg.get("write_time_conflict_enabled", False)
-        self.auto_merge_enabled: bool = cfg.get("auto_merge_enabled", False)
-        self.auto_merge_threshold: float = cfg.get("auto_merge_threshold", 0.92)
         self.episodic_retrieval_enabled: bool = cfg.get("episodic_retrieval_enabled", False)
         # 基于 episode 的 problems/solutions 信号按规则生成 lesson 候选（零 LLM 调用）
         self.episode_candidate_extraction_enabled: bool = cfg.get(
@@ -420,7 +426,6 @@ class SchedulerConfig:
 
     def reload(self) -> None:
         cfg = _yaml_config.get("scheduler", {})
-        self.auto_consolidate_interval_hours: float = cfg.get("auto_consolidate_interval_hours", 6)
         self.review_reminders_interval_hours: float = cfg.get("review_reminders_interval_hours", 24)
         self.meta_export_interval_hours: float = cfg.get("meta_export_interval_hours", 12)
         self.auto_relation_interval_hours: float = cfg.get("auto_relation_interval_hours", 6)

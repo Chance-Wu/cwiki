@@ -1,4 +1,4 @@
-# cwiki Retrieval Benchmark
+# cwiki 检索评测
 
 ## 目录结构
 
@@ -84,6 +84,12 @@ python -m benchmarks.runners.retrieval_runner --dataset path/to/gold.jsonl
 # 上下文组装评测（直连组装器，验证选择/排除/预算/冲突四指标）
 python -m benchmarks.runners.context_runner
 
+# 重排权重标定（固定种子夹具，20% 查询留出做过拟合检查；只写报告不改 config）
+python -m benchmarks.runners.calibrate_reranker \
+  --db-url sqlite+aiosqlite:///benchmarks/fixtures/eval_fixture.db \
+  --workspace-name eval-fixture \
+  --output benchmarks/reports/calibration.json
+
 # 性能基准（10K 规模 100 查询；--corpus en|zh|mixed，CJK 走 jieba 分词）
 python -m benchmarks.performance.perf_runner --scale 10000 --queries 100 --corpus mixed
 ```
@@ -108,7 +114,9 @@ python scripts/export_eval_queries.py --all-workspaces
 ## 基线回归（CI 门槛）
 
 `benchmarks/reports/baseline.json` 记录各管线在 eval-fixture 夹具上的门槛值（容差 3%）。
-对比器逐指标检查，任一指标下降超容差退出码 1：
+对比器逐指标检查，任一指标下降超容差退出码 1；同时额外做跨管线守门：
+`hybrid_rrf_rerank` 的 Recall@10 / MRR / NDCG@10 不得低于 `hybrid_rrf` 超过 0.005，
+防止再次发布负收益重排。
 
 ```bash
 python -m benchmarks.runners.compare_reports --current benchmarks/reports/eval-fixture
@@ -116,7 +124,8 @@ python -m benchmarks.runners.compare_reports --current benchmarks/reports/eval-f
 
 CI 的 `benchmark` job（.github/workflows/ci.yml）每次推送自动执行：固定种子重新生成夹具 → 跑 5 条管线 → 对比门槛 → 上传报告 artifact。指标回退时 job 变红。
 
-W3 回归报告（rerank 归一化修复与相关性下限过滤的定值依据）：[reports/w3-regression-report.md](reports/w3-regression-report.md)。
+重排权重由 `calibrate_reranker.py` 在夹具上标定，元数据组权重不参与夹具调参，只用 band；
+真实库（`--workspace-name cwiki|msp-caa|msp-sbz|qoder`）另做不回退抽样。
 
 ## 目标
 

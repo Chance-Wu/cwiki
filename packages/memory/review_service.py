@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -18,6 +19,30 @@ from packages.memory.spaced_repetition import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _quiz_history_fields(quiz: dict[str, Any] | None) -> dict[str, Any]:
+    """把判分记录转为 ReviewHistory 列；列表/字典序列化为 JSON 文本。"""
+    if not quiz:
+        return {}
+    expected = quiz.get("expected")
+    response = quiz.get("response")
+    return {
+        "quiz_type": quiz.get("type"),
+        "quiz_correct": quiz.get("correct"),
+        "quiz_prompt": quiz.get("prompt"),
+        "quiz_expected": (
+            json.dumps(expected, ensure_ascii=False)
+            if isinstance(expected, (list, dict))
+            else expected
+        ),
+        "quiz_response": (
+            json.dumps(response, ensure_ascii=False)
+            if isinstance(response, (list, dict))
+            else response
+        ),
+    }
+
 
 # 掌握度升级阈值（进入下一等级所需的复习次数）
 _MASTERY_THRESHOLDS = {
@@ -82,6 +107,7 @@ class ReviewService:
             .where(
                 ReviewSchedule.workspace_id == workspace_id,
                 ReviewSchedule.next_review <= now,
+                ReviewSchedule.suspended_at.is_(None),
                 Memory.status == "active",
             )
             .limit(fetch_limit)
@@ -103,6 +129,8 @@ class ReviewService:
                     "memory_type": memory.type,
                     "source": memory.source,
                     "confidence": memory.confidence,
+                    "tags": memory.tags or [],
+                    "importance": memory.importance,
                     "updated_at": memory.updated_at.isoformat() if memory.updated_at else None,
                     "ease_factor": schedule.ease_factor,
                     "interval_days": schedule.interval_days,
@@ -114,6 +142,8 @@ class ReviewService:
                     "days_overdue": days_overdue,
                     "mastery_level": mastery,
                     "total_reviews": schedule.total_reviews,
+                    "lapse_streak": schedule.lapse_streak,
+                    "leech": schedule.lapse_streak >= 3,
                 }
             )
 
@@ -136,6 +166,7 @@ class ReviewService:
         memory_id: uuid.UUID,
         quality: int,
         workspace_id: uuid.UUID | None = None,
+        quiz: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """
         提交某条记忆的复习结果。
@@ -144,12 +175,15 @@ class ReviewService:
             memory_id: 被复习的记忆
             quality: 质量评分（0-5）
             workspace_id: 可选 workspace，用于隔离校验
+            quiz: 可选的填空/选择判分记录（type/correct/prompt/expected/response）
 
         Returns:
             更新后的计划信息
         """
         if not 0 <= quality <= 5:
             raise ValueError("Quality must be between 0 and 5")
+
+        quiz_fields = _quiz_history_fields(quiz)
 
         # 读取已有复习计划
         stmt = select(ReviewSchedule).where(ReviewSchedule.memory_id == memory_id)
@@ -209,6 +243,7 @@ class ReviewService:
                 next_review=review_result.next_review,
                 last_review=now,
                 total_reviews=1,
+                lapse_streak=1 if quality < 3 else 0,
             )
             db.add(schedule)
 
@@ -232,6 +267,7 @@ class ReviewService:
                 next_review_after=review_result.next_review,
                 mastery_level_after=after_mastery,
                 reviewed_at=now,
+                **quiz_fields,
             )
             db.add(history)
         else:
@@ -257,6 +293,8 @@ class ReviewService:
             schedule.next_review = review_result.next_review
             schedule.last_review = now
             schedule.total_reviews += 1
+            # 连续遗忘累加，答对即清零；达到 3 次由前端标为顽固记忆
+            schedule.lapse_streak = schedule.lapse_streak + 1 if quality < 3 else 0
 
             # 写入既有计划的历史记录
             after_mastery = calculate_mastery_level(
@@ -278,6 +316,7 @@ class ReviewService:
                 next_review_after=review_result.next_review,
                 mastery_level_after=after_mastery,
                 reviewed_at=now,
+                **quiz_fields,
             )
             db.add(history)
 
@@ -294,39 +333,61 @@ class ReviewService:
             "last_review": now.isoformat(),
             "mastery_level": mastery,
             "total_reviews": schedule.total_reviews,
+            "lapse_streak": schedule.lapse_streak,
+            "leech": schedule.lapse_streak >= 3,
         }
 
     async def get_review_stats(
         self,
         db: AsyncSession,
         workspace_id: uuid.UUID,
+        tz_offset_minutes: int = 0,
     ) -> dict[str, Any]:
-        """获取 workspace 的复习统计。"""
-        # 用 naive UTC 对齐 SQLite 存储（存库时已去除 tzinfo）
-        now = datetime.now(UTC).replace(tzinfo=None)
-        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        tomorrow_end = now + timedelta(days=1)
+        """获取 workspace 的复习统计。
 
-        # 用 1 次条件聚合替代 4 次 COUNT 查询，减少数据库往返
+        时间口径：数据库存 naive UTC；tz_offset_minutes 为客户端相对 UTC 的分钟偏移
+        （东八区 +480），仅用于划分「本地自然日」边界，不改变存储值。
+
+        reviewed_today / review_count_today / review_trend / streak_days 以
+        ReviewHistory 为唯一事实源：ReviewSchedule.last_review 每张卡只保留最后一次，
+        会把同一天多次复习折叠为一次，也会让昨天的记录被今天的复习覆盖。
+        """
+        now = datetime.now(UTC).replace(tzinfo=None)
+        offset = timedelta(minutes=tz_offset_minutes)
+
+        # 本地自然日边界，换算回 UTC 供查询
+        local_now = now + offset
+        local_today_start = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
+        local_today_date = local_today_start.date()
+        today_start_utc = local_today_start - offset
+        tomorrow_start_utc = today_start_utc + timedelta(days=1)
+
+        # 计划侧统计：已排期总量、当前到期、今日到期
         stats_stmt = select(
             func.count(ReviewSchedule.id),
-            func.count(case((ReviewSchedule.next_review <= now, ReviewSchedule.id))),
             func.count(
                 case(
                     (
-                        (ReviewSchedule.next_review >= today_start)
-                        & (ReviewSchedule.next_review <= tomorrow_end),
+                        (ReviewSchedule.next_review <= now)
+                        & (ReviewSchedule.suspended_at.is_(None)),
                         ReviewSchedule.id,
                     )
                 )
             ),
-            func.count(case((ReviewSchedule.last_review >= today_start, ReviewSchedule.id))),
+            func.count(
+                case(
+                    (
+                        (ReviewSchedule.next_review >= today_start_utc)
+                        & (ReviewSchedule.next_review < tomorrow_start_utc)
+                        & (ReviewSchedule.suspended_at.is_(None)),
+                        ReviewSchedule.id,
+                    )
+                )
+            ),
         ).where(ReviewSchedule.workspace_id == workspace_id)
         stats_result = await db.execute(stats_stmt)
         row = stats_result.first()
-        total_scheduled, due_count, due_today, reviewed_today = (
-            (row[0], row[1], row[2], row[3]) if row else (0, 0, 0, 0)
-        )
+        total_scheduled, due_count, due_today = (row[0], row[1], row[2]) if row else (0, 0, 0)
 
         # 掌握度分布：SQL CASE WHEN + GROUP BY，口径与 calculate_mastery_level 一致
         mastery_stmt = (
@@ -355,35 +416,67 @@ class ReviewService:
         for row in mastery_result.all():
             mastery_dist[row.level] = row.cnt
 
-        # 复习趋势：最近 7 天
-        seven_days_ago = now - timedelta(days=6)
-        seven_days_ago_start = seven_days_ago.replace(hour=0, minute=0, second=0, microsecond=0)
-        trend_stmt = (
-            select(
-                func.date(ReviewSchedule.last_review).label("day"),
-                func.count(ReviewSchedule.id).label("cnt"),
-            )
-            .where(
-                ReviewSchedule.workspace_id == workspace_id,
-                ReviewSchedule.last_review >= seven_days_ago_start,
-            )
-            .group_by(func.date(ReviewSchedule.last_review))
+        # 历史侧：取最近 365 天事件，按本地日分组（单用户数据量小，Python 聚合）
+        history_start_utc = today_start_utc - timedelta(days=364)
+        history_stmt = select(ReviewHistory.memory_id, ReviewHistory.reviewed_at).where(
+            ReviewHistory.workspace_id == workspace_id,
+            ReviewHistory.reviewed_at >= history_start_utc,
         )
-        trend_result = await db.execute(trend_stmt)
-        trend_map = {str(row.day): row.cnt for row in trend_result.all()}
+        history_result = await db.execute(history_stmt)
 
+        day_memory_ids: dict[str, set[uuid.UUID]] = {}
+        day_counts: dict[str, int] = {}
+        for memory_id, reviewed_at in history_result.all():
+            key = (reviewed_at + offset).date().isoformat()
+            day_memory_ids.setdefault(key, set()).add(memory_id)
+            day_counts[key] = day_counts.get(key, 0) + 1
+
+        today_key = local_today_date.isoformat()
+        reviewed_today = len(day_memory_ids.get(today_key, set()))
+        review_count_today = day_counts.get(today_key, 0)
+
+        # 连续学习天数：今天还没复习时从昨天起算，避免一天未开始就显示断签
+        streak_days = 0
+        cursor = local_today_date
+        if today_key not in day_memory_ids:
+            cursor -= timedelta(days=1)
+        while cursor.isoformat() in day_memory_ids:
+            streak_days += 1
+            cursor -= timedelta(days=1)
+
+        # 复习趋势：最近 7 天，每天的去重记忆数
         review_trend = []
         for i in range(7):
-            day = (seven_days_ago_start + timedelta(days=i)).strftime("%Y-%m-%d")
-            review_trend.append({"date": day, "count": trend_map.get(day, 0)})
+            day = (local_today_date - timedelta(days=6 - i)).isoformat()
+            review_trend.append({"date": day, "count": len(day_memory_ids.get(day, set()))})
+
+        # 填空判分准确率：最近 30 天，workspace 内所有判分事件
+        quiz_start_utc = today_start_utc - timedelta(days=29)
+        quiz_stmt = select(
+            func.count(ReviewHistory.id),
+            func.count(case((ReviewHistory.quiz_correct.is_(True), ReviewHistory.id))),
+        ).where(
+            ReviewHistory.workspace_id == workspace_id,
+            ReviewHistory.quiz_type.isnot(None),
+            ReviewHistory.reviewed_at >= quiz_start_utc,
+        )
+        quiz_row = (await db.execute(quiz_stmt)).first()
+        quiz_attempts = int(quiz_row[0]) if quiz_row else 0
+        quiz_correct = int(quiz_row[1]) if quiz_row else 0
+        quiz_accuracy = round(quiz_correct / quiz_attempts, 4) if quiz_attempts else None
 
         return {
             "total_scheduled": total_scheduled,
             "due_now": due_count,
             "due_today": due_today,
             "reviewed_today": reviewed_today,
+            "review_count_today": review_count_today,
+            "streak_days": streak_days,
             "mastery_distribution": mastery_dist,
             "review_trend": review_trend,
+            "quiz_attempts": quiz_attempts,
+            "quiz_correct": quiz_correct,
+            "quiz_accuracy": quiz_accuracy,
         }
 
     async def schedule_memory(
@@ -505,6 +598,129 @@ class ReviewService:
             "undone_reviewed_at": history.reviewed_at.isoformat(),
             "restored_mastery_level": history.mastery_level_before,
         }
+
+    async def _get_schedule(
+        self,
+        db: AsyncSession,
+        memory_id: uuid.UUID,
+        workspace_id: uuid.UUID | None = None,
+    ) -> ReviewSchedule | None:
+        stmt = select(ReviewSchedule).where(ReviewSchedule.memory_id == memory_id)
+        if workspace_id is not None:
+            stmt = stmt.where(ReviewSchedule.workspace_id == workspace_id)
+        result = await db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def suspend_review(
+        self,
+        db: AsyncSession,
+        memory_id: uuid.UUID,
+        workspace_id: uuid.UUID | None = None,
+    ) -> dict[str, Any] | None:
+        """暂停某条记忆的复习：移出到期队列，保留排期与历史。"""
+        schedule = await self._get_schedule(db, memory_id, workspace_id)
+        if schedule is None:
+            return None
+        schedule.suspended_at = datetime.now(UTC).replace(tzinfo=None)
+        await db.flush()
+        return {
+            "memory_id": str(memory_id),
+            "suspended_at": schedule.suspended_at.isoformat(),
+        }
+
+    async def unsuspend_review(
+        self,
+        db: AsyncSession,
+        memory_id: uuid.UUID,
+        workspace_id: uuid.UUID | None = None,
+    ) -> dict[str, Any] | None:
+        """恢复复习：立即排入到期队列，避免以逾期多天的状态涌入。"""
+        schedule = await self._get_schedule(db, memory_id, workspace_id)
+        if schedule is None:
+            return None
+        if schedule.suspended_at is None:
+            # 未暂停时不改动排期，避免误调用把未来复习提前到当前
+            return {"memory_id": str(memory_id), "status": "not_suspended"}
+        schedule.suspended_at = None
+        schedule.next_review = datetime.now(UTC).replace(tzinfo=None)
+        await db.flush()
+        return {"memory_id": str(memory_id), "status": "resumed"}
+
+    async def postpone_review(
+        self,
+        db: AsyncSession,
+        memory_id: uuid.UUID,
+        days: int,
+        workspace_id: uuid.UUID | None = None,
+    ) -> dict[str, Any] | None:
+        """把下次复习推迟指定天数。"""
+        if not 1 <= days <= 365:
+            raise ValueError("days must be between 1 and 365")
+        schedule = await self._get_schedule(db, memory_id, workspace_id)
+        if schedule is None:
+            return None
+        schedule.next_review = datetime.now(UTC).replace(tzinfo=None) + timedelta(days=days)
+        await db.flush()
+        return {
+            "memory_id": str(memory_id),
+            "next_review": schedule.next_review.isoformat(),
+            "postponed_days": days,
+        }
+
+    async def reset_review(
+        self,
+        db: AsyncSession,
+        memory_id: uuid.UUID,
+        workspace_id: uuid.UUID | None = None,
+    ) -> dict[str, Any] | None:
+        """重置进度：回到初始参数并立即进入复习队列。"""
+        schedule = await self._get_schedule(db, memory_id, workspace_id)
+        if schedule is None:
+            return None
+        schedule.ease_factor = 2.5
+        schedule.interval_days = 1
+        schedule.repetitions = 0
+        schedule.next_review = datetime.now(UTC).replace(tzinfo=None)
+        schedule.lapse_streak = 0
+        schedule.suspended_at = None
+        await db.flush()
+        return {
+            "memory_id": str(memory_id),
+            "next_review": schedule.next_review.isoformat(),
+            "mastery_level": "new",
+        }
+
+    async def list_suspended(
+        self,
+        db: AsyncSession,
+        workspace_id: uuid.UUID,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        """列出已暂停复习的记忆。"""
+        stmt = (
+            select(ReviewSchedule, Memory)
+            .join(Memory, ReviewSchedule.memory_id == Memory.id)
+            .where(
+                ReviewSchedule.workspace_id == workspace_id,
+                ReviewSchedule.suspended_at.is_not(None),
+                Memory.status == "active",
+            )
+            .order_by(ReviewSchedule.suspended_at.desc())
+            .limit(limit)
+        )
+        result = await db.execute(stmt)
+        return [
+            {
+                "memory_id": str(memory.id),
+                "title": memory.title,
+                "memory_type": memory.type,
+                "suspended_at": schedule.suspended_at.isoformat()
+                if schedule.suspended_at
+                else None,
+                "lapse_streak": schedule.lapse_streak,
+            }
+            for schedule, memory in result.all()
+        ]
 
 
 _review_service: ReviewService | None = None

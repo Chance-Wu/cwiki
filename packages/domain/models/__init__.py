@@ -4,6 +4,7 @@
 """
 
 from packages.domain.models.base import Base, JSONBType, UUIDType, VectorType
+from packages.domain.models.file_sync import FileSyncJob
 from packages.domain.models.memory import (
     CandidateMemory,
     Evidence,
@@ -32,6 +33,7 @@ __all__ = [
     "Episode",
     "Event",
     "Evidence",
+    "FileSyncJob",
     "JSONBType",
     "Memory",
     "MemoryConflict",

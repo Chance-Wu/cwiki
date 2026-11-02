@@ -6,22 +6,54 @@ import uuid
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.auth import AgentIdentity
 from apps.api.deps import get_current_agent, get_db, resolve_workspace
 from packages.domain.config import API_V1_PREFIX
+from packages.domain.models import Memory
 from packages.domain.schemas import (
     BatchReviewRequest,
     BatchReviewResultRead,
     ReviewItemRead,
+    ReviewPreferencesRead,
+    ReviewPreferencesUpdate,
+    ReviewQuizRead,
+    ReviewQuizResultRead,
+    ReviewQuizSubmitRequest,
     ReviewResultRead,
     ReviewStatsRead,
     ReviewSubmitRequest,
+    SuspendedReviewRead,
 )
+from packages.memory.quiz import ClozeQuiz, build_cloze_quiz, score_cloze_quiz
 from packages.memory.review_service import get_review_service
+from packages.storage.review_prefs import (
+    load_review_preferences,
+    save_review_preferences,
+)
 
 router = APIRouter(prefix=f"{API_V1_PREFIX}/review", tags=["review"])
+
+
+@router.get("/preferences", response_model=ReviewPreferencesRead)
+async def get_review_preferences(
+    _identity: Annotated[AgentIdentity | None, Depends(get_current_agent)] = None,
+) -> ReviewPreferencesRead:
+    """读取跨设备复习偏好（当前为每日目标）。"""
+    prefs = load_review_preferences()
+    return ReviewPreferencesRead(daily_goal=prefs.daily_goal, updated_at=prefs.updated_at)
+
+
+@router.put("/preferences", response_model=ReviewPreferencesRead)
+async def update_review_preferences(
+    body: ReviewPreferencesUpdate,
+    _identity: Annotated[AgentIdentity | None, Depends(get_current_agent)] = None,
+) -> ReviewPreferencesRead:
+    """更新每日复习目标，写入 ``cwiki-data/_meta/_review_prefs.json``。"""
+    prefs = save_review_preferences(body.daily_goal)
+    return ReviewPreferencesRead(daily_goal=prefs.daily_goal, updated_at=prefs.updated_at)
 
 
 @router.get("/due", response_model=list[ReviewItemRead])
@@ -37,6 +69,90 @@ async def get_due_reviews(
     resolved_ws_id = await resolve_workspace(workspace_id, db)
     service = get_review_service()
     return await service.get_due_reviews(db, resolved_ws_id, limit)
+
+
+async def _load_quiz(
+    db: AsyncSession,
+    memory_id: uuid.UUID,
+    workspace_id: uuid.UUID,
+) -> tuple[Memory, ClozeQuiz]:
+    """加载 active 记忆并生成确定性填空；不返回答案。"""
+    stmt = select(Memory).where(
+        Memory.id == memory_id,
+        Memory.workspace_id == workspace_id,
+        Memory.status == "active",
+    )
+    memory = (await db.execute(stmt)).scalar_one_or_none()
+    if memory is None:
+        raise HTTPException(status_code=404, detail="Memory not found")
+    quiz = build_cloze_quiz(memory.title, memory.content, list(memory.tags or []))
+    if quiz is None:
+        raise HTTPException(
+            status_code=404,
+            detail="No cloze quiz available for this memory; use self-rating",
+        )
+    return memory, quiz
+
+
+@router.get("/quiz/{memory_id}", response_model=ReviewQuizRead)
+async def get_review_quiz(
+    memory_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    workspace_id: str | None = Query(
+        None, min_length=1, description="工作区（名称或 UUID），不传则使用 default"
+    ),
+    _identity: Annotated[AgentIdentity | None, Depends(get_current_agent)] = None,
+) -> ReviewQuizRead:
+    """获取一条记忆的填空复习题（只返回挖空后的题干与空格数）。"""
+    resolved_ws_id = await resolve_workspace(workspace_id, db)
+    memory, quiz = await _load_quiz(db, memory_id, resolved_ws_id)
+    return ReviewQuizRead(
+        memory_id=memory.id,
+        kind="cloze",
+        prompt=quiz.prompt,
+        blank_count=len(quiz.terms),
+    )
+
+
+@router.post("/quiz/{memory_id}", response_model=ReviewQuizResultRead)
+async def submit_review_quiz(
+    memory_id: uuid.UUID,
+    body: ReviewQuizSubmitRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    workspace_id: str | None = Query(
+        None, min_length=1, description="工作区（名称或 UUID），不传则使用 default"
+    ),
+    _identity: Annotated[AgentIdentity | None, Depends(get_current_agent)] = None,
+) -> dict[str, Any]:
+    """提交填空答案：后端重新出题并判分，按得分自动映射 SM-2 quality。"""
+    resolved_ws_id = await resolve_workspace(workspace_id, db)
+    _, quiz = await _load_quiz(db, memory_id, resolved_ws_id)
+    score = score_cloze_quiz(quiz, body.answers)
+    service = get_review_service()
+    try:
+        result = await service.submit_review(
+            db,
+            memory_id,
+            score.quality,
+            resolved_ws_id,
+            quiz={
+                "type": "cloze",
+                "correct": score.correct,
+                "prompt": quiz.prompt,
+                "expected": quiz.terms,
+                "response": body.answers,
+            },
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {
+        **result,
+        "correct": score.correct,
+        "matched": score.matched,
+        "total": score.total,
+        "expected_terms": quiz.terms,
+        "quality": score.quality,
+    }
 
 
 @router.post("/{memory_id}", response_model=ReviewResultRead)
@@ -74,12 +190,18 @@ async def get_review_stats(
     workspace_id: str | None = Query(
         None, min_length=1, description="工作区（名称或 UUID），不传则使用 default"
     ),
+    tz_offset_minutes: int = Query(
+        0,
+        ge=-840,
+        le=840,
+        description="客户端相对 UTC 的分钟偏移（东八区传 480），用于划分本地自然日",
+    ),
     _identity: Annotated[AgentIdentity | None, Depends(get_current_agent)] = None,
 ) -> dict[str, Any]:
     """获取工作区的复习统计。"""
     resolved_ws_id = await resolve_workspace(workspace_id, db)
     service = get_review_service()
-    return await service.get_review_stats(db, resolved_ws_id)
+    return await service.get_review_stats(db, resolved_ws_id, tz_offset_minutes)
 
 
 @router.post("/schedule/{memory_id}")
@@ -123,6 +245,89 @@ async def undo_review(
 
     if result is None:
         raise HTTPException(status_code=404, detail="No review history to undo")
+    return result
+
+
+@router.get("/suspended", response_model=list[SuspendedReviewRead])
+async def list_suspended_reviews(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    workspace_id: str | None = Query(
+        None, min_length=1, description="工作区（名称或 UUID），不传则使用 default"
+    ),
+    limit: int = Query(50, ge=1, le=200),
+    _identity: Annotated[AgentIdentity | None, Depends(get_current_agent)] = None,
+) -> list[dict[str, Any]]:
+    """列出已暂停复习的记忆。"""
+    resolved_ws_id = await resolve_workspace(workspace_id, db)
+    return await get_review_service().list_suspended(db, resolved_ws_id, limit)
+
+
+@router.post("/suspend/{memory_id}")
+async def suspend_review(
+    memory_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    workspace_id: str | None = Query(
+        None, min_length=1, description="工作区（名称或 UUID），不传则使用 default"
+    ),
+    _identity: Annotated[AgentIdentity | None, Depends(get_current_agent)] = None,
+) -> dict[str, Any]:
+    """暂停某条记忆的复习（移出到期队列）。"""
+    resolved_ws_id = await resolve_workspace(workspace_id, db)
+    result = await get_review_service().suspend_review(db, memory_id, resolved_ws_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Review schedule not found")
+    return result
+
+
+@router.post("/resume/{memory_id}")
+async def resume_review(
+    memory_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    workspace_id: str | None = Query(
+        None, min_length=1, description="工作区（名称或 UUID），不传则使用 default"
+    ),
+    _identity: Annotated[AgentIdentity | None, Depends(get_current_agent)] = None,
+) -> dict[str, Any]:
+    """恢复已暂停的复习，并立即排入到期队列。"""
+    resolved_ws_id = await resolve_workspace(workspace_id, db)
+    result = await get_review_service().unsuspend_review(db, memory_id, resolved_ws_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Review schedule not found")
+    return result
+
+
+@router.post("/postpone/{memory_id}")
+async def postpone_review(
+    memory_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    days: int = Query(3, ge=1, le=365, description="推迟天数"),
+    workspace_id: str | None = Query(
+        None, min_length=1, description="工作区（名称或 UUID），不传则使用 default"
+    ),
+    _identity: Annotated[AgentIdentity | None, Depends(get_current_agent)] = None,
+) -> dict[str, Any]:
+    """把下次复习推迟指定天数。"""
+    resolved_ws_id = await resolve_workspace(workspace_id, db)
+    result = await get_review_service().postpone_review(db, memory_id, days, resolved_ws_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Review schedule not found")
+    return result
+
+
+@router.post("/reset/{memory_id}")
+async def reset_review(
+    memory_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    workspace_id: str | None = Query(
+        None, min_length=1, description="工作区（名称或 UUID），不传则使用 default"
+    ),
+    _identity: Annotated[AgentIdentity | None, Depends(get_current_agent)] = None,
+) -> dict[str, Any]:
+    """重置复习进度（回到初始参数并立即进入队列）。"""
+    resolved_ws_id = await resolve_workspace(workspace_id, db)
+    result = await get_review_service().reset_review(db, memory_id, resolved_ws_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Review schedule not found")
     return result
 
 

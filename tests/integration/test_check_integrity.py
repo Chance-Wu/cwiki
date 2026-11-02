@@ -34,13 +34,30 @@ def _write_md(memory_dir: Path, workspace: str, memory_id: str) -> None:
 
 
 def _make_index(memory_dir: Path, ids: list[str]) -> None:
+    import numpy as np
+
+    from packages.domain.config import settings
+
     con = sqlite3.connect(memory_dir / "index.db")
-    con.execute("create table memory_index (id text)")
+    con.execute("create table memory_index (id text, status text)")
     for mid in ids:
-        con.execute("insert into memory_index values (?)", (mid,))
+        con.execute("insert into memory_index values (?, ?)", (mid, "active"))
     con.commit()
     con.close()
-    (memory_dir / "vectors.json").write_text(json.dumps({"ids": ids}), encoding="utf-8")
+    np.savez(
+        memory_dir / "vectors.npz",
+        vectors=np.zeros((len(ids), settings.embedding_dimensions), dtype=np.float32),
+    )
+    (memory_dir / "vectors.json").write_text(
+        json.dumps(
+            {
+                "ids": ids,
+                "dimensions": settings.embedding_dimensions,
+                "model": settings.embedding_model,
+            }
+        ),
+        encoding="utf-8",
+    )
 
 
 def _make_layout(tmp_path: Path) -> tuple[Path, Path]:
@@ -50,7 +67,7 @@ def _make_layout(tmp_path: Path) -> tuple[Path, Path]:
     db_path = memory_dir / "cwiki.db"
     _make_db(
         db_path,
-        [(MEM_A, "active"), (MEM_B, "archived")],
+        [(MEM_A, "active"), (MEM_B, "superseded")],
         [(WS_ID, "ws-one")],
     )
     for mid in (MEM_A, MEM_B):
@@ -79,7 +96,10 @@ def test_detects_orphans_and_missing_workspace_meta(tmp_path: Path) -> None:
         "{}", encoding="utf-8"
     )
     con = sqlite3.connect(memory_dir / "index.db")
-    con.execute("insert into memory_index values (?)", ("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee",))
+    con.execute(
+        "insert into memory_index values (?, ?)",
+        ("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee", "active"),
+    )
     con.commit()
     con.close()
     # 工作区 meta 缺失

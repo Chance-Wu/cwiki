@@ -18,6 +18,7 @@ from apps.api.deps import get_current_agent, get_db, resolve_workspace
 from packages.domain.config import API_V1_PREFIX, parasitic_evolution_config, settings
 from packages.domain.models import AgentProfile, MemoryUsage
 from packages.domain.schemas import (
+    ContextCitation,
     ContextItem,
     ContextRequest,
     ContextResponse,
@@ -496,7 +497,10 @@ async def get_context(
                 type=mem_type,
                 version=mem.get("version"),
                 score=float(mem.get("score", mem.get("combined_score", 0.5))),
-                source="memory",
+                source=mem.get("source", "memory"),
+                confidence=mem.get("confidence"),
+                updated_at=mem.get("updated_at"),
+                evidence_count=int(mem.get("evidence_count", 0) or 0),
                 metadata={"freshness": freshness},
             )
         )
@@ -524,12 +528,31 @@ async def get_context(
 
     await db.commit()
 
-    sources = [f"memory:{s['memory_id']}" for s in result.get("sources", [])]
+    sources = [f"memory:{s['memory_id']}" for s in result.get("sources", []) if isinstance(s, dict)]
+    citations = [
+        ContextCitation(
+            memory_id=(
+                uuid.UUID(str(s["memory_id"]))
+                if not isinstance(s.get("memory_id"), uuid.UUID)
+                else s["memory_id"]
+            ),
+            title=str(s.get("title", "")),
+            source=str(s.get("source", "memory")),
+            version=s.get("version"),
+            updated_at=s.get("updated_at"),
+            confidence=s.get("confidence"),
+            evidence_count=int(s.get("evidence_count", 0) or 0),
+            score=s.get("score"),
+        )
+        for s in result.get("sources", [])
+        if isinstance(s, dict) and s.get("memory_id")
+    ]
 
     response = ContextResponse(
         context=result.get("context", ""),
         items=items,
         sources=sources,
+        citations=citations,
         total=result.get("total", len(items)),
         keyword=body.keyword,
         latency_ms=int(result.get("latency_ms", 0)),

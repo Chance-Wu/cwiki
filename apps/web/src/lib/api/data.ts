@@ -26,9 +26,13 @@ export const importData = async (
   return res.json()
 }
 
-export const exportMarkdown = async (workspaceId?: string): Promise<Response> => {
+export const exportMarkdown = async (
+  workspaceId?: string,
+  memoryIds?: string[],
+): Promise<Response> => {
   const params = new URLSearchParams()
   if (workspaceId) params.set('workspace_id', workspaceId)
+  if (memoryIds?.length) params.set('memory_ids', memoryIds.join(','))
   const qs = params.toString()
   const res = await fetch(`${API_BASE}/export/markdown${qs ? `?${qs}` : ''}`, {
     headers: authHeaders(),

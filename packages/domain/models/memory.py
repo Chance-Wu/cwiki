@@ -73,8 +73,14 @@ class Memory(Base):
     )
 
     project: Mapped[Project | None] = relationship(back_populates="memories")
-    versions: Mapped[list[MemoryVersion]] = relationship(back_populates="memory", lazy="raise")
-    evidences: Mapped[list[Evidence]] = relationship(back_populates="memory", lazy="raise")
+    # passive_deletes：删除主行时交给 SQLite 外键级联，避免 ORM 先把子行
+    # memory_id 置空（NOT NULL）导致删除失败。
+    versions: Mapped[list[MemoryVersion]] = relationship(
+        back_populates="memory", lazy="raise", passive_deletes=True
+    )
+    evidences: Mapped[list[Evidence]] = relationship(
+        back_populates="memory", lazy="raise", passive_deletes=True
+    )
 
 
 class MemoryVersion(Base):
@@ -325,7 +331,7 @@ class MemoryConflict(Base):
 
 
 class MemoryLifecycleEvent(Base):
-    """记忆生命周期审计事件（created/updated/archived 等）。"""
+    """记忆生命周期审计事件（created/updated/status_changed 等）。"""
 
     __tablename__ = "memory_lifecycle_event"
     __table_args__ = (
@@ -418,6 +424,10 @@ class ReviewSchedule(Base):
     next_review: Mapped[datetime] = mapped_column(nullable=False)
     last_review: Mapped[datetime | None] = mapped_column(nullable=True)
     total_reviews: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # 连续遗忘次数：quality<3 累加，>=3 清零；达到阈值视为顽固记忆（leech）
+    lapse_streak: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # 暂停复习时间：非空时不再进入到期队列，但保留排期与历史
+    suspended_at: Mapped[datetime | None] = mapped_column(nullable=True)
     created_at: Mapped[datetime] = mapped_column(default=func.now(), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         default=func.now(), server_default=func.now(), onupdate=func.now()
@@ -442,6 +452,12 @@ class ReviewHistory(Base):
         UUIDType(), ForeignKey("memory.id", ondelete="CASCADE"), nullable=False
     )
     quality: Mapped[int] = mapped_column(Integer, nullable=False)
+    # 填空/选择题判分记录；自评复习路径保持为空
+    quiz_type: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    quiz_correct: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    quiz_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    quiz_expected: Mapped[str | None] = mapped_column(Text, nullable=True)
+    quiz_response: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # 复习前状态
     ease_factor_before: Mapped[float] = mapped_column(Float, nullable=False)

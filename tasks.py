@@ -326,8 +326,14 @@ def migrate_to_git():
 
 @task("doctor")
 def doctor():
-    """三层存储一致性巡检：DB / Markdown / _meta / 索引 / 向量（--fix 补齐工作区 meta）。"""
+    """三层存储一致性巡检：DB / Markdown / _meta / 索引 / 向量（--fix/--fix-meta 补齐）。"""
     return _py("scripts/check_integrity.py", *sys.argv[2:])
+
+
+@task("schedule-meta-export")
+def schedule_meta_export():
+    """注册每日 _meta 导出计划任务（Windows schtasks；其他平台打印 crontab）。"""
+    return _py("scripts/install_meta_export_task.py", *sys.argv[2:])
 
 
 @task("setup-dsh")

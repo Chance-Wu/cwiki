@@ -86,7 +86,7 @@ def test_checkpoint_reasons_match_schema() -> None:
 
 def test_template_types_match_definitions() -> None:
     text = CONTENT_TEMPLATES.read_text(encoding="utf-8")
-    documented = set(re.findall(r"^\| \*\*[^*]+\*\* \(([a-z]+)\)", text, re.M))
+    documented = set(re.findall(r"^\| \*\*[^*]+\*\* \(([a-z]+)\)", text, re.MULTILINE))
     assert documented == set(TYPE_DEFINITIONS)
 
 

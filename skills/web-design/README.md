@@ -1,39 +1,37 @@
-# Web Design Skill v1.0
+# Web 设计技能 v1.0
 
-A reusable Web Design Skill for AI coding agents such as Codex, Qoder,
-Claude Code, and OpenCode.
+面向 Codex、Qoder、Claude Code、OpenCode 等 AI 编码 Agent 的可复用 Web 设计技能。
 
-## Included
+## 包含内容
 
-- Core design principles
-- Layout / typography / color / spacing / hierarchy / density
-- Responsive design
-- Interaction and motion
-- Developer-tool patterns
-- Dashboard / table / detail / settings / command-center patterns
-- Anti-AI-slop rules
-- Visual review
-- Accessibility review
-- Responsive review
-- New-page and redesign workflows
-- Design brief and review templates
+- 核心设计原则
+- 布局 / 排版 / 色彩 / 间距 / 层级 / 密度
+- 响应式设计
+- 交互与动效
+- 开发者工具类界面范式
+- 仪表盘 / 表格 / 详情 / 设置 / 命令中心范式
+- 反 AI 套路（anti-AI-slop）规则
+- 视觉审查
+- 可访问性审查
+- 响应式审查
+- 新页面与改版工作流
+- 设计简报与审查模板
 
-## Recommended Usage
+## 推荐用法
 
-Install/copy the `web-design` directory into your agent's skills directory.
+将 `web-design` 目录安装/复制到你的 Agent 技能目录。
 
-The most important workflow is:
+最重要的工作流是：
 
 ```text
-Design → Implement → Render → Screenshot → Review → Fix → Render Again
+设计 → 实现 → 渲染 → 截图 → 审查 → 修复 → 再次渲染
 ```
 
-The skill is intentionally technology-agnostic, but it prefers reusing the
-project's existing stack and design system.
+该技能刻意保持技术无关，但优先复用项目已有的技术栈与设计系统。
 
-## Suggested Commands
+## 建议命令
 
-If your agent supports custom commands, map:
+如果你的 Agent 支持自定义命令，可映射为：
 
 - `/design` → workflows/new-page.md
 - `/design-review` → review/visual-review.md

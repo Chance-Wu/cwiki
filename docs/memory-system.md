@@ -14,7 +14,7 @@ sequenceDiagram
 
     Agent->>Skill: 识别信号（纠正/决策/调试...）
     Skill->>Skill: 查重（memory_search）
-    Skill->>Skill: 决策（新建/跳过/更新/合并）
+    Skill->>Skill: 决策（新建/跳过/更新）
     Skill->>MCP: memory_save(content, title?, type?)
     
     MCP->>MCP: 本地校验（长度/类型/注入）
@@ -72,7 +72,7 @@ sequenceDiagram
 - Agent 必须概括主题生成并显式传入 `title`；标题最大长度默认 80 个字符（`config.yaml` 的 `memory.title_max_length`）。MCP 不自动生成标题或添加临时前缀。
 - 类型必须有效，正文须满足 `len(content.strip()) >= 20`（去除首尾空白后至少 20 个字符）。`strip()` 仅用于校验，不改写存储内容。
 - **排除规则**：服务端会拒绝 `len(content.strip()) < 30` 或代码行占比 >80% 的内容（认为可从代码/git 直接推导）。
-- **永久声明**：`memory_save` 可传 `is_permanent=true`（可附 `permanent_reason`），候选审批通过后正式记忆继承该标记。永久记忆不参与自动衰减与自动合并归档；自动合并分组若包含永久记忆，只保留建议、不自动执行。
+- **永久声明**：`memory_save` 可传 `is_permanent=true`（可附 `permanent_reason`），候选审批通过后正式记忆继承该标记。永久记忆不参与自动衰减。
 - 正文必须使用 Markdown 格式，不要求固定标题、段落或顺序。`memory_types` 提供类型列表供分类参考，不是提交前置步骤。
 - 标题和展示预览的长度约束不代表正文篇幅限制，也不会截短正文；不能用标题代替正文。
 
@@ -150,7 +150,7 @@ memory:
 
 - **匹配语义**：同一条规则内各字段是 AND；`type` / `workspace` 多值任一命中，`tags` 需全部存在。`keyword` 与 `regex` 同属文本维度，任一命中即可：`keyword` 大小写不敏感，`regex` 按原文匹配（忽略大小写请写 `(?i)`），两者都匹配标题 + 正文。规则按声明顺序匹配，命中第一条即停止。
 - **action**：
-  - `auto`：评分任务完成后自动生效，跳过价值分/置信度/质量门阈值；仍要求无 open 冲突，且已知重复概率 `< 0.95`。
+  - `auto`：评分任务完成后自动生效，跳过价值分/置信度/质量门阈值；仍要求审批前重新查重（无重复目标）且无 open 冲突。冲突检测会用候选向量预检并把冲突挂到 `candidate_id`；检测失败或候选缺 embedding 时保守留在人工审核。
   - `review`：强制人工审核，即使 `auto_approve_enabled=true` 也不会自动生效。
   - `reject`：创建候选前直接拒绝（HTTP 4xx），不落候选行；MCP outbox 标记为 rejected，不自动重试。
 - **审计**：命中的规则 id、动作与原因写入候选的 `policy_rule_id` / `policy_action` / `policy_reason`；策略自动生效的 Review 使用 `reviewer_id="write_policy"`，`reason` JSON 含 `policy_rule`。
@@ -242,13 +242,17 @@ graph LR
 
 评分落定后按 `memory.auto_approve_*` 配置分三档处理（`auto_approve_enabled` 默认关）：
 
-- **自动生效**：须同时满足全部阈值——`value_score ≥ 0.85`、`confidence ≥ 0.80`、`quality_gate_score ≥ 0.75`、`duplicate_probability < 0.40` 且无 open 冲突指向该候选；重复概率必须已知，缺少 embedding 时不自动生效。执行时写入 `Review(reviewer_type="system", action="auto_approve")` 留痕（各分项与阈值存 reason JSON），创建正式记忆并同步 Markdown、入队生成向量。可撤销：revert 后记忆归档（archived），候选保持 `approved`，记忆可通过 PATCH 恢复为 `active`。
+- **自动生效**：须同时满足全部阈值——`value_score ≥ 0.85`、`confidence ≥ 0.80`、`quality_gate_score ≥ 0.75`、`duplicate_probability < 0.40` 且无 open 冲突指向该候选；重复概率必须已知，缺少 embedding 时不自动生效。生效前会重新查重（精确正文相等，或融合相似度达到 `relation_merge_threshold`）并用候选向量预检冲突；命中任一项都留在人工审核，重复/冲突目标写回候选。执行时写入 `Review(reviewer_type="system", action="auto_approve")` 留痕（各分项与阈值存 reason JSON），创建正式记忆并同步 Markdown、入队生成向量。可撤销：revert 会物理删除生成的正式记忆，候选回到 `pending_review`，可重新编辑/批准。
 - **人工审核**：其余 `pending_review` 候选等待 approve / edit / reject / later / merge / update；批量审核仅支持 approve / reject / later。
+- **审批重查重**：approve 与 edit 会重新扫描 active 记忆：正文规范化后完全相等，或标题/正文/关键词/向量四路融合相似度 ≥ `memory.relation_merge_threshold`（默认 0.95）时拒绝转正，返回 HTTP 409 `duplicate_memory`，响应 `duplicate` 字段带目标 `memory_id/title/source/similarity`；应改用 merge/update。插入后还会做一次同正文竞态兜底。
+- **并发安全**：approve/edit/merge/update/reject/later 都通过 `UPDATE candidate_memory SET status=... WHERE id=... AND status='pending_review'` 原子占用候选；并发重复审批最多一次成功，其余返回 409 `candidate_state_conflict`，不会创建两条正式记忆。
 - **低分留存**：价值分 < 0.35 的候选标记 `needs_enrichment`，不物理删除，也不进入 `pending_review` 队列；可通过 `POST /v1/candidates/{id}/restore` 恢复为 `pending_review`，再人工审核或编辑后批准。
 
 `reject` 将候选标记为 `rejected`，`later` 标记为 `deferred`；`rejected`、`deferred`、`needs_enrichment` 以及历史状态 `quarantined` / `discarded` 都可通过 `POST /v1/candidates/{id}/restore` 回到 `pending_review`。拒绝为软留存，服务重启不会删除候选行。
 
-每条候选的审核决策（含系统自动决策）都留 `Review` 记录。批准后会同步 Markdown、入队生成向量、创建初始复习计划，并尝试自动检测关系与写时冲突（失败不阻断审核）；正式记忆的编辑、合并会保留修改前快照，重建数据库时随 `_meta` 完整恢复。
+每条候选的审核决策（含系统自动决策）都留 `Review` 记录。批准后会同步 Markdown、入队生成向量、创建初始复习计划，并尝试自动检测关系与写时冲突；写时冲突会登记 `candidate_id`，使自动生效的 open 冲突守卫真正生效。正式记忆的编辑、合并会保留修改前快照，重建数据库时随 `_meta` 完整恢复。
+
+**来源证据（Evidence）**：审批/合并/更新时，候选已有的 Evidence（如 episode 证据）会改挂到正式记忆，并额外写入一条 provenance 记录（`source_type=candidate_approval|merge|update`，`source_ref=client_write_id 或候选 id`，metadata 含来源渠道与命中规则）。检索结果与上下文的 `evidence_count` 来自该表，不再恒为 0；`_meta` 会随记忆导出/恢复证据。
 
 ### 检查点的覆盖边界
 
@@ -268,25 +272,21 @@ graph LR
 stateDiagram-v2
     [*] --> active: 候选审核通过 / 自动生效
 
-    active --> archived: 合并归档 / 遗忘 / 撤销自动生效
     active --> superseded: 手动标记（HTTP PATCH API）
     active --> conflicted: 手动标记（HTTP PATCH API）
     active --> deprecated: 手动标记（HTTP PATCH API）
 
-    archived --> active: 手动恢复（HTTP PATCH API）
     superseded --> active: 手动恢复（HTTP PATCH API）
-    superseded --> archived: 归档（HTTP PATCH API）
     conflicted --> active: 手动恢复（HTTP PATCH API）
     conflicted --> superseded: 手动标记（HTTP PATCH API）
-    conflicted --> archived: 归档（HTTP PATCH API）
-    deprecated --> archived: 归档（HTTP PATCH API）
+    deprecated --> active: 手动恢复（HTTP PATCH API）
 ```
 
-- HTTP API `PATCH /v1/memories/{id}` 的 `status` 会经过状态转换校验，非法转换返回 409。允许的转换：`active → superseded / conflicted / archived / deprecated`、`superseded → active / archived`、`conflicted → active / superseded / archived`、`archived → active`、`deprecated → archived`（要恢复需先归档再激活）。
-- 记忆间合并（源记忆归档）、自动整合、撤销自动生效和 `memory_forget` 属于内部路径，直接写 `archived`，不经过 PATCH 的状态转换校验。
-- MCP `memory_update` 未声明 `status` 参数；`memory_forget` 是归档（软删除）入口，不能将 HTTP API 的能力视为 MCP 声明的契约，以实际 `tools/list` 为准。
-- `archived` 由合并产生（手动合并、自动整合的源记忆归档），也可通过 HTTP PATCH API 手动设置；`deprecated`、`superseded` 和 `conflicted` 当前无自动触发逻辑，仅通过 HTTP PATCH API 手动设置。冲突本身记录在 `MemoryConflict`，创建 open 冲突不会自动改记忆状态，但会计入健康度。
-- 归档记忆的向量会被回收：状态离开 `active` 时向量从内存索引与 `vectors.npz` 移除并持久化，文件镜像同步归档状态；恢复为 `active` 时若仍有 embedding 则回填向量并持久化，embedding 缺失则由 `generate_embedding` 任务重嵌。启动扫描（`sync_all`）与文件监听（watchdog）遵循同一语义：归档文件不重建向量，残留向量被剪枝。
+- HTTP API `PATCH /v1/memories/{id}` 的 `status` 会经过状态转换校验，非法转换返回 409。允许的转换：`active → superseded / conflicted / deprecated`、`superseded → active`、`conflicted → active / superseded`、`deprecated → active`。
+- 状态枚举不包含 `archived`。删除是物理删除：`DELETE /v1/memories/{id}` 或 MCP `memory_forget` 会删除 DB 行（级联版本、关系、复习计划等）以及 Markdown、`index.db`、`vectors.npz`、`_meta` 资产，不可恢复。
+- 记忆间手动合并与自动整合已移除；重复或相近内容由 Agent 通过 `memory_search` 查重后使用 `memory_update` 更新既有记忆。候选审核中的 `merge` / `update` 动作仍然保留，用于把候选内容并入或替换已有记忆。
+- `deprecated`、`superseded` 和 `conflicted` 当前无自动触发逻辑，仅通过 HTTP PATCH API 手动设置。冲突本身记录在 `MemoryConflict`，创建 open 冲突不会自动改记忆状态，但会计入健康度。
+- 非 `active` 记忆的向量会被回收：状态离开 `active` 时向量从内存索引与 `vectors.npz` 移除并持久化，文件镜像同步状态；恢复为 `active` 时若仍有 embedding 则回填向量并持久化，embedding 缺失则由 `generate_embedding` 任务重嵌。启动扫描（`sync_all`）与文件监听（watchdog）遵循同一语义：非激活文件不重建向量，残留向量被剪枝。
 
 ### 健康状态机
 
@@ -308,16 +308,21 @@ graph TD
 
 ### 后台演化任务
 
-任务注册在进程内任务队列；API 启动时按配置启动周期调度器，定期触发自动整合、复习提醒和 `_meta` 导出。复习提交、候选入库等仍为事件驱动。
+任务注册在进程内任务队列；API 启动时按配置启动周期调度器，定期触发关系发现、复习提醒和 `_meta` 导出。复习提交、候选入库等仍为事件驱动。记忆写入落盘 MD 后立即增量导出该条 `_meta`，新建工作区立即刷新 `_meta/_workspaces.json`；周期全量导出按上次成功导出的时间追赶（记录在设备本地 `~/.cwiki/state/meta_export.json`，逾期时启动即补一次），另建议注册每日系统计划任务兜底（见 `docs/development.md`）。
 
 | 任务 | 触发方式 | 动作 |
 |------|----------|------|
-| 整合相似记忆 | 周期调度（`auto_consolidate_enabled` 开启时，默认每 6 小时）或手动入队（`POST /v1/memories/consolidate`） | BM25 预过滤 + Jaccard/embedding 验证生成合并建议；`auto_merge_enabled` 开启时对高相似组（≥ `auto_merge_threshold`，默认 0.92）自动合并——先提交持久化，再收敛文件镜像与向量：源记忆归档并回收向量，keeper 旧向量移除后由 `generate_embedding` 任务重嵌 |
 | 复习提醒 | 周期调度（`review_reminders_enabled` 开启时，默认每 24 小时） | 扫描到期的 `ReviewSchedule`，按工作区把提醒摘要写入状态文件 |
-| 定期 `_meta` 导出 | 周期调度（`meta_export_interval_hours`，默认 12 小时） | 导出 `_meta` JSON，供 Git 同步与数据库重建 |
+| 定期 `_meta` 导出 | 写入时增量导出 + 周期全量（`meta_export_interval_hours`，默认 12 小时，启动按上次导出时间追赶）+ 每日系统计划任务 | 导出 `_meta` JSON，供 Git 同步与数据库重建 |
 | 间隔重复 | 复习提交时同步更新 | SM-2 算法更新复习间隔与掌握度等级（`python tasks.py recompute` 可重放 review_history 重建调度） |
 | 去重检测 | 新候选入库时自动触发 | Embedding 余弦相似度比对（列级 select 避免加载无关列） |
 | 批量 Embedding | 手动入队 / 孤儿恢复触发 | 一次性收集缺失 embedding 的待审候选，fastembed 本地 ONNX 批量生成 |
+
+**填空判分**：`GET /v1/review/quiz/{id}` 用确定性规则从标签/标题中的反引号、英文标识符与中文短语选词，在正文中挖空（跳过代码块，最多 3 个术语），只返回题干与空格数。`POST /v1/review/quiz/{id}` 提交答案后后端**重新出题并判分**：答案按大小写/空白/标点归一后做多重集匹配，全对→quality 5、超过一半→4、部分命中→3、全错→1，自动应用 SM-2 并写入 `review_history` 的 `quiz_type/quiz_correct/quiz_prompt/quiz_expected/quiz_response`。判分不信任客户端提交的正确答案；无可用术语时回退到翻面自评。
+
+**学习偏好与洞察**：每日复习目标存于 `cwiki-data/_meta/_review_prefs.json`（`_` 前缀，随数据仓库多设备同步，不会被记忆侧车清理），通过 `GET/PUT /v1/review/preferences` 读写；前端首次加载会把旧的 localStorage 目标播种到服务端。复习统计新增近 30 天 `quiz_attempts/quiz_correct/quiz_accuracy`，展示在每日目标卡片；`review_schedule` 的 `lapse_streak/suspended_at` 随 `_meta` 导出并重建恢复，leech 暂停状态不再丢失。
+
+**学习视图**：记忆库列表支持 `review_status` 筛选（到期/未排期/各掌握度/已暂停），列表项带掌握度徽标；`/v1/graph` 节点带 `mastery_level/next_review/lapse_streak/leech/suspended`，图谱可按类型或掌握度着色。画布支持触摸双指缩放、键盘 `+/-` 缩放、方向键平移、`0` 适配、`Esc` 取消选中；大图（>200/500 节点）自动缩短布局动画帧数。
 
 ---
 
@@ -423,7 +428,6 @@ utility = 0.30 × retrieval_success   # 检索成功率（used / retrieved）
 
 相关能力：
 
-- `python tasks.py doctor`：DB / Markdown / `_meta` / 索引 / 向量一致性巡检（见开发指南）。
-- `POST /v1/memories/merge-suggestions/dismiss`：忽略合并建议，状态存 `~/.cwiki/state/consolidation_dismissed.json`（可用 `CWIKI_STATE_DIR` 重定位）。
+- `python tasks.py doctor`：DB / Markdown / `_meta` / 索引 / 向量一致性巡检（内容漂移、`_meta` 可解析性、向量维度/模型/配对）；`--fix-drift` 以 MD 为准修复单条内容漂移（见开发指南）。
 - `memory_search mode=semantic`：仅向量路，过滤/重排与 hybrid 一致；`curated=true` 的 limit 超过 50 会夹紧到 50。
 - 质量分布页分箱可下钻：`/memories?usage=…&decay=…&min_confidence=…&min_importance=…`。

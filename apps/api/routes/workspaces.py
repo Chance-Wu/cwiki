@@ -19,7 +19,7 @@ from apps.api.deps import (
     invalidate_workspace_cache,
     require_scope,
 )
-from apps.api.file_sync import sync_memory_to_file
+from apps.api.file_sync import sync_memory_to_file, sync_workspaces_to_file
 from packages.domain.config import API_V1_PREFIX
 from packages.domain.models import Memory, SessionNote, Workspace
 from packages.domain.paths import validate_path_component
@@ -55,6 +55,9 @@ async def create_workspace(
         raise
     await db.refresh(workspace)
     invalidate_workspace_cache(body.name)
+    # 空工作区没有记忆写入路径，不走 sync_memory_to_file，需立即刷新快照，
+    # 否则重建 DB 时只能等下次全量导出才能恢复该工作区。
+    await sync_workspaces_to_file(db)
     return WorkspaceRead.model_validate(workspace)
 
 
@@ -215,7 +218,7 @@ async def workspace_hygiene_merge(
     source_id = await resolve_workspace_by_ref(body.source_workspace_id, db)
     target_id = await resolve_workspace_by_ref(body.target_workspace_id, db)
 
-    # 迁移记忆（含 MD 镜像与向量索引；archived 一并带走）
+    # 迁移记忆（含 MD 镜像与向量索引；非 active 记忆一并带走）
     memories = (
         (await db.execute(select(Memory).where(Memory.workspace_id == source_id))).scalars().all()
     )
@@ -249,6 +252,7 @@ async def workspace_hygiene_merge(
     invalidate_workspace_cache(source.name if source else None)
     invalidate_workspace_cache()
     await db.commit()
+    await sync_workspaces_to_file(db)
     return {
         "source_workspace_id": str(source_id),
         "target_workspace_id": str(target_id),

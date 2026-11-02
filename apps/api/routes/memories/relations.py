@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from typing import Annotated, Any
 
 from fastapi import Depends, HTTPException, Query, status
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.auth import AgentIdentity
@@ -128,9 +128,20 @@ async def create_memory_relation(
     if source_uid == body.target_memory_id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "不能与自身建立关系")
 
+    # 对称关系（关联/支持/矛盾）双向等价，反向重复也视为已存在
+    same_direction = (MemoryRelation.source_memory_id == source_uid) & (
+        MemoryRelation.target_memory_id == body.target_memory_id
+    )
+    if body.relation_type in {"related", "supports", "contradicts"}:
+        reverse = (MemoryRelation.source_memory_id == body.target_memory_id) & (
+            MemoryRelation.target_memory_id == source_uid
+        )
+        duplicate_condition = or_(same_direction, reverse)
+    else:
+        duplicate_condition = same_direction
+
     stmt = select(MemoryRelation).where(
-        MemoryRelation.source_memory_id == source_uid,
-        MemoryRelation.target_memory_id == body.target_memory_id,
+        duplicate_condition,
         MemoryRelation.relation_type == body.relation_type,
     )
     result = await db.execute(stmt)

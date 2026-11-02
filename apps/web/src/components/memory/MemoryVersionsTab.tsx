@@ -9,6 +9,8 @@ import { TabContentSkeleton } from '../Skeleton'
 import ErrorAlert from '../ErrorAlert'
 import EmptyState from '../EmptyState'
 import MarkdownContent from '../MarkdownContent'
+import { Select } from '../ui/Select'
+import DiffViewer from './DiffViewer'
 
 interface Props {
   memoryId: string
@@ -18,6 +20,8 @@ export default function MemoryVersionsTab({ memoryId }: Props) {
   const { t, locale } = useTranslation()
   const [versions, setVersions] = useState<MemoryVersion[]>([])
   const [expandedVersion, setExpandedVersion] = useState<string | null>(null)
+  const [compareOld, setCompareOld] = useState('')
+  const [compareNew, setCompareNew] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
 
@@ -38,6 +42,14 @@ export default function MemoryVersionsTab({ memoryId }: Props) {
     fetchVersions()
   }, [fetchVersions])
 
+  // 默认比较「上一版 → 最新版」（versions 按 version 倒序）
+  useEffect(() => {
+    if (versions.length >= 2 && !compareOld && !compareNew) {
+      setCompareOld(versions[1].id)
+      setCompareNew(versions[0].id)
+    }
+  }, [versions, compareOld, compareNew])
+
   if (loading) return <TabContentSkeleton />
   if (error)
     return (
@@ -50,47 +62,91 @@ export default function MemoryVersionsTab({ memoryId }: Props) {
   if (versions.length === 0)
     return <EmptyState illustration={<EmptyVersions />} message={t.memories.noVersions} />
 
+  const oldVersion = versions.find((v) => v.id === compareOld)
+  const newVersion = versions.find((v) => v.id === compareNew)
+
   return (
-    <div className="relative space-y-0">
-      <div className="absolute left-[7px] top-2 bottom-2 w-px bg-gradient-to-b from-transparent via-[var(--border-default)] to-transparent" />
-      {versions.map((v) => (
-        <div key={v.id} className="relative pl-6 pb-4 last:pb-0">
-          <div className="absolute left-0 top-1.5 w-3.5 h-3.5 rounded-full border-2 border-[var(--surface-card)] bg-[var(--text-tertiary)]" />
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-sm font-medium text-[var(--text-primary)]">v{v.version}</span>
-            <Badge
-              className={
-                v.change_type === 'created'
-                  ? 'bg-success/22 text-success-fg border border-success/35'
-                  : v.change_type === 'updated'
-                    ? 'bg-info/22 text-info-fg border border-info/35'
-                    : ''
-              }
-            >
-              {v.change_type}
-            </Badge>
-            <span className="text-sm text-[var(--text-tertiary)] ml-auto">
-              {formatTime(v.created_at, locale)}
+    <div className="space-y-4">
+      {versions.length >= 2 && (
+        <div className="rounded-xl border border-[var(--border-default)] bg-surface-inset p-3">
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <span className="text-sm font-medium text-[var(--text-primary)]">
+              {t.memories.compareVersions}
             </span>
+            <Select
+              options={versions.map((item) => ({ value: item.id, label: `v${item.version}` }))}
+              value={compareOld}
+              onChange={setCompareOld}
+              placeholder={t.memories.versionOld}
+            />
+            <span className="text-[var(--text-tertiary)]">→</span>
+            <Select
+              options={versions.map((item) => ({ value: item.id, label: `v${item.version}` }))}
+              value={compareNew}
+              onChange={setCompareNew}
+              placeholder={t.memories.versionNew}
+            />
           </div>
-          {v.reason && <p className="text-base text-[var(--text-secondary)] mb-1">{v.reason}</p>}
-          <Button
-            onClick={() => setExpandedVersion(expandedVersion === v.id ? null : v.id)}
-            variant="ghost"
-            size="sm"
-          >
-            {expandedVersion === v.id ? t.common.collapse : t.common.expand}
-          </Button>
-          {expandedVersion === v.id && (
-            <div className="mt-2 p-3 bg-surface-inset rounded-lg border border-[var(--border-default)] shadow-warm-xs animate-[fade-in_0.2s_ease-out]">
-              <h5 className="text-sm font-medium text-[var(--text-secondary)] mb-2">{v.title}</h5>
-              <div className="text-sm text-[var(--text-secondary)] prose prose-sm max-w-none">
-                <MarkdownContent content={v.content} />
-              </div>
+          {oldVersion && newVersion && (
+            <div className="space-y-3">
+              <DiffViewer
+                oldText={oldVersion.title}
+                newText={newVersion.title}
+                oldLabel={`v${oldVersion.version}`}
+                newLabel={`v${newVersion.version}`}
+              />
+              <DiffViewer
+                oldText={oldVersion.content}
+                newText={newVersion.content}
+                oldLabel={`v${oldVersion.version}`}
+                newLabel={`v${newVersion.version}`}
+              />
             </div>
           )}
         </div>
-      ))}
+      )}
+
+      <div className="relative space-y-0">
+        <div className="absolute left-[7px] top-2 bottom-2 w-px bg-gradient-to-b from-transparent via-[var(--border-default)] to-transparent" />
+        {versions.map((v) => (
+          <div key={v.id} className="relative pl-6 pb-4 last:pb-0">
+            <div className="absolute left-0 top-1.5 w-3.5 h-3.5 rounded-full border-2 border-[var(--surface-card)] bg-[var(--text-tertiary)]" />
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-sm font-medium text-[var(--text-primary)]">v{v.version}</span>
+              <Badge
+                className={
+                  v.change_type === 'created'
+                    ? 'bg-success/22 text-success-fg border border-success/35'
+                    : v.change_type === 'updated'
+                      ? 'bg-info/22 text-info-fg border border-info/35'
+                      : ''
+                }
+              >
+                {v.change_type}
+              </Badge>
+              <span className="text-sm text-[var(--text-tertiary)] ml-auto">
+                {formatTime(v.created_at, locale)}
+              </span>
+            </div>
+            {v.reason && <p className="text-base text-[var(--text-secondary)] mb-1">{v.reason}</p>}
+            <Button
+              onClick={() => setExpandedVersion(expandedVersion === v.id ? null : v.id)}
+              variant="ghost"
+              size="sm"
+            >
+              {expandedVersion === v.id ? t.common.collapse : t.common.expand}
+            </Button>
+            {expandedVersion === v.id && (
+              <div className="mt-2 p-3 bg-surface-inset rounded-lg border border-[var(--border-default)] shadow-warm-xs animate-[fade-in_0.2s_ease-out]">
+                <h5 className="text-sm font-medium text-[var(--text-secondary)] mb-2">{v.title}</h5>
+                <div className="text-sm text-[var(--text-secondary)] prose prose-sm max-w-none">
+                  <MarkdownContent content={v.content} />
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   )
 }

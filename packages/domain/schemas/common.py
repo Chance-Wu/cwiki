@@ -33,7 +33,6 @@ MemoryStatus = Literal[
     "active",  # 正常检索
     "superseded",  # 已被新版取代，保留历史
     "conflicted",  # 存在未解决的有效冲突
-    "archived",  # 不再作为主要检索结果，保留记录
     "deprecated",  # 明确不再推荐使用
 ]
 # 候选状态机（MQ-102/302 改造后）

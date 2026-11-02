@@ -25,6 +25,9 @@ interface FocusModeOverlayProps {
   isPending: boolean
   undoPending: boolean
   mode: 'learn' | 'test'
+  preferCloze?: boolean
+  onQuizSubmit?: (answers: string[]) => void
+  quizPending?: boolean
 }
 
 export function FocusModeOverlay({
@@ -44,6 +47,9 @@ export function FocusModeOverlay({
   isPending,
   undoPending,
   mode,
+  preferCloze = true,
+  onQuizSubmit,
+  quizPending = false,
 }: FocusModeOverlayProps) {
   const { t, locale } = useTranslation()
 
@@ -98,6 +104,9 @@ export function FocusModeOverlay({
           locale={locale}
           maxHeight="max-h-[45vh]"
           mode={mode}
+          preferCloze={preferCloze}
+          onQuizSubmit={onQuizSubmit}
+          quizPending={quizPending}
         />
 
         {/* 跳过按钮 */}

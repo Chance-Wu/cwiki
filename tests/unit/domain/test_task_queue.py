@@ -632,6 +632,38 @@ class TestPersistence:
         assert executed["n"] == 1
         await q.stop()
 
+    async def test_running_task_persisted_and_restored_pending(self, tmp_path: Path):
+        persist_path = tmp_path / "tq.json"
+        gate = asyncio.Event()
+        started = asyncio.Event()
+
+        async def blocked(ctx):
+            started.set()
+            await gate.wait()
+
+        q = TaskQueue(max_workers=1, persist_path=persist_path)
+        q.register("blocked", blocked)
+        await q.start()
+        task_id = await q.enqueue("blocked")
+        await started.wait()
+        await q.stop(timeout=0)
+        entries = self._read_snapshot(persist_path)
+        assert entries[0]["id"] == task_id
+        assert entries[0]["status"] == "pending"
+
+        q2 = TaskQueue(max_workers=1, persist_path=persist_path)
+        q2.register("blocked", lambda ctx: asyncio.sleep(0))
+        await q2.start()
+        assert (await q2.get_task(task_id)).status == TaskStatus.PENDING
+        await q2.stop()
+
+    async def test_persist_failure_keeps_dirty(self, tmp_path: Path, monkeypatch):
+        q = TaskQueue(persist_path=tmp_path / "tq.json")
+        await q.enqueue("x")
+        monkeypatch.setattr("packages.domain.task_queue.os.replace", lambda *a: (_ for _ in ()).throw(OSError("no")))
+        q._persist_snapshot()
+        assert q._persist_dirty is True
+
     async def test_no_live_tasks_removes_snapshot_file(self, tmp_path: Path):
         persist_path = tmp_path / "tq.json"
 

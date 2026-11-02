@@ -19,6 +19,29 @@ export function typeLabel(t: Common, type: string): string {
   return map[type] || type
 }
 
+export const MEMORY_STATUSES = ['active', 'superseded', 'conflicted', 'deprecated'] as const
+
+export function memoryStatusLabel(
+  t: TranslationKeys['memories'],
+  status: string | null | undefined,
+): string {
+  const map: Record<string, string> = {
+    active: t.statusActive,
+    superseded: t.statusSuperseded,
+    conflicted: t.statusConflicted,
+    deprecated: t.statusDeprecated,
+  }
+  return map[status || 'active'] || status || t.statusActive
+}
+
+export function memoryStatusVariant(
+  status: string | null | undefined,
+): 'success' | 'warning' | 'danger' {
+  if (status === 'deprecated') return 'warning'
+  if (status === 'superseded' || status === 'conflicted') return 'danger'
+  return 'success'
+}
+
 export function sourceLabel(t: Common, source: string): string {
   const map: Record<string, string> = {
     mcp: t.sourceMcp,

@@ -35,7 +35,7 @@ REMINDER = (
     "cwiki: 会话开始或切换话题时用 memory_search 检索相关记忆；"
     "出现用户纠正、技术决策、踩坑、约定、可复用资源时，按 cwiki-save skill "
     "用 memory_save 提交；回答后可用 memory_feedback 标记有用/无用；"
-    "错误记忆用 memory_forget 归档。无真实信号就跳过，不凑条数。"
+    "错误记忆用 memory_forget 删除。无真实信号就跳过，不凑条数。"
 )
 
 
@@ -123,6 +123,7 @@ def _dispatch() -> int:
         # 工具执行前的确定性归属注入：payload 自带本会话 cwd，
         # 多窗口并发下比注册表（last-write-wins）可靠。
         # 不刷新注册表——每次工具调用都触发，高频写反而放大跨会话竞态。
+        decisions.note_tool_use(host, payload)
         updated = workspace_inject.updated_input(payload)
         if updated is not None:
             _write_json(
@@ -146,6 +147,10 @@ def _dispatch() -> int:
 
     if event == "session-start":
         parts = [REMINDER]
+        decisions.prune(host)
+        reminder = decisions.pop_reminder(host, normalized.workspace)
+        if reminder:
+            parts.append(reminder)
         hint = decisions.build_hint(normalized.workspace)
         if hint:
             parts.append(hint)
@@ -158,6 +163,7 @@ def _dispatch() -> int:
         return 0
 
     if event == "user-prompt-submit":
+        decisions.note_prompt(host, normalized.session_id, normalized.workspace, normalized.prompt)
         if profiles.recall_mode(host) != "per_prompt" or not normalized.prompt:
             return 0
         text = recall.build_context(normalized.prompt, normalized.workspace)
@@ -170,6 +176,7 @@ def _dispatch() -> int:
 
     if event == "session-end":
         capture.store(normalized)
+        decisions.audit(normalized)
         capture.drain(host, max_batches=1)
         return 0
 

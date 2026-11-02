@@ -10,6 +10,57 @@ from packages.domain.models import Memory, ReviewHistory, ReviewSchedule, Worksp
 from packages.memory.review_service import ReviewService
 
 
+def _make_memory(workspace: Workspace, title: str) -> Memory:
+    """构造一条测试记忆。"""
+    return Memory(
+        id=uuid.uuid4(),
+        workspace_id=workspace.id,
+        title=title,
+        content=f"{title} content for review stats testing.",
+        type="fact",
+        source="test",
+        status="active",
+        version=1,
+    )
+
+
+def _make_history(
+    workspace_id: uuid.UUID,
+    memory_id: uuid.UUID,
+    reviewed_at: datetime,
+    quality: int = 4,
+) -> ReviewHistory:
+    """构造一条复习历史，用于统计口径测试。"""
+    return ReviewHistory(
+        id=uuid.uuid4(),
+        workspace_id=workspace_id,
+        memory_id=memory_id,
+        quality=quality,
+        ease_factor_before=2.5,
+        interval_before=1,
+        repetitions_before=0,
+        next_review_before=reviewed_at,
+        mastery_level_before="new",
+        ease_factor_after=2.5,
+        interval_after=1,
+        repetitions_after=1,
+        next_review_after=reviewed_at + timedelta(days=1),
+        mastery_level_after="learning",
+        reviewed_at=reviewed_at,
+    )
+
+
+def _freeze_now(monkeypatch: pytest.MonkeyPatch, moment: datetime) -> None:
+    """把 review_service 内的 datetime.now 冻结到指定时刻（当作 UTC 墙钟）。"""
+
+    class _FrozenDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):  # type: ignore[override]
+            return moment.replace(tzinfo=tz)
+
+    monkeypatch.setattr("packages.memory.review_service.datetime", _FrozenDatetime)
+
+
 @pytest.fixture
 async def workspace(db_session: AsyncSession) -> Workspace:
     """创建测试工作区。"""
@@ -368,3 +419,222 @@ class TestGetReviewStats:
         result = await service.get_review_stats(db_session, workspace.id)
 
         assert result["total_scheduled"] == 1
+
+    async def test_stats_counts_history_today(
+        self,
+        db_session: AsyncSession,
+        service: ReviewService,
+        memory: Memory,
+        workspace: Workspace,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """同一天多次复习：reviewed_today 去重，review_count_today 计事件。"""
+        _freeze_now(monkeypatch, datetime(2026, 10, 15, 12, 0, 0))
+        mem2 = _make_memory(workspace, "Second")
+        db_session.add(mem2)
+        await db_session.flush()
+        db_session.add_all(
+            [
+                _make_history(workspace.id, memory.id, datetime(2026, 10, 15, 9, 0, 0), quality=4),
+                _make_history(workspace.id, memory.id, datetime(2026, 10, 15, 10, 0, 0), quality=5),
+                _make_history(workspace.id, mem2.id, datetime(2026, 10, 15, 11, 0, 0), quality=4),
+            ]
+        )
+        await db_session.flush()
+
+        result = await service.get_review_stats(db_session, workspace.id)
+
+        assert result["reviewed_today"] == 2
+        assert result["review_count_today"] == 3
+
+    async def test_stats_trend_keeps_yesterday(
+        self,
+        db_session: AsyncSession,
+        service: ReviewService,
+        memory: Memory,
+        workspace: Workspace,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """昨天的复习不应被今天的复习覆盖。"""
+        _freeze_now(monkeypatch, datetime(2026, 10, 15, 12, 0, 0))
+        mem2 = _make_memory(workspace, "Second")
+        db_session.add(mem2)
+        await db_session.flush()
+        db_session.add_all(
+            [
+                _make_history(workspace.id, memory.id, datetime(2026, 10, 14, 9, 0, 0)),
+                _make_history(workspace.id, mem2.id, datetime(2026, 10, 15, 9, 0, 0)),
+            ]
+        )
+        await db_session.flush()
+
+        result = await service.get_review_stats(db_session, workspace.id)
+        trend = {row["date"]: row["count"] for row in result["review_trend"]}
+
+        assert trend["2026-10-14"] == 1
+        assert trend["2026-10-15"] == 1
+
+    async def test_stats_uses_local_day_boundary(
+        self,
+        db_session: AsyncSession,
+        service: ReviewService,
+        memory: Memory,
+        workspace: Workspace,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """UTC 16:20 在东八区属于次日 00:20，应计入今天。"""
+        _freeze_now(monkeypatch, datetime(2026, 10, 30, 16, 30, 0))
+        mem2 = _make_memory(workspace, "Second")
+        db_session.add(mem2)
+        await db_session.flush()
+        db_session.add_all(
+            [
+                _make_history(workspace.id, memory.id, datetime(2026, 10, 30, 16, 20, 0)),
+                _make_history(workspace.id, mem2.id, datetime(2026, 10, 30, 15, 50, 0)),
+            ]
+        )
+        await db_session.flush()
+
+        result = await service.get_review_stats(db_session, workspace.id, tz_offset_minutes=480)
+
+        assert result["reviewed_today"] == 1
+        assert result["review_count_today"] == 1
+
+    async def test_stats_streak_counts_consecutive_days(
+        self,
+        db_session: AsyncSession,
+        service: ReviewService,
+        memory: Memory,
+        workspace: Workspace,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """连续 3 天有记录应返回 streak_days=3。"""
+        _freeze_now(monkeypatch, datetime(2026, 10, 15, 12, 0, 0))
+        db_session.add_all(
+            [
+                _make_history(workspace.id, memory.id, datetime(2026, 10, 13, 9, 0, 0)),
+                _make_history(workspace.id, memory.id, datetime(2026, 10, 14, 9, 0, 0)),
+                _make_history(workspace.id, memory.id, datetime(2026, 10, 15, 9, 0, 0)),
+            ]
+        )
+        await db_session.flush()
+
+        result = await service.get_review_stats(db_session, workspace.id)
+
+        assert result["streak_days"] == 3
+
+
+class TestLeechAndPause:
+    """顽固记忆识别与暂停/恢复/推迟/重置。"""
+
+    async def test_lapse_streak_marks_leech(
+        self, db_session: AsyncSession, service: ReviewService, memory: Memory, workspace: Workspace
+    ):
+        """连续 3 次 quality<3 应标记为 leech。"""
+        result = None
+        for _ in range(3):
+            result = await service.submit_review(
+                db_session, memory.id, quality=2, workspace_id=workspace.id
+            )
+
+        assert result is not None
+        assert result["lapse_streak"] == 3
+        assert result["leech"] is True
+
+    async def test_success_resets_lapse_streak(
+        self, db_session: AsyncSession, service: ReviewService, memory: Memory, workspace: Workspace
+    ):
+        """答对一次即清零遗忘记账。"""
+        await service.submit_review(db_session, memory.id, quality=2, workspace_id=workspace.id)
+        result = await service.submit_review(
+            db_session, memory.id, quality=4, workspace_id=workspace.id
+        )
+
+        assert result["lapse_streak"] == 0
+        assert result["leech"] is False
+
+    async def test_suspended_item_leaves_due_queue(
+        self, db_session: AsyncSession, service: ReviewService, memory: Memory, workspace: Workspace
+    ):
+        """暂停后不再出现在到期队列，恢复后立即回到队列。"""
+        from sqlalchemy import select
+
+        await service.schedule_memory(db_session, memory.id, workspace.id)
+        stmt = select(ReviewSchedule).where(ReviewSchedule.memory_id == memory.id)
+        schedule = (await db_session.execute(stmt)).scalar_one()
+        schedule.next_review = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=1)
+        await db_session.flush()
+
+        assert len(await service.get_due_reviews(db_session, workspace.id)) == 1
+
+        await service.suspend_review(db_session, memory.id, workspace.id)
+        assert await service.get_due_reviews(db_session, workspace.id) == []
+
+        suspended = await service.list_suspended(db_session, workspace.id)
+        assert len(suspended) == 1
+        assert suspended[0]["memory_id"] == str(memory.id)
+
+        await service.unsuspend_review(db_session, memory.id, workspace.id)
+        assert len(await service.get_due_reviews(db_session, workspace.id)) == 1
+
+    async def test_stats_excludes_suspended_from_due(
+        self, db_session: AsyncSession, service: ReviewService, memory: Memory, workspace: Workspace
+    ):
+        """暂停的记忆不计入 due_now，但仍计入 total_scheduled。"""
+        from sqlalchemy import select
+
+        await service.schedule_memory(db_session, memory.id, workspace.id)
+        stmt = select(ReviewSchedule).where(ReviewSchedule.memory_id == memory.id)
+        schedule = (await db_session.execute(stmt)).scalar_one()
+        schedule.next_review = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=1)
+        await db_session.flush()
+        await service.suspend_review(db_session, memory.id, workspace.id)
+
+        result = await service.get_review_stats(db_session, workspace.id)
+
+        assert result["due_now"] == 0
+        assert result["total_scheduled"] == 1
+
+    async def test_resume_without_suspend_keeps_schedule(
+        self, db_session: AsyncSession, service: ReviewService, memory: Memory, workspace: Workspace
+    ):
+        """未暂停时恢复不应把未来的 next_review 提前到当前。"""
+        from sqlalchemy import select
+
+        await service.schedule_memory(db_session, memory.id, workspace.id)
+        stmt = select(ReviewSchedule).where(ReviewSchedule.memory_id == memory.id)
+        schedule = (await db_session.execute(stmt)).scalar_one()
+        future = datetime.now(UTC).replace(tzinfo=None) + timedelta(days=3)
+        schedule.next_review = future
+        await db_session.flush()
+
+        result = await service.unsuspend_review(db_session, memory.id, workspace.id)
+
+        assert result is not None
+        assert result["status"] == "not_suspended"
+        await db_session.refresh(schedule)
+        assert schedule.next_review == future
+
+    async def test_postpone_and_reset(
+        self, db_session: AsyncSession, service: ReviewService, memory: Memory, workspace: Workspace
+    ):
+        """推迟更新下次时间；重置回到初始参数。"""
+        from sqlalchemy import select
+
+        await service.submit_review(db_session, memory.id, quality=5, workspace_id=workspace.id)
+        await service.submit_review(db_session, memory.id, quality=5, workspace_id=workspace.id)
+
+        postponed = await service.postpone_review(db_session, memory.id, 5, workspace.id)
+        assert postponed is not None
+        assert postponed["postponed_days"] == 5
+
+        reset = await service.reset_review(db_session, memory.id, workspace.id)
+        assert reset is not None
+        assert reset["mastery_level"] == "new"
+
+        stmt = select(ReviewSchedule).where(ReviewSchedule.memory_id == memory.id)
+        schedule = (await db_session.execute(stmt)).scalar_one()
+        assert schedule.ease_factor == 2.5
+        assert schedule.interval_days == 1
+        assert schedule.repetitions == 0
+        assert schedule.lapse_streak == 0

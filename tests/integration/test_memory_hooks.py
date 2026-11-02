@@ -38,7 +38,8 @@ def _run(
         capture_output=True,
         cwd=cwd,
         env=_env(),
-        timeout=15,
+        # 全套测试并发/磁盘压力下，冷启动解释器可能超过 15s，放宽避免误报。
+        timeout=30,
         check=False,
     )
 

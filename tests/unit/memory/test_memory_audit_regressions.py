@@ -16,8 +16,6 @@ from packages.domain.database import Base
 from packages.domain.models import (
     CandidateMemory,
     Memory,
-    MemoryLifecycleEvent,
-    MemoryRelation,
     MemoryVersion,
     Workspace,
 )
@@ -228,7 +226,7 @@ async def test_retrieval_refreshes_same_count_edits_additions_and_archives(sessi
     assert (await search("nebula"))["memories"][0]["id"] == str(added_id)
     async with sessions() as db:
         added = await db.get(Memory, added_id)
-        added.status = "archived"
+        added.status = "superseded"
         await db.commit()
     result = await search("nebula")
     assert str(added_id) not in {m["id"] for m in result["memories"]}
@@ -344,7 +342,7 @@ async def test_final_fetch_rechecks_workspace_status_and_legacy_project(sessions
 
     async def archive_during_embedding(_text):
         async with sessions() as db:
-            await db.execute(update(Memory).where(Memory.id == mid).values(status="archived"))
+            await db.execute(update(Memory).where(Memory.id == mid).values(status="superseded"))
             await db.commit()
         return [1.0]
 
@@ -650,80 +648,6 @@ async def test_legacy_unsafe_candidate_cannot_bypass_review_validation(
         assert (await db.get(Memory, mid)).content == CONTENT
 
 
-async def test_formal_merge_validates_content_and_snapshots_before_patch(sessions, audit_client):
-    ws, mid, _ = await seed(sessions)
-    async with sessions() as db:
-        source = Memory(workspace_id=ws, title="Source", content=CONTENT, type="fact")
-        db.add(source)
-        await db.commit()
-        source_id = source.id
-    payload = {
-        "source_memory_id": str(source_id),
-        "target_memory_id": str(mid),
-        "merged_content": INJECTION,
-    }
-    assert (await audit_client.post("/v1/memories/merge", json=payload)).status_code == 422
-    payload["merged_content"] = CONTENT + " Merged formally."
-    response = await audit_client.post("/v1/memories/merge", json=payload)
-    assert response.status_code == 200, response.text
-    response = await audit_client.patch(
-        f"/v1/memories/{mid}", json={"title": "After merge", "expected_version": 2}
-    )
-    assert response.status_code == 200, response.text
-    async with sessions() as db:
-        stmt = select(Memory).where(Memory.id == mid).options(selectinload(Memory.versions))
-        memory = (await db.execute(stmt)).scalar_one()
-        assert [
-            (v.version, v.content) for v in sorted(memory.versions, key=lambda v: v.version)
-        ] == [
-            (1, CONTENT),
-            (2, payload["merged_content"]),
-        ]
-
-
-async def test_formal_merge_archives_source_with_traceability(sessions, audit_client):
-    ws, mid, _ = await seed(sessions)
-    async with sessions() as db:
-        source = Memory(workspace_id=ws, title="Source", content=CONTENT, type="fact")
-        db.add(source)
-        await db.commit()
-        source_id = source.id
-    response = await audit_client.post(
-        "/v1/memories/merge",
-        json={
-            "source_memory_id": str(source_id),
-            "target_memory_id": str(mid),
-            "merged_content": CONTENT + " Merged formally.",
-        },
-    )
-    assert response.status_code == 200, response.text
-    assert response.json()["archived_memory_id"] == str(source_id)
-    async with sessions() as db:
-        # source 归档留存而非物理删除，可追溯、可恢复
-        source = await db.get(Memory, source_id)
-        assert source is not None
-        assert source.status == "archived"
-        relation = (
-            await db.execute(
-                select(MemoryRelation).where(
-                    MemoryRelation.source_memory_id == mid,
-                    MemoryRelation.target_memory_id == source_id,
-                    MemoryRelation.relation_type == "supersedes",
-                )
-            )
-        ).scalar_one()
-        assert relation.confidence == 1.0
-        event = (
-            await db.execute(
-                select(MemoryLifecycleEvent).where(
-                    MemoryLifecycleEvent.memory_id == source_id,
-                    MemoryLifecycleEvent.event_type == "merged",
-                )
-            )
-        ).scalar_one()
-        assert event is not None
-
-
 async def test_public_safe_writes_preserve_original_text(sessions, audit_client):
     from packages.domain.text_utils import normalize_memory_content
 
@@ -796,7 +720,7 @@ async def test_conflicting_legacy_snapshot_returns_409_without_destroying_histor
         assert memory.versions[0].title == "Historical"
 
 
-async def test_recovery_keeps_archived_mirror_out_of_vector_index(
+async def test_recovery_keeps_inactive_mirror_out_of_vector_index(
     sessions, file_components, monkeypatch
 ):
     from apps.worker.tasks import task_generate_embedding
@@ -810,9 +734,9 @@ async def test_recovery_keeps_archived_mirror_out_of_vector_index(
     assert str(mid) in indexer.vector_index.vectors
     async with sessions() as db:
         memory = await db.get(Memory, mid)
-        memory.status = "archived"
+        memory.status = "superseded"
         await db.commit()
     await task_generate_embedding({"embedding_service": svc}, str(mid))
-    assert store.list()[0].status == "archived"
+    assert store.list()[0].status == "superseded"
     assert str(mid) not in indexer.vector_index.vectors
     svc.generate_embedding.assert_awaited_once()

@@ -1,14 +1,25 @@
 import { useState, type RefObject } from 'react'
 import { motion } from 'framer-motion'
 import { ease, duration } from '../../lib/motion'
-import { Tag, Folder, ListFilter, Clock, Tags, X, Pencil, AlertCircle } from 'lucide-react'
+import {
+  Tag,
+  Folder,
+  ListFilter,
+  Clock,
+  Tags,
+  X,
+  Pencil,
+  AlertCircle,
+  BookOpen,
+} from 'lucide-react'
 import { useTranslation } from '../../i18n/I18nProvider'
 import { type FileMemory } from '../../lib/api'
-import { typeLabel } from '../../lib/labels'
+import { typeLabel, memoryStatusLabel, MEMORY_STATUSES } from '../../lib/labels'
 import { SegmentedControl } from '../ui/SegmentedControl'
 import { Select } from '../ui/Select'
 import SearchBox, { type SearchBoxHandle } from '../SearchBox'
 import TagManagePanel from '../memory/TagManagePanel'
+import { Dialog } from '../ui/Dialog'
 import { MEMORY_TYPES } from './MemoryItem'
 import type { SearchMode } from '../../hooks/useSearch'
 
@@ -33,6 +44,8 @@ interface MemoriesFilterPanelProps {
   onWorkspaceFilterChange: (v: string) => void
   statusFilter: string
   onStatusFilterChange: (v: string) => void
+  reviewStatusFilter: string
+  onReviewStatusFilterChange: (v: string) => void
   timeRange: string
   onTimeRangeChange: (v: string) => void
   tagsList: { name: string; count: number }[]
@@ -64,6 +77,8 @@ export default function MemoriesFilterPanel({
   onWorkspaceFilterChange,
   statusFilter,
   onStatusFilterChange,
+  reviewStatusFilter,
+  onReviewStatusFilterChange,
   timeRange,
   onTimeRangeChange,
   tagsList,
@@ -110,6 +125,7 @@ export default function MemoriesFilterPanel({
           value={searchMode}
           onChange={onSearchModeChange}
           options={[
+            { value: 'auto', label: t.search.modeAuto },
             { value: 'text', label: t.search.modeText },
             { value: 'semantic', label: t.search.modeSemantic },
             { value: 'hybrid', label: t.search.modeHybrid },
@@ -148,12 +164,30 @@ export default function MemoriesFilterPanel({
         <Select
           options={[
             { value: 'all', label: t.memories.allStatus },
-            { value: 'active', label: t.memories.statusActive },
-            { value: 'archived', label: t.memories.statusArchived },
+            ...MEMORY_STATUSES.map((status) => ({
+              value: status,
+              label: memoryStatusLabel(t.memories, status),
+            })),
           ]}
           value={statusFilter}
           onChange={onStatusFilterChange}
           icon={<ListFilter size={14} />}
+        />
+        <Select
+          options={[
+            { value: 'all', label: t.memories.reviewStatusAll },
+            { value: 'due', label: t.memories.reviewStatusDue },
+            { value: 'new', label: t.memories.reviewStatusNew },
+            { value: 'learning', label: t.memories.reviewStatusLearning },
+            { value: 'familiar', label: t.memories.reviewStatusFamiliar },
+            { value: 'proficient', label: t.memories.reviewStatusProficient },
+            { value: 'mastered', label: t.memories.reviewStatusMastered },
+            { value: 'suspended', label: t.memories.reviewStatusSuspended },
+            { value: 'unscheduled', label: t.memories.reviewStatusUnscheduled },
+          ]}
+          value={reviewStatusFilter}
+          onChange={onReviewStatusFilterChange}
+          icon={<BookOpen size={14} />}
         />
         <Select
           options={[
@@ -272,16 +306,20 @@ export default function MemoriesFilterPanel({
                   {t.memories.tagManage}
                 </button>
               </div>
-              {showTagManage && (
-                <div className="mt-2">
-                  <TagManagePanel
-                    tags={tagsList}
-                    workspaceId={workspaceFilter !== 'all' ? workspaceFilter : undefined}
-                    onTagsChanged={onTagsChanged}
-                    onClose={() => setShowTagManage(false)}
-                  />
-                </div>
-              )}
+              <Dialog
+                open={showTagManage}
+                onOpenChange={setShowTagManage}
+                title={t.memories.tagManage}
+                size="lg"
+              >
+                <TagManagePanel
+                  tags={tagsList}
+                  workspaceId={workspaceFilter !== 'all' ? workspaceFilter : undefined}
+                  onTagsChanged={onTagsChanged}
+                  onClose={() => setShowTagManage(false)}
+                  hideHeader
+                />
+              </Dialog>
             </>
           )
         })()}

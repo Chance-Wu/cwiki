@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 from typing import Annotated, Any
 
 from fastapi import Depends, HTTPException, Query, status
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, case, delete, exists, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer
 
@@ -24,7 +24,11 @@ from apps.api.deps import (
     require_scope,
     resolve_workspace,
 )
-from apps.api.file_sync import sync_memory_to_file
+from apps.api.file_sync import (
+    delete_memory_assets,
+    resolve_workspace_name,
+    sync_memory_to_file,
+)
 from apps.api.routes.context import invalidate_context_cache
 from apps.api.routes.memories._router import router
 from apps.api.routes.memories._shared import _MEMORY_NO_EMBED, _latest_usage_map
@@ -36,8 +40,12 @@ from packages.domain.models import (
     Memory,
     MemoryLifecycleEvent,
     MemoryVersion,
+    ReviewSchedule,
 )
 from packages.domain.schemas import (
+    BatchMemoryUpdateRequest,
+    BatchMemoryUpdateResult,
+    BatchMemoryUpdateResultItem,
     EvidenceRead,
     MemoryRead,
     MemoryStatus,
@@ -48,8 +56,13 @@ from packages.domain.schemas import (
 )
 from packages.domain.task_queue import queue as task_queue
 from packages.memory.service import snapshot_and_advance
+from packages.memory.spaced_repetition import calculate_mastery_level
 from packages.memory.tag_query import memory_has_tag
-from packages.memory.utility_aggregation import aggregate_utility_scores, latest_used_at
+from packages.memory.utility_aggregation import (
+    aggregate_evidence_counts,
+    aggregate_utility_scores,
+    latest_used_at,
+)
 from packages.retrieval.optimizer import optimize_memory
 
 logger = logging.getLogger(__name__)
@@ -72,6 +85,11 @@ async def list_memories(
     ),
     decay: str | None = Query(
         None, pattern="^(fresh|aging|stale)$", description="衰减分箱过滤（最后使用或创建时间）"
+    ),
+    review_status: str | None = Query(
+        None,
+        pattern="^(due|new|learning|familiar|proficient|mastered|suspended|unscheduled)$",
+        description="学习状态过滤：到期/掌握度等级/已暂停/未排期",
     ),
     offset: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
@@ -122,6 +140,40 @@ async def list_memories(
             conditions.append(and_(age_days >= 30, age_days < 90))
         else:
             conditions.append(age_days >= 90)
+    if review_status is not None:
+        if review_status == "unscheduled":
+            conditions.append(~exists().where(ReviewSchedule.memory_id == Memory.id))
+        elif review_status == "due":
+            now_utc = datetime.now(UTC).replace(tzinfo=None)
+            conditions.append(
+                exists().where(
+                    ReviewSchedule.memory_id == Memory.id,
+                    ReviewSchedule.next_review <= now_utc,
+                    ReviewSchedule.suspended_at.is_(None),
+                )
+            )
+        elif review_status == "suspended":
+            conditions.append(
+                exists().where(
+                    ReviewSchedule.memory_id == Memory.id,
+                    ReviewSchedule.suspended_at.is_not(None),
+                )
+            )
+        else:
+            level_expr = case(
+                (ReviewSchedule.repetitions == 0, "new"),
+                (ReviewSchedule.repetitions <= 2, "learning"),
+                (ReviewSchedule.repetitions <= 5, "familiar"),
+                (ReviewSchedule.repetitions <= 10, "proficient"),
+                (ReviewSchedule.ease_factor >= 2.5, "mastered"),
+                else_="proficient",
+            )
+            conditions.append(
+                exists().where(
+                    ReviewSchedule.memory_id == Memory.id,
+                    level_expr == review_status,
+                )
+            )
     stmt, count_stmt = apply_optional_filters(stmt, count_stmt, conditions)
 
     total, memories = await execute_paginated(
@@ -132,6 +184,14 @@ async def list_memories(
     # 与检索引擎共用同一聚合实现保证口径一致；聚合异常返回空映射，
     # 此时所有条目 utility_score 为 null（未算过）而非 0
     utility_map = await aggregate_utility_scores(db, memories)
+    evidence_map = await aggregate_evidence_counts(db, memories)
+    memory_ids = [m.id for m in memories]
+    schedule_map: dict[str, ReviewSchedule] = {}
+    if memory_ids:
+        schedule_rows = (
+            await db.execute(select(ReviewSchedule).where(ReviewSchedule.memory_id.in_(memory_ids)))
+        ).scalars()
+        schedule_map = {str(s.memory_id): s for s in schedule_rows}
 
     # last_used_at 口径：memory.last_used_at 列只在导入/重建时落值，
     # 运行期检索命中只写 memory_usage 流水，故取两者较新者；
@@ -142,6 +202,13 @@ async def list_memories(
     for m in memories:
         item = MemoryRead.model_validate(m)
         item.utility_score = utility_map.get(str(m.id))
+        item.evidence_count = evidence_map.get(str(m.id), 0)
+        schedule = schedule_map.get(str(m.id))
+        if schedule is not None:
+            item.mastery_level = calculate_mastery_level(schedule.repetitions, schedule.ease_factor)
+            item.next_review = schedule.next_review.isoformat() if schedule.next_review else None
+            item.lapse_streak = schedule.lapse_streak
+            item.leech = schedule.lapse_streak >= 3
         item.last_used_at = latest_used_at(m.last_used_at, usage_max_map.get(m.id))
         items.append(item)
 
@@ -243,11 +310,10 @@ async def update_memory(
         memory.embedding = None
 
     if body.status is not None and body.status != old_status:
-        # 归档单独记 event_type=archived，供演化指标统计（status_changed 不细分目标状态）
         lifecycle_event = MemoryLifecycleEvent(
             id=uuid.uuid4(),
             memory_id=memory_id,
-            event_type="archived" if body.status == "archived" else "status_changed",
+            event_type="status_changed",
             metadata_json=json.dumps({"old_status": old_status, "new_status": body.status}),
         )
     else:
@@ -289,6 +355,128 @@ async def update_memory(
     invalidate_memory_status_caches(str(memory_id))
 
     return response
+
+
+@router.delete("/{memory_id}")
+async def delete_memory(
+    memory_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    reason: str | None = Query(None, max_length=500),
+    _identity: Annotated[AgentIdentity | None, Depends(require_scope("reviews:write"))] = None,
+) -> dict[str, Any]:
+    """物理删除一条记忆及其文件资产（不可恢复）。"""
+    memory = await get_or_404(db, Memory, memory_id)
+    workspace_name = await resolve_workspace_name(db, memory.workspace_id)
+    memory_type = memory.type
+    title = memory.title
+
+    # Core delete 依赖外键级联清理版本/证据/复习计划等子行；
+    # ORM delete 会先把子行 memory_id 置空，触发 NOT NULL 约束。
+    await db.execute(delete(Memory).where(Memory.id == memory_id))
+    await db.commit()
+
+    assets_removed = await delete_memory_assets(memory_id, workspace_name, memory_type, title)
+    # reason 由 Agent 生成，可能包含业务细节；日志只记录是否提供，不落原文。
+    logger.info(
+        "Memory %s physically deleted (assets_removed=%s, reason_provided=%s)",
+        memory_id,
+        assets_removed,
+        bool(reason),
+    )
+    invalidate_search_cache()
+    invalidate_context_cache()
+    invalidate_memory_status_caches(str(memory_id))
+    return {
+        "deleted": True,
+        "memory_id": str(memory_id),
+        "assets_removed": assets_removed,
+    }
+
+
+@router.post("/batch-update", response_model=BatchMemoryUpdateResult)
+async def batch_update_memories(
+    body: BatchMemoryUpdateRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _identity: Annotated[AgentIdentity | None, Depends(require_scope("reviews:write"))] = None,
+) -> BatchMemoryUpdateResult:
+    """批量修改记忆的类型/置信度/重要度/标签；逐条独立事务，单条失败不影响其他。"""
+    from packages.domain.config import parasitic_evolution_config
+    from packages.memory.service import normalize_tags
+
+    if not body.patch.model_dump(exclude_none=True):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="patch 不能为空")
+
+    results: list[BatchMemoryUpdateResultItem] = []
+    succeeded = 0
+    failed = 0
+
+    for memory_id in body.ids:
+        try:
+            memory = await get_or_404(db, Memory, memory_id)
+            await snapshot_and_advance(
+                db,
+                memory,
+                change_type="edit",
+                changed_by_type="agent",
+                changed_by_id=getattr(_identity, "agent_id", None),
+                reason="batch update",
+                expected_version=None,
+                record_version=parasitic_evolution_config.memory_version_tracking_enabled,
+            )
+
+            if body.patch.type is not None:
+                memory.type = body.patch.type
+            if body.patch.confidence is not None:
+                memory.confidence = body.patch.confidence
+            if body.patch.importance is not None:
+                memory.importance = body.patch.importance
+            if body.patch.tags is not None:
+                memory.tags = normalize_tags(body.patch.tags)
+
+            db.add(
+                MemoryLifecycleEvent(
+                    id=uuid.uuid4(),
+                    memory_id=memory_id,
+                    event_type="updated",
+                    metadata_json=json.dumps({"source": "batch_update"}),
+                )
+            )
+            await db.commit()
+            await db.refresh(memory)
+            await sync_memory_to_file(memory, db, skip_vector_index=True)
+            invalidate_memory_status_caches(str(memory_id))
+            results.append(BatchMemoryUpdateResultItem(memory_id=memory_id, success=True))
+            succeeded += 1
+        except HTTPException as exc:
+            await db.rollback()
+            results.append(
+                BatchMemoryUpdateResultItem(
+                    memory_id=memory_id,
+                    success=False,
+                    error=str(exc.detail),
+                )
+            )
+            failed += 1
+        except Exception as exc:
+            await db.rollback()
+            results.append(
+                BatchMemoryUpdateResultItem(
+                    memory_id=memory_id,
+                    success=False,
+                    error=str(exc),
+                )
+            )
+            failed += 1
+
+    invalidate_search_cache()
+    invalidate_context_cache()
+
+    return BatchMemoryUpdateResult(
+        results=results,
+        total=len(body.ids),
+        succeeded=succeeded,
+        failed=failed,
+    )
 
 
 @router.post("/{memory_id}/optimize")

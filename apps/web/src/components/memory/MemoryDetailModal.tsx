@@ -2,7 +2,14 @@ import { useState, useCallback, lazy, Suspense } from 'react'
 import { Loader2 } from 'lucide-react'
 import { useTranslation } from '../../i18n/I18nProvider'
 import { api, type FileMemory } from '../../lib/api'
-import { typeLabel, sourceLabel, SOURCE_COLORS, TYPE_COLORS } from '../../lib/labels'
+import {
+  typeLabel,
+  sourceLabel,
+  memoryStatusLabel,
+  memoryStatusVariant,
+  SOURCE_COLORS,
+  TYPE_COLORS,
+} from '../../lib/labels'
 import { ensureUtc } from '../../lib/format'
 import { Button } from '../ui/Button'
 import { Dialog } from '../ui/Dialog'
@@ -151,18 +158,8 @@ export default function MemoryDetailModal({
         ? t.memories.aging
         : t.memories.stale
   const statusKey = memory.status || 'active'
-  const statusLbl =
-    statusKey === 'archived'
-      ? t.memories.statusArchived
-      : statusKey === 'deprecated'
-        ? t.memories.statusDeprecated
-        : t.memories.statusActive
-  const statusVariant =
-    statusKey === 'archived'
-      ? ('default' as const)
-      : statusKey === 'deprecated'
-        ? ('warning' as const)
-        : ('success' as const)
+  const statusLbl = memoryStatusLabel(t.memories, statusKey)
+  const statusVariant = memoryStatusVariant(statusKey)
 
   const tabs: [DetailTab, string][] = [
     ['content', t.memories.contentTab],

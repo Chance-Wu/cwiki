@@ -81,9 +81,11 @@ async def test_neighbor_boost_includes_decayed_strength(expansion_env) -> None:
 
     boosts = await env.engine._relation_neighbor_boosts(env.db, [env.a.id])
 
-    # C 的强度 1.0 经过 30 天半衰期后剩 0.5：0.15×1.0 + 0.10×0.5 = 0.20
-    assert boosts[str(env.c.id)] == pytest.approx(0.20)
-    assert boosts[str(env.b.id)] == pytest.approx(0.15)
+    # 原始 boost：C = 0.15×1.0 + 0.10×0.5 = 0.20，B = 0.15×1.0 + 0.10×0 = 0.15；
+    # 按理论满分 0.25 等比缩放到 band（0.05），保留邻居间强度差异：
+    # C = 0.20×0.2 = 0.04，B = 0.15×0.2 = 0.03
+    assert boosts[str(env.c.id)] == pytest.approx(0.04)
+    assert boosts[str(env.b.id)] == pytest.approx(0.03)
 
 
 async def test_contradicts_relation_does_not_boost(expansion_env) -> None:

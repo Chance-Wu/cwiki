@@ -19,15 +19,17 @@ from packages.domain.config import (
     scheduler_config,
     settings,
 )
+from packages.domain.rule_match import (
+    MAX_KEYWORD_VALUES,
+    MAX_MATCH_VALUE_CHARS,
+    MAX_MATCH_VALUES,
+    MAX_REGEX_VALUES,
+)
 from packages.domain.write_decisions import (
     DEFAULT_MAX_HINT_CHARS,
     MAX_DESCRIPTION_CHARS,
     MAX_EXAMPLE_CHARS,
     MAX_EXAMPLES,
-    MAX_KEYWORD_VALUES,
-    MAX_MATCH_VALUE_CHARS,
-    MAX_MATCH_VALUES,
-    MAX_REGEX_VALUES,
     MAX_RULES,
     build_agent_hint_details,
     parse_write_decisions,
@@ -49,13 +51,10 @@ class ParasiticEvolutionConfigModel(BaseModel):
     memory_relations_enabled: bool
     agent_profile_enabled: bool
     memory_version_tracking_enabled: bool
-    auto_consolidate_enabled: bool
     review_reminders_enabled: bool
     mastery_coupled_decay_enabled: bool
     entity_extraction_enabled: bool
     write_time_conflict_enabled: bool
-    auto_merge_enabled: bool
-    auto_merge_threshold: float = Field(ge=0.0, le=1.0)
     episodic_retrieval_enabled: bool
     # 自动关系发现与老化
     auto_relation_enabled: bool
@@ -80,6 +79,12 @@ class MemoryConfigModel(BaseModel):
     duplicate_possible_threshold: float = Field(ge=0.0, le=1.0)
     submit_dedup_scan_limit: int = Field(ge=1, le=100_000)
     submit_dedup_cross_workspace: bool
+    # 自动批准策略：达到阈值的候选跳过人工审核；冲突与高重复仍强制拦截
+    auto_approve_enabled: bool
+    auto_approve_value_threshold: float = Field(ge=0.0, le=1.0)
+    auto_approve_confidence_threshold: float = Field(ge=0.0, le=1.0)
+    auto_approve_gate_threshold: float = Field(ge=0.0, le=1.0)
+    auto_approve_duplicate_threshold: float = Field(ge=0.0, le=1.0)
 
 
 class McpConfigModel(BaseModel):
@@ -97,9 +102,6 @@ class PerformanceConfigModel(BaseModel):
     context_cache_max_size: int = Field(ge=1, le=100_000)
     context_token_budget: int = Field(ge=64, le=200_000)
     dedup_top_k: int = Field(ge=1, le=1_000)
-    merge_suggestions_threshold: float = Field(ge=0.0, le=1.0)
-    auto_consolidate_limit: int = Field(ge=1, le=100_000)
-    auto_consolidate_top_k: int = Field(ge=1, le=1_000)
 
 
 class RetrievalConfigModel(BaseModel):
@@ -107,12 +109,14 @@ class RetrievalConfigModel(BaseModel):
     vector_weight: float = Field(ge=0.0, le=10.0)
     reranker_rrf_weight: float = Field(ge=0.0, le=10.0)
     reranker_semantic_weight: float = Field(ge=0.0, le=10.0)
+    reranker_bm25_weight: float = Field(ge=0.0, le=10.0)
     reranker_confidence_weight: float = Field(ge=0.0, le=10.0)
     reranker_importance_weight: float = Field(ge=0.0, le=10.0)
     reranker_freshness_weight: float = Field(ge=0.0, le=10.0)
     reranker_usage_weight: float = Field(ge=0.0, le=10.0)
     reranker_intent_weight: float = Field(ge=0.0, le=10.0)
     reranker_key_term_bonus: float = Field(ge=0.0, le=10.0)
+    reranker_relevance_band: float = Field(ge=0.0, le=1.0)
 
 
 class SystemInfoModel(BaseModel):
@@ -551,13 +555,10 @@ async def get_config() -> ConfigData:
             memory_relations_enabled=parasitic_evolution_config.memory_relations_enabled,
             agent_profile_enabled=parasitic_evolution_config.agent_profile_enabled,
             memory_version_tracking_enabled=parasitic_evolution_config.memory_version_tracking_enabled,
-            auto_consolidate_enabled=parasitic_evolution_config.auto_consolidate_enabled,
             review_reminders_enabled=parasitic_evolution_config.review_reminders_enabled,
             mastery_coupled_decay_enabled=parasitic_evolution_config.mastery_coupled_decay_enabled,
             entity_extraction_enabled=parasitic_evolution_config.entity_extraction_enabled,
             write_time_conflict_enabled=parasitic_evolution_config.write_time_conflict_enabled,
-            auto_merge_enabled=parasitic_evolution_config.auto_merge_enabled,
-            auto_merge_threshold=parasitic_evolution_config.auto_merge_threshold,
             episodic_retrieval_enabled=parasitic_evolution_config.episodic_retrieval_enabled,
             auto_relation_enabled=parasitic_evolution_config.auto_relation_enabled,
             auto_relation_threshold=parasitic_evolution_config.auto_relation_threshold,
@@ -579,27 +580,31 @@ async def get_config() -> ConfigData:
             duplicate_possible_threshold=settings.duplicate_possible_threshold,
             submit_dedup_scan_limit=settings.submit_dedup_scan_limit,
             submit_dedup_cross_workspace=settings.submit_dedup_cross_workspace,
+            auto_approve_enabled=settings.auto_approve_enabled,
+            auto_approve_value_threshold=settings.auto_approve_value_threshold,
+            auto_approve_confidence_threshold=settings.auto_approve_confidence_threshold,
+            auto_approve_gate_threshold=settings.auto_approve_gate_threshold,
+            auto_approve_duplicate_threshold=settings.auto_approve_duplicate_threshold,
         ),
         performance=PerformanceConfigModel(
             context_cache_ttl=settings.context_cache_ttl,
             context_cache_max_size=settings.context_cache_max_size,
             context_token_budget=settings.context_token_budget,
             dedup_top_k=settings.dedup_top_k,
-            merge_suggestions_threshold=settings.merge_suggestions_threshold,
-            auto_consolidate_limit=settings.auto_consolidate_limit,
-            auto_consolidate_top_k=settings.auto_consolidate_top_k,
         ),
         retrieval=RetrievalConfigModel(
             bm25_weight=settings.bm25_weight,
             vector_weight=settings.vector_weight,
             reranker_rrf_weight=settings.reranker_rrf_weight,
             reranker_semantic_weight=settings.reranker_semantic_weight,
+            reranker_bm25_weight=settings.reranker_bm25_weight,
             reranker_confidence_weight=settings.reranker_confidence_weight,
             reranker_importance_weight=settings.reranker_importance_weight,
             reranker_freshness_weight=settings.reranker_freshness_weight,
             reranker_usage_weight=settings.reranker_usage_weight,
             reranker_intent_weight=settings.reranker_intent_weight,
             reranker_key_term_bonus=settings.reranker_key_term_bonus,
+            reranker_relevance_band=settings.reranker_relevance_band,
         ),
         mcp=McpConfigModel(
             max_retries=settings.mcp_max_retries,

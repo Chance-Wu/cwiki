@@ -38,7 +38,9 @@ export async function request<T>(path: string, options?: RequestInit): Promise<T
         /* 响应体解析失败时退回状态行文本 */
       }
     }
-    throw new Error(message)
+    const error = new Error(message) as Error & { status?: number }
+    error.status = res.status
+    throw error
   }
   // 204 No Content 或其他无响应体的情况
   if (res.status === 204 || res.headers.get('content-length') === '0') {

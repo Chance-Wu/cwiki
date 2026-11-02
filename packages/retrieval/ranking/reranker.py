@@ -1,4 +1,15 @@
-"""重排器——用多信号对候选池重新打分排序（PRD 第 19 节）。"""
+"""重排器——相关性主导，元数据只在带内微调（PRD 第 19 节）。
+
+排序模型分两组：
+
+- 相关性组：RRF 名次（按理论满分锚定）、向量余弦、BM25 池内相对分、
+  意图-类型匹配（以中性 0.5 为中心）与关键词命中。组内按权重归一。
+- 元数据组：置信度、重要度、新鲜度、使用频率。组内按权重归一后，
+  只以 ``band`` 为上限参与最终分，不能跨带压过相关性。
+
+最终分 = (1 - band) × relevance + band × metadata。
+band 默认 0.05：元数据最多翻转相关性差 ≤band 的候选，相关性主导排序。
+"""
 
 from __future__ import annotations
 
@@ -6,6 +17,7 @@ import logging
 from dataclasses import dataclass, replace
 
 from packages.domain.config import settings
+from packages.retrieval.ranking.constants import RRF_K
 
 logger = logging.getLogger(__name__)
 
@@ -25,17 +37,21 @@ class RerankInput:
     usage_score: float = 0.0
 
 
-# 默认权重和为 1：相关性信号（RRF + 向量语义）为主导，置信度/重要度/
-# 新鲜度等元数据信号作微调；具体值可在 config.yaml 覆盖，for_intent 再按意图缩放。
+# 相关性组：rrf / semantic / bm25 / intent；元数据组：confidence / importance /
+# freshness / usage。两组各自归一，key_term_bonus 为相关性组内的加性奖励，
+# band 为元数据组的总影响力上限。默认值可在 config.yaml 覆盖。
 @dataclass
 class RerankerWeights:
-    rrf: float = 0.38
-    semantic: float = 0.15
-    confidence: float = 0.10
-    importance: float = 0.12
-    freshness: float = 0.10
-    usage: float = 0.06
-    intent: float = 0.09
+    rrf: float = 0.40
+    semantic: float = 0.30
+    confidence: float = 0.35
+    importance: float = 0.30
+    freshness: float = 0.20
+    usage: float = 0.15
+    intent: float = 0.15
+    bm25: float = 0.30
+    band: float = 0.05
+    key_term_bonus: float = 0.08
 
     @staticmethod
     def from_settings() -> RerankerWeights:
@@ -47,98 +63,49 @@ class RerankerWeights:
             freshness=settings.reranker_freshness_weight,
             usage=settings.reranker_usage_weight,
             intent=settings.reranker_intent_weight,
+            bm25=settings.reranker_bm25_weight,
+            band=settings.reranker_relevance_band,
+            key_term_bonus=settings.reranker_key_term_bonus,
         )
 
     @staticmethod
     def for_intent(intent: str) -> RerankerWeights:
+        """按意图缩放元数据组并组内归一；相关性组不受意图影响。"""
         base = RerankerWeights.from_settings()
-        adjustments = _INTENT_WEIGHT_ADJUSTMENTS.get(intent)
+        adjustments = _INTENT_META_ADJUSTMENTS.get(intent)
         if not adjustments:
             return base
-        w = RerankerWeights(
-            rrf=base.rrf * adjustments.get("rrf", 1.0),
-            semantic=base.semantic * adjustments.get("semantic", 1.0),
+        w = replace(
+            base,
             confidence=base.confidence * adjustments.get("confidence", 1.0),
             importance=base.importance * adjustments.get("importance", 1.0),
             freshness=base.freshness * adjustments.get("freshness", 1.0),
             usage=base.usage * adjustments.get("usage", 1.0),
-            intent=base.intent * adjustments.get("intent", 1.0),
         )
-        # 按意图缩放后重新归一，保证权重和仍为 1，总分口径不变
-        total = w.rrf + w.semantic + w.confidence + w.importance + w.freshness + w.usage + w.intent
+        total = w.confidence + w.importance + w.freshness + w.usage
         if total > 0:
-            w.rrf /= total
-            w.semantic /= total
             w.confidence /= total
             w.importance /= total
             w.freshness /= total
             w.usage /= total
-            w.intent /= total
         return w
 
 
-_INTENT_WEIGHT_ADJUSTMENTS: dict[str, dict[str, float]] = {
-    "fact": {
-        "rrf": 1.0,
-        "confidence": 1.5,
-        "importance": 1.2,
-        "freshness": 0.8,
-        "usage": 1.0,
-        "intent": 1.0,
-    },
-    "procedure": {
-        "rrf": 0.9,
-        "confidence": 1.0,
-        "importance": 1.0,
-        "freshness": 1.5,
-        "usage": 1.3,
-        "intent": 1.2,
-    },
-    "lesson": {
-        "rrf": 1.0,
-        "confidence": 1.3,
-        "importance": 1.0,
-        "freshness": 1.2,
-        "usage": 1.2,
-        "intent": 1.3,
-    },
-    "project_rule": {
-        "rrf": 1.2,
-        "confidence": 1.4,
-        "importance": 1.3,
-        "freshness": 0.7,
-        "usage": 0.8,
-        "intent": 1.2,
-    },
-    "constraint": {
-        "rrf": 1.1,
-        "confidence": 1.3,
-        "importance": 1.2,
-        "freshness": 0.8,
-        "usage": 0.8,
-        "intent": 1.2,
-    },
-    "decision": {
-        "rrf": 1.0,
-        "confidence": 1.2,
-        "importance": 1.3,
-        "freshness": 1.0,
-        "usage": 0.9,
-        "intent": 1.1,
-    },
+_INTENT_META_ADJUSTMENTS: dict[str, dict[str, float]] = {
+    "fact": {"confidence": 1.5, "importance": 1.2, "freshness": 0.8, "usage": 1.0},
+    "procedure": {"confidence": 1.0, "importance": 1.0, "freshness": 1.5, "usage": 1.3},
+    "lesson": {"confidence": 1.3, "importance": 1.0, "freshness": 1.2, "usage": 1.2},
+    "project_rule": {"confidence": 1.4, "importance": 1.3, "freshness": 0.7, "usage": 0.8},
+    "constraint": {"confidence": 1.3, "importance": 1.2, "freshness": 0.8, "usage": 0.8},
+    "decision": {"confidence": 1.2, "importance": 1.3, "freshness": 1.0, "usage": 0.9},
 }
 
+_RELEVANCE_FIELDS = ("rrf", "semantic", "bm25", "intent")
+_META_FIELDS = ("confidence", "importance", "freshness", "usage")
 
-def _normalize_signal(values: list[float]) -> list[float]:
-    """将数值列表 min-max 归一化到 [0, 1]；无区分度（极差近 0）时返回全 0。"""
-    if not values:
-        return []
-    lo = min(values)
-    hi = max(values)
-    spread = hi - lo
-    if spread < 1e-9:
-        return [0.0] * len(values)
-    return [(v - lo) / spread for v in values]
+
+def _clamp01(value: float) -> float:
+    return max(0.0, min(1.0, value))
 
 
 def rerank(
@@ -151,7 +118,7 @@ def rerank(
     key_terms: list[str] | None = None,
 ) -> list[tuple[str, float]]:
     top_k = max(1, top_k)
-    # 意图置信度足够高（>0.3）时使用意图专用权重，否则退回全局默认权重
+    # 意图置信度足够高（>0.3）时使用意图专用元数据权重，否则退回全局默认
     if weights is None:
         if intent_confidence > 0.3 and query_intent != "unknown":
             w = RerankerWeights.for_intent(query_intent)
@@ -160,88 +127,68 @@ def rerank(
     else:
         w = weights
 
-    for name in ("rrf", "semantic", "confidence", "importance", "freshness", "usage", "intent"):
+    for name in (*_RELEVANCE_FIELDS, *_META_FIELDS, "band", "key_term_bonus"):
         val = getattr(w, name)
         if val < 0:
             logger.warning("Negative weight for %s=%s, clamping to 0", name, val)
             setattr(w, name, 0.0)
-
-    # 元数据信号总影响力不超过 RRF：元数据是绝对 0-1 分（候选间普遍同高、
-    # 方差可观），RRF 是池内相对名次分；若元数据权重之和更大，其方差会
-    # 系统性压过相关性名次差（如单路 rank1 的候选 norm_rrf 偏低即被挤出头部）。
-    # semantic 不参与封顶：它与 RRF 同属相关性信号——余弦相似度的候选间方差
-    # 跟随查询语义相关性而非元数据高低（W6-A 归因：语义无关候选凭 conf/imp
-    # 压过双路 rank1 的 gold，正是缺这个抗衡信号）。约束后总分口径变化无碍
-    # ——排序只看相对分。
-    non_rrf = w.confidence + w.importance + w.freshness + w.usage + w.intent
-    if w.rrf > 0 and non_rrf > w.rrf:
-        scale = w.rrf / non_rrf
-        w = replace(
-            w,
-            confidence=w.confidence * scale,
-            importance=w.importance * scale,
-            freshness=w.freshness * scale,
-            usage=w.usage * scale,
-            intent=w.intent * scale,
-        )
+    if w.band > 1.0:
+        logger.warning("reranker band=%s out of [0,1], clamping to 1", w.band)
+        w = replace(w, band=1.0)
 
     if not candidates:
         return []
 
-    raw_rrf = [c.rrf_score for c in candidates]
-    raw_vec = [c.vector_score for c in candidates]
-    raw_conf = [c.confidence for c in candidates]
-    raw_imp = [c.importance for c in candidates]
-    raw_fresh = [c.freshness for c in candidates]
-    raw_usage = [c.usage_score for c in candidates]
-    raw_intent = [_intent_bonus(c.memory_type, query_intent) for c in candidates]
+    relevance_total = sum(getattr(w, name) for name in _RELEVANCE_FIELDS if name != "intent")
+    meta_total = sum(getattr(w, name) for name in _META_FIELDS)
+    # RRF 按理论满分锚定，而不是池内 min-max：候选池大小变化（2 条 vs 60 条）
+    # 不改变同名词次的相关性分，避免小池归一化把头部差距压平。
+    rrf_ceiling = (max(0.0, settings.bm25_weight) + max(0.0, settings.vector_weight)) / (RRF_K + 1)
+    bm25_max = max((c.bm25_score for c in candidates), default=0.0)
 
-    # RRF 名次分是池内相对分（无量纲），必须 min-max 归一才能与其他信号同台加权；
-    # vector/confidence/importance/freshness/usage/intent 本身就是 0-1 语义分，
-    # 绝对值即含义（如 confidence 0.85 就该贡献 0.85×权重），直接用原始值。
-    # 若对它们也做池内 min-max，池内最小值会被强拉到 0（即使绝对值 0.85），
-    # 而 RRF 头部名次间的微小差距经归一后被压平，元数据信号反而主导排序，
-    # 把元数据恰好最小的相关记忆挤下去——这违背了「相关性主导、元数据微调」
-    # 的权重设计。
-    norm_rrf = _normalize_signal(raw_rrf)
+    scored: list[tuple[str, float, float]] = []
+    for c in candidates:
+        if relevance_total > 0:
+            relevance = (
+                w.rrf * _clamp01(c.rrf_score / rrf_ceiling if rrf_ceiling > 0 else 0.0)
+                + w.semantic * _clamp01(c.vector_score)
+                + w.bm25 * _clamp01(c.bm25_score / bm25_max if bm25_max > 1e-9 else 0.0)
+            ) / relevance_total
+        else:
+            relevance = 0.0
 
-    scored: list[tuple[str, float]] = []
+        # 意图匹配以中性 0.5 为中心：unknown 或类型不匹配不改变相关性，
+        # 匹配类型最多加 w.intent×0.5，避免给所有候选加同一个常数。
+        relevance += w.intent * (_intent_bonus(c.memory_type, query_intent) - 0.5)
 
-    for i, c in enumerate(candidates):
-        final = (
-            w.rrf * norm_rrf[i]
-            + w.semantic * raw_vec[i]
-            + w.confidence * raw_conf[i]
-            + w.importance * raw_imp[i]
-            + w.freshness * raw_fresh[i]
-            + w.usage * raw_usage[i]
-            + w.intent * raw_intent[i]
-        )
+        text_lc = (c.title + " " + c.content).lower()
+        if key_terms:
+            relevance += w.key_term_bonus * _compute_key_term_match(text_lc, key_terms)
 
-        if key_terms or negations:
-            text_lc = (c.title + " " + c.content).lower()
-            if key_terms:
-                key_match_score = _compute_key_term_match(text_lc, key_terms)
-                final += settings.reranker_key_term_bonus * key_match_score
-            if negations:
-                negation_penalty = _compute_negation_penalty(text_lc, negations)
-                # 乘法衰减而非减分：保留 20% 底分，防止误判时一票否决
-                final *= 1.0 - negation_penalty
+        relevance = _clamp01(relevance)
+        if negations:
+            relevance *= 1.0 - _compute_negation_penalty(text_lc, negations)
 
-        scored.append((c.memory_id, final))
+        if meta_total > 0:
+            metadata = (
+                w.confidence * _clamp01(c.confidence)
+                + w.importance * _clamp01(c.importance)
+                + w.freshness * _clamp01(c.freshness)
+                + w.usage * _clamp01(c.usage_score)
+            ) / meta_total
+        else:
+            metadata = 0.0
 
-    scored.sort(key=lambda x: x[1], reverse=True)
-    return scored[:top_k]
+        final = (1.0 - w.band) * relevance + w.band * _clamp01(metadata)
+        scored.append((c.memory_id, final, relevance))
+
+    # 同分时先看相关性，再按 id 保证确定性
+    scored.sort(key=lambda item: (-item[1], -item[2], item[0]))
+    return [(memory_id, score) for memory_id, score, _ in scored[:top_k]]
 
 
 def _intent_bonus(memory_type: str, query_intent: str) -> float:
-    """意图-类型匹配分：意图未知给中性 0.5，类型完全不匹配给中性 0.5。
-
-    不匹配基线取 0.5 而非更低惩罚值：query_intent 由查询关键词分析得出，
-    可靠性有限，重罚（如 0.3）会让一个低置信信号产生高置信影响——意图
-    误判时（权重 0.12 × 0.2 分差 = 0.024，且部分匹配 0.6/0.8 与匹配 1.0
-    仍保留区分度）不再系统性把正确类型的头部记忆挤下去。
-    """
+    """意图-类型匹配分：意图未知给中性 0.5，类型完全不匹配给中性 0.5。"""
     if query_intent == "unknown":
         return 0.5
     match_map = {

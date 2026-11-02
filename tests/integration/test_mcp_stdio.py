@@ -350,7 +350,8 @@ async def test_workspace_failure_preserves_write_before_resolution(tmp_path):
 def memory_server(tmp_path):
     client = Mock()
     client.submit_candidate = AsyncMock(return_value={"candidate": {"id": "candidate"}})
-    client.update_memory = AsyncMock(return_value={"id": "memory", "status": "archived"})
+    client.update_memory = AsyncMock(return_value={"id": "memory", "status": "active"})
+    client.delete_memory = AsyncMock(return_value={"deleted": True, "memory_id": "memory-1"})
     client.submit_feedback = AsyncMock(return_value={"id": "feedback"})
     server = mcp_server.MCPServer(client)
     server.outbox = WriteAheadOutbox(tmp_path)
@@ -464,9 +465,10 @@ async def test_feedback_and_forget_tools(memory_server):
         }
     )
     payload = json.loads(forget["result"]["content"][0]["text"])
-    assert payload["status"] == "archived"
-    memory_server.client.update_memory.assert_awaited_once()
-    assert memory_server.client.update_memory.await_args.kwargs["status"] == "archived"
+    assert payload["deleted"] is True
+    assert payload["restorable"] is False
+    memory_server.client.delete_memory.assert_awaited_once_with("memory-1", reason="wrong")
+    memory_server.client.update_memory.assert_not_awaited()
 
 
 @pytest.mark.parametrize("mode", [None, "hybrid", "keyword", "semantic"])

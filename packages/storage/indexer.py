@@ -12,6 +12,7 @@ from typing import Any
 
 import aiosqlite
 
+from packages.domain.config import settings
 from packages.domain.text_utils import format_memory_for_embedding
 
 logger = logging.getLogger(__name__)
@@ -44,6 +45,8 @@ class MemoryIndexer:
         file_store: FileStore,
         vector_index_path: str | None = None,
         embedding_dimensions: int | None = None,
+        model: str | None = None,
+        enable_db_sync: bool = False,
     ) -> None:
         self.db_path = db_path
         self.file_store = file_store
@@ -51,12 +54,16 @@ class MemoryIndexer:
         self._loop: asyncio.AbstractEventLoop | None = None
         self._embedding_service = get_embedding_service()
         self._db: aiosqlite.Connection | None = None
+        # 手改 Markdown 后是否把单条变更同步回主库（API 进程开启；测试默认关闭）
+        self.enable_db_sync = enable_db_sync
 
         # 未显式指定时沿用 embedding 服务的向量维度
         dims = embedding_dimensions or self._embedding_service.dimensions
+        self.model = model or settings.embedding_model
         self.vector_index = VectorIndex(
             dimensions=dims,
             index_path=vector_index_path or storage_config.vector_index_path,
+            model=self.model,
         )
 
     async def _get_db(self) -> aiosqlite.Connection:
@@ -157,6 +164,8 @@ class MemoryIndexer:
                 self.file_store._make_filename(memory.id, memory.title),
             )
 
+        assert memory.created is not None
+        assert memory.updated is not None
         db = await self._get_db()
         await db.execute(
             """
@@ -283,7 +292,7 @@ class MemoryIndexer:
         """将全部 Markdown 文件同步到 SQLite 索引。"""
         memories = await asyncio.to_thread(self.file_store.list)
         valid_ids = {m.id for m in memories}
-        # 只有 active 记忆才允许持有向量；archived 记忆不得重新入索引。
+        # 只有 active 记忆才允许持有向量；非 active 记忆不得重新入索引。
         active_ids = {m.id for m in memories if m.status == "active"}
 
         # 构建已索引记忆的映射，用于 mtime 增量比较
@@ -359,6 +368,39 @@ class MemoryIndexer:
             indexed_count,
             skipped_count,
         )
+
+    async def sync_md_to_db(self, memory: MemoryFile) -> str:
+        """把手改 Markdown 的单条变更同步回主库。
+
+        仅在 API 进程开启 enable_db_sync；失败只告警，不阻断索引更新。
+        返回 updated / unchanged / missing_memory / error / disabled。
+        """
+        if not self.enable_db_sync:
+            return "disabled"
+        from packages.domain.database import async_session_maker
+        from packages.storage.md_sync import sync_memory_from_markdown
+
+        try:
+            async with async_session_maker() as db:
+                result = await sync_memory_from_markdown(db, memory)
+                if result.status == "updated":
+                    await db.commit()
+                else:
+                    await db.rollback()
+        except Exception:
+            logger.warning("Markdown→DB sync failed for %s", memory.id, exc_info=True)
+            return "error"
+
+        if result.status == "updated" and result.needs_embedding:
+            try:
+                from packages.domain.task_queue import queue as task_queue
+
+                await task_queue.enqueue("generate_embedding", memory.id)
+            except Exception:
+                logger.warning(
+                    "Failed to enqueue embedding refresh for %s", memory.id, exc_info=True
+                )
+        return result.status
 
     async def save_vector_index(self) -> None:
         """将向量索引写入磁盘（异步封装）。"""
@@ -499,6 +541,8 @@ class MemoryIndexer:
                         if not is_active and memory.id in self.indexer.vector_index.vectors:
                             self.indexer.vector_index.remove(memory.id)
                             await self.indexer.save_vector_index()
+                        if self.indexer.enable_db_sync:
+                            await self.indexer.sync_md_to_db(memory)
                 except Exception as e:
                     logger.error("Error indexing %s: %s", file_path, e)
 

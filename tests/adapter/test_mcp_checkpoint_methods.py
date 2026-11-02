@@ -5,7 +5,7 @@ Tests the checkpoint-related methods that will be extracted during refactoring.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
@@ -255,8 +255,7 @@ class TestComputeCheckpointWindow:
         # Set last checkpoint to 24 hours ago
         last_checkpoint = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
         mock_outbox.get_last_checkpoint.return_value = last_checkpoint.isoformat()
-        now = last_checkpoint.replace(hour=0, minute=0, second=0, microsecond=0)
-        now = now.replace(day=now.day + 1)  # 24 hours later
+        now = last_checkpoint + timedelta(days=1)  # 24 hours later
         since, truncated, _last = server._compute_checkpoint_window(
             "session-1", "ws-1", "event-1", now
         )

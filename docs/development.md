@@ -128,6 +128,21 @@ python tasks.py restart-serve         # 强制释放端口后重启
 
 > 不传 `--reload`、不读 `settings.debug`——代码更新后用 `python tasks.py restart-serve` 重启服务。
 
+### 每日 _meta 导出计划任务
+
+API 内的周期导出随进程重启重置计时；再注册一个每日系统计划任务兜底，不依赖 API 存活时长。
+
+```bash
+python tasks.py schedule-meta-export              # Windows：每日 04:00 执行
+python tasks.py schedule-meta-export --time 03:30 # 自定义时间
+python tasks.py schedule-meta-export --remove     # 删除计划任务
+schtasks /run /tn cwiki-meta-export               # 立即验证
+```
+
+- 任务名为 `cwiki-meta-export`，运行 `scripts/meta_export_daily.py`（内部 `os.chdir` 到项目根，再执行与 `migrate-to-git` 相同的 `export_all`）。注册/删除计划任务需要管理员权限，请在「以管理员身份运行」的终端执行。
+- 日志追加到 `~/.cwiki/state/meta_export.log`；成功导出会更新 `~/.cwiki/state/meta_export.json`，API 启动据此判断是否需要立即补导出。
+- 非 Windows 平台只打印 crontab 行，不自动修改用户 crontab。
+
 ---
 
 ## Agent 接入配置
@@ -240,12 +255,14 @@ python tasks.py migrate-create "描述"  # 生成新迁移
 ```bash
 python cwiki-data/sync.py          # 数据同步（数据仓库自管）：WAL checkpoint → 无改动时跳过导出与 commit；有改动时 导出 MD + _meta → commit；随后 pull 远端 → push
 python tasks.py migrate-to-git     # 首次迁移：SQLite 全量导出为 MD + _meta
-python tasks.py rebuild-db         # 从 MD + _meta 重建数据库（索引文件在且一致时跳过 embedding 重建；review_schedule 已恢复时跳过 recompute）
+python tasks.py rebuild-db         # 从 MD + _meta 重建数据库（索引文件在、健康且与记忆数一致时跳过 embedding 重建；review_schedule 已恢复时跳过 recompute）
 python tasks.py rebuild-db --force-index   # 强制重建向量索引（即使索引文件已存在且一致）
 python tasks.py rebuild-db --index-only    # 只重建向量索引（不重建 DB，用于索引缺失自愈）
 python tasks.py recompute          # 重算派生字段（SM-2 调度等，无条件执行）
-python tasks.py doctor             # 三层存储一致性巡检（DB / MD / _meta / 索引 / 向量），异常退出码 1
+python tasks.py doctor             # 存储一致性巡检（内容漂移 / _meta / 索引 / 向量维度与模型），异常退出码 1
 python tasks.py doctor --fix       # 仅补齐 _workspaces.json 缺失工作区（只增不删）
+python tasks.py doctor --fix-meta  # 从 DB 补导出缺失的 _meta 快照
+python tasks.py doctor --fix-drift # 以 Markdown 为准修复内容漂移（单条同步回 DB）
 ```
 
 > 详见 [Git 同步指南](git-sync.md)。数据同步由数据仓库自带的 `cwiki-data/sync.py` 管理（随数据仓库版本化），代码侧不再提供同步入口；`sync.py` 在独立数据仓库中提交 `cwiki-data/` 全部内容（MD + `_meta/` + `cwiki.db` + 索引文件）。DB 为二进制不可合并，冲突时可删除后经 `rebuild-db` 从 MD + `_meta/` 重建。
@@ -312,7 +329,8 @@ python tasks.py test               # 运行测试（通过 scripts/run_pytest.py
 | 配置项 | 默认值 | 说明 |
 |--------|--------|------|
 | `bm25_top_k` / `vector_top_k` | `50` | 各路召回数量 |
-| `reranker_*_weight` | 见 config.yaml | Rerank 信号权重（总和 1.0） |
+| `reranker_*_weight` | 见 config.yaml | 重排信号权重：相关性组与元数据组各自组内归一 |
+| `reranker_relevance_band` | `0.05` | 元数据组总影响力上限；0 = 纯相关性排序 |
 
 ### Feature Flags（`parasitic_evolution`）
 

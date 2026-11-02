@@ -61,16 +61,16 @@ async def test_health_summary_filters_by_workspace(client, db_session):
     assert beta_resp.json()["total"] == 2
 
 
-async def test_archive_status_writes_archived_lifecycle_event(client, db_session):
-    """归档动作要写 event_type=archived，演化指标才能统计到。"""
-    ws = Workspace(name="archive-ws")
+async def test_status_change_writes_lifecycle_event(client, db_session):
+    """状态变更写 event_type=status_changed，并记录新旧状态。"""
+    ws = Workspace(name="status-ws")
     db_session.add(ws)
     await db_session.flush()
-    mem = Memory(workspace_id=ws.id, title="待归档", content="知识内容" * 20, type="fact")
+    mem = Memory(workspace_id=ws.id, title="待弃用", content="知识内容" * 20, type="fact")
     db_session.add(mem)
     await db_session.commit()
 
-    resp = await client.patch(f"/v1/memories/{mem.id}", json={"status": "archived"})
+    resp = await client.patch(f"/v1/memories/{mem.id}", json={"status": "deprecated"})
     assert resp.status_code == 200, resp.text
 
     event_types = (
@@ -84,5 +84,5 @@ async def test_archive_status_writes_archived_lifecycle_event(client, db_session
         .scalars()
         .all()
     )
-    assert "archived" in event_types
+    assert "status_changed" in event_types
 

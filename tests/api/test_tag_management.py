@@ -39,13 +39,13 @@ async def test_rename_cjk_tag(client: httpx.AsyncClient, db_session, workspace) 
     response = await client.put(
         "/v1/tags/合并",
         params={"workspace_id": str(workspace.id)},
-        json={"new_name": "归档"},
+        json={"new_name": "已取代"},
     )
 
     assert response.status_code == 200, response.text
     assert response.json()["updated_count"] == 1
     await db_session.refresh(memory)
-    assert memory.tags == ["归档", "diff"]
+    assert memory.tags == ["已取代", "diff"]
 
 
 async def test_rename_tag_dedupes_existing_target(
@@ -129,11 +129,13 @@ async def test_list_memories_filters_by_cjk_tag(
     assert str(other.id) not in ids
 
 
-async def test_list_tags_counts_archived_by_default(
+async def test_list_tags_counts_superseded_by_default(
     client: httpx.AsyncClient, db_session, workspace
 ) -> None:
     await _add_memory(db_session, workspace, "生效记忆", ["shared"])
-    await _add_memory(db_session, workspace, "归档记忆", ["shared", "legacy"], status="archived")
+    await _add_memory(
+        db_session, workspace, "已取代记忆", ["shared", "legacy"], status="superseded"
+    )
 
     response = await client.get("/v1/tags", params={"workspace_id": str(workspace.id)})
 
@@ -147,27 +149,31 @@ async def test_list_tags_filters_by_status(
     client: httpx.AsyncClient, db_session, workspace
 ) -> None:
     await _add_memory(db_session, workspace, "生效记忆", ["shared"])
-    await _add_memory(db_session, workspace, "归档记忆", ["shared", "legacy"], status="archived")
+    await _add_memory(
+        db_session, workspace, "已取代记忆", ["shared", "legacy"], status="superseded"
+    )
 
     active_only = await client.get(
         "/v1/tags",
         params={"workspace_id": str(workspace.id), "status": "active"},
     )
-    archived_only = await client.get(
+    superseded_only = await client.get(
         "/v1/tags",
-        params={"workspace_id": str(workspace.id), "status": "archived"},
+        params={"workspace_id": str(workspace.id), "status": "superseded"},
     )
 
     active_counts = {tag["name"]: tag["count"] for tag in active_only.json()["tags"]}
-    archived_counts = {tag["name"]: tag["count"] for tag in archived_only.json()["tags"]}
+    superseded_counts = {tag["name"]: tag["count"] for tag in superseded_only.json()["tags"]}
     assert active_counts == {"shared": 1}
-    assert archived_counts == {"shared": 1, "legacy": 1}
+    assert superseded_counts == {"shared": 1, "legacy": 1}
 
 
-async def test_rename_tag_updates_archived_memory(
+async def test_rename_tag_updates_superseded_memory(
     client: httpx.AsyncClient, db_session, workspace
 ) -> None:
-    memory = await _add_memory(db_session, workspace, "归档标签改名", ["old"], status="archived")
+    memory = await _add_memory(
+        db_session, workspace, "已取代标签改名", ["old"], status="superseded"
+    )
 
     response = await client.put(
         "/v1/tags/old",
@@ -181,11 +187,11 @@ async def test_rename_tag_updates_archived_memory(
     assert memory.tags == ["new"]
 
 
-async def test_delete_tag_updates_archived_memory(
+async def test_delete_tag_updates_superseded_memory(
     client: httpx.AsyncClient, db_session, workspace
 ) -> None:
     memory = await _add_memory(
-        db_session, workspace, "归档标签删除", ["legacy", "keep"], status="archived"
+        db_session, workspace, "已取代标签删除", ["legacy", "keep"], status="superseded"
     )
 
     response = await client.delete(
@@ -206,7 +212,7 @@ async def test_tag_mutation_syncs_every_changed_memory(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     await _add_memory(db_session, workspace, "生效记忆同步", ["old"])
-    await _add_memory(db_session, workspace, "归档记忆同步", ["old"], status="archived")
+    await _add_memory(db_session, workspace, "已取代记忆同步", ["old"], status="superseded")
     sync = AsyncMock()
     monkeypatch.setattr("apps.api.routes.memories.tags.sync_memory_to_file", sync, raising=False)
 
@@ -219,23 +225,3 @@ async def test_tag_mutation_syncs_every_changed_memory(
     assert response.status_code == 200, response.text
     assert response.json()["updated_count"] == 2
     assert sync.await_count == 2
-
-
-async def test_merge_preserves_source_tags(
-    client: httpx.AsyncClient, db_session, workspace
-) -> None:
-    source = await _add_memory(db_session, workspace, "合并源", ["source-tag", "shared"])
-    target = await _add_memory(db_session, workspace, "合并目标", ["target-tag", "shared"])
-
-    response = await client.post(
-        "/v1/memories/merge",
-        json={
-            "source_memory_id": str(source.id),
-            "target_memory_id": str(target.id),
-            "merged_content": "合并后的完整正文内容，包含足够的长度用于通过内容校验。",
-        },
-    )
-
-    assert response.status_code == 200, response.text
-    await db_session.refresh(target)
-    assert target.tags == ["target-tag", "shared", "source-tag"]

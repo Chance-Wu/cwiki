@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { Loader2 } from 'lucide-react'
 import { useTranslation } from '../../i18n/I18nProvider'
 import { api } from '../../lib/api'
@@ -29,6 +29,8 @@ interface MemoryCreateModalProps {
   onClose: () => void
   onCreated: () => void
   defaultType?: string
+  /** 从周报知识缺口等深链进入时预填标题 */
+  defaultTitle?: string
 }
 
 export default function MemoryCreateModal({
@@ -36,6 +38,7 @@ export default function MemoryCreateModal({
   onClose,
   onCreated,
   defaultType,
+  defaultTitle,
 }: MemoryCreateModalProps) {
   const { t } = useTranslation()
   const { toast } = useToast()
@@ -46,6 +49,10 @@ export default function MemoryCreateModal({
   const [createContent, setCreateContent] = useState('')
   const [createTags, setCreateTags] = useState('')
   const [creating, setCreating] = useState(false)
+
+  useEffect(() => {
+    if (open) setCreateTitle(defaultTitle ?? '')
+  }, [open, defaultTitle])
 
   const resetAndClose = useCallback(() => {
     onClose()

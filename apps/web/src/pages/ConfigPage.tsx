@@ -178,9 +178,6 @@ const PERFORMANCE_RANGES: Record<string, [number, number]> = {
   context_cache_max_size: [1, 100_000],
   context_token_budget: [64, 200_000],
   dedup_top_k: [1, 1_000],
-  merge_suggestions_threshold: [0, 1],
-  auto_consolidate_limit: [1, 100_000],
-  auto_consolidate_top_k: [1, 1_000],
 }
 
 const PERFORMANCE_UNITS: Record<string, UnitKey> = {
@@ -188,9 +185,6 @@ const PERFORMANCE_UNITS: Record<string, UnitKey> = {
   context_cache_max_size: 'items',
   context_token_budget: 'tokens',
   dedup_top_k: 'items',
-  merge_suggestions_threshold: 'score',
-  auto_consolidate_limit: 'items',
-  auto_consolidate_top_k: 'items',
 }
 
 const featureFlagFields: EditableField[] = [
@@ -199,12 +193,10 @@ const featureFlagFields: EditableField[] = [
   'memory_relations_enabled',
   'agent_profile_enabled',
   'memory_version_tracking_enabled',
-  'auto_consolidate_enabled',
   'review_reminders_enabled',
   'mastery_coupled_decay_enabled',
   'entity_extraction_enabled',
   'write_time_conflict_enabled',
-  'auto_merge_enabled',
   'episodic_retrieval_enabled',
 ].map((key) => ({
   key,
@@ -212,17 +204,6 @@ const featureFlagFields: EditableField[] = [
   nameKey: `flagDesc${toPascalCase(key)}`,
   descKey: `flagDetail${toPascalCase(key)}`,
 }))
-
-featureFlagFields.push({
-  key: 'auto_merge_threshold',
-  type: 'number',
-  nameKey: 'flagDescAutoMergeThreshold',
-  descKey: 'flagDetailAutoMergeThreshold',
-  step: '0.01',
-  unit: 'score',
-  min: 0,
-  max: 1,
-})
 
 featureFlagFields.push(
   {
@@ -327,14 +308,63 @@ memoryFields.push(
   },
 )
 
+// 自动批准策略：达到阈值的候选跳过人工审核；冲突与高重复仍强制拦截
+const autoApproveFields: EditableField[] = [
+  {
+    key: 'auto_approve_enabled',
+    type: 'boolean',
+    nameKey: 'memAutoApproveEnabled',
+    descKey: 'memAutoApproveEnabledDesc',
+  },
+  {
+    key: 'auto_approve_gate_threshold',
+    type: 'number',
+    nameKey: 'memAutoApproveGateThreshold',
+    descKey: 'memAutoApproveGateThresholdDesc',
+    step: '0.01',
+    unit: 'score',
+    min: 0,
+    max: 1,
+  },
+  {
+    key: 'auto_approve_value_threshold',
+    type: 'number',
+    nameKey: 'memAutoApproveValueThreshold',
+    descKey: 'memAutoApproveValueThresholdDesc',
+    step: '0.01',
+    unit: 'score',
+    min: 0,
+    max: 1,
+  },
+  {
+    key: 'auto_approve_confidence_threshold',
+    type: 'number',
+    nameKey: 'memAutoApproveConfidenceThreshold',
+    descKey: 'memAutoApproveConfidenceThresholdDesc',
+    step: '0.01',
+    unit: 'score',
+    min: 0,
+    max: 1,
+  },
+  {
+    key: 'auto_approve_duplicate_threshold',
+    type: 'number',
+    nameKey: 'memAutoApproveDuplicateThreshold',
+    descKey: 'memAutoApproveDuplicateThresholdDesc',
+    step: '0.01',
+    unit: 'score',
+    min: 0,
+    max: 1,
+  },
+]
+
+memoryFields.push(...autoApproveFields)
+
 const performanceFields: EditableField[] = [
   'context_cache_ttl',
   'context_cache_max_size',
   'context_token_budget',
   'dedup_top_k',
-  'merge_suggestions_threshold',
-  'auto_consolidate_limit',
-  'auto_consolidate_top_k',
 ].map((key) => ({
   key,
   type: 'number' as const,
@@ -350,14 +380,21 @@ const retrievalFields: EditableField[] = [
   'vector_weight',
   'reranker_rrf_weight',
   'reranker_semantic_weight',
+  'reranker_bm25_weight',
   'reranker_confidence_weight',
   'reranker_importance_weight',
   'reranker_freshness_weight',
   'reranker_usage_weight',
   'reranker_intent_weight',
   'reranker_key_term_bonus',
+  'reranker_relevance_band',
 ].map((key) => {
-  const suffix = key.replace(/^reranker_/, '').replace(/_weight$/, '')
+  const suffix =
+    key === 'reranker_relevance_band'
+      ? 'relevanceBand'
+      : key === 'reranker_bm25_weight'
+        ? 'rerankBm25'
+        : key.replace(/^reranker_/, '').replace(/_weight$/, '')
   return {
     key,
     type: 'number' as const,
@@ -366,7 +403,7 @@ const retrievalFields: EditableField[] = [
     step: '0.01',
     unit: (key === 'reranker_key_term_bonus' ? 'bonus' : 'weight') as UnitKey,
     min: 0,
-    max: 10,
+    max: key === 'reranker_relevance_band' ? 1 : 10,
   }
 })
 
@@ -497,6 +534,29 @@ const mcpTheme: SectionTheme = {
   accentFrom: 'from-info/60',
   accentTo: 'to-info',
   subtitle: 'mcpConfigDesc',
+}
+
+const advancedFields: EditableField[] = [
+  { key: 'debug', type: 'boolean', nameKey: 'debugMode', descKey: 'debugModeDesc' },
+]
+
+// 所有可搜索字段的扁平索引，用于判断全局是否有匹配
+const ALL_SEARCHABLE_FIELDS: EditableField[] = [
+  ...featureFlagFields,
+  ...memoryFields,
+  ...performanceFields,
+  ...retrievalFields,
+  ...mcpFields,
+  ...schedulerFields,
+  ...advancedFields,
+]
+
+function fieldMatches(field: EditableField, query: string, copy: Record<string, string>): boolean {
+  const q = query.trim().toLowerCase()
+  if (!q) return true
+  const name = (copy[field.nameKey] ?? field.key).toLowerCase()
+  const desc = (copy[field.descKey] ?? '').toLowerCase()
+  return name.includes(q) || desc.includes(q) || field.key.toLowerCase().includes(q)
 }
 
 const schedulerTheme: SectionTheme = {
@@ -677,6 +737,22 @@ function GlossaryDialog({
   )
 }
 
+function Highlighted({ text, query }: { text: string; query: string }) {
+  const q = query.trim()
+  if (!q) return <>{text}</>
+  const index = text.toLowerCase().indexOf(q.toLowerCase())
+  if (index < 0) return <>{text}</>
+  return (
+    <>
+      {text.slice(0, index)}
+      <mark className="rounded bg-warning/30 px-0.5 text-[var(--text-primary)]">
+        {text.slice(index, index + q.length)}
+      </mark>
+      {text.slice(index + q.length)}
+    </>
+  )
+}
+
 function ConfigCard({
   theme,
   cardTitle,
@@ -687,6 +763,7 @@ function ConfigCard({
   localConfig,
   onFieldChange,
   delay,
+  searchQuery,
 }: {
   theme: SectionTheme
   cardTitle?: string
@@ -697,11 +774,16 @@ function ConfigCard({
   localConfig: Record<string, Record<string, unknown>>
   onFieldChange: (section: ConfigSection, key: string, value: boolean | number) => void
   delay: number
+  searchQuery: string
 }) {
   const { t } = useTranslation()
   const copy = t.config as Record<string, string>
   const titleKey = cardTitle ?? theme.title
   const columnCount = columns ?? (theme.grid ? 2 : 1)
+  const visibleFields = searchQuery.trim()
+    ? fields.filter((field) => fieldMatches(field, searchQuery, copy))
+    : fields
+  if (visibleFields.length === 0) return null
 
   return (
     <motion.div
@@ -729,17 +811,17 @@ function ConfigCard({
               : 'flex flex-col gap-y-1'
           }
         >
-          {fields.map((field) => (
+          {visibleFields.map((field) => (
             <div
               key={field.key}
               className="flex items-center justify-between rounded-lg px-3 py-2.5 -mx-3 transition-all duration-150 hover:bg-brand-badge-bg"
             >
               <div className="mr-3 min-w-0 flex-1">
                 <span className="text-xs font-medium text-[var(--text-primary)]">
-                  {copy[field.nameKey] ?? field.key}
+                  <Highlighted text={copy[field.nameKey] ?? field.key} query={searchQuery} />
                 </span>
                 <p className="text-xs font-medium text-[var(--text-tertiary)]">
-                  {copy[field.descKey] ?? ''}
+                  <Highlighted text={copy[field.descKey] ?? ''} query={searchQuery} />
                 </p>
               </div>
               {field.type === 'boolean' ? (
@@ -786,7 +868,16 @@ export default function ConfigPage() {
   const [baseline, setBaseline] = useState<ConfigData | null>(null)
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle')
   const [glossaryOpen, setGlossaryOpen] = useState(false)
+  const [fieldSearch, setFieldSearch] = useState('')
   const [activeSection, setActiveSection] = useState(NAV_ITEMS[0].id)
+
+  const matchCount = useMemo(
+    () =>
+      fieldSearch.trim()
+        ? ALL_SEARCHABLE_FIELDS.filter((field) => fieldMatches(field, fieldSearch, copy)).length
+        : 0,
+    [fieldSearch, copy],
+  )
   const savedTimer = useRef<number | null>(null)
 
   useEffect(
@@ -994,6 +1085,35 @@ export default function ConfigPage() {
             </div>
           </nav>
 
+          <div className="relative">
+            <input
+              type="text"
+              value={fieldSearch}
+              onChange={(e) => setFieldSearch(e.target.value)}
+              placeholder={copy.fieldSearchPlaceholder}
+              aria-label={copy.fieldSearchPlaceholder}
+              className="w-full rounded-lg border border-[var(--border-default)] bg-surface-card px-3 py-2 pr-9 text-sm text-[var(--text-primary)] outline-none placeholder:text-[var(--text-tertiary)] focus-visible:border-brand-400 focus-visible:ring-2 focus-visible:ring-brand-200/30"
+            />
+            {fieldSearch && (
+              <button
+                type="button"
+                onClick={() => setFieldSearch('')}
+                aria-label={t.common.close}
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-[var(--text-tertiary)] transition-colors hover:text-[var(--text-secondary)]"
+              >
+                ×
+              </button>
+            )}
+          </div>
+
+          {fieldSearch.trim() && (
+            <p className="rounded-lg border border-[var(--border-default)] bg-surface-inset px-3 py-2 text-xs text-[var(--text-tertiary)]">
+              {matchCount > 0
+                ? translate(copy.fieldSearchMatches, { n: matchCount })
+                : copy.fieldSearchEmpty}
+            </p>
+          )}
+
           <SectionGroup
             id="write-decision"
             accentFrom="from-brand-400"
@@ -1019,6 +1139,7 @@ export default function ConfigPage() {
             title={copy.groupFeatures}
           >
             <ConfigCard
+              searchQuery={fieldSearch}
               theme={featureFlagsTheme}
               subtitle={featureFlagsTheme.subtitle}
               columns={2}
@@ -1037,6 +1158,7 @@ export default function ConfigPage() {
             title={copy.groupThresholds}
           >
             <ConfigCard
+              searchQuery={fieldSearch}
               theme={memoryTheme}
               subtitle={memoryTheme.subtitle}
               columns={2}
@@ -1056,6 +1178,7 @@ export default function ConfigPage() {
           >
             <div className="grid items-start gap-4 xl:grid-cols-2">
               <ConfigCard
+                searchQuery={fieldSearch}
                 theme={performanceTheme}
                 subtitle={performanceTheme.subtitle}
                 columns={1}
@@ -1066,6 +1189,7 @@ export default function ConfigPage() {
                 delay={0.2}
               />
               <ConfigCard
+                searchQuery={fieldSearch}
                 theme={retrievalTheme}
                 subtitle={retrievalTheme.subtitle}
                 columns={1}
@@ -1086,6 +1210,7 @@ export default function ConfigPage() {
           >
             <div className="grid items-start gap-4 xl:grid-cols-2">
               <ConfigCard
+                searchQuery={fieldSearch}
                 theme={mcpTheme}
                 subtitle={mcpTheme.subtitle}
                 columns={1}
@@ -1096,6 +1221,7 @@ export default function ConfigPage() {
                 delay={0.28}
               />
               <ConfigCard
+                searchQuery={fieldSearch}
                 theme={schedulerTheme}
                 subtitle={schedulerTheme.subtitle}
                 columns={1}
@@ -1115,17 +1241,11 @@ export default function ConfigPage() {
             title={copy.groupAdvanced}
           >
             <ConfigCard
+              searchQuery={fieldSearch}
               theme={advancedTheme}
               subtitle={advancedTheme.subtitle}
               columns={1}
-              fields={[
-                {
-                  key: 'debug',
-                  type: 'boolean',
-                  nameKey: 'debugMode',
-                  descKey: 'debugModeDesc',
-                },
-              ]}
+              fields={advancedFields}
               section="app"
               localConfig={cfg}
               onFieldChange={handleConfigChange}

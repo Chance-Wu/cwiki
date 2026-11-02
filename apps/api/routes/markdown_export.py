@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, datetime
 from typing import Annotated
 
@@ -35,6 +36,9 @@ def _frontmatter(meta: dict[str, object]) -> str:
 async def export_markdown(
     db: Annotated[AsyncSession, Depends(get_db)],
     workspace_id: str | None = Query(None, min_length=1, description="工作区（名称或 UUID）"),
+    memory_ids: str | None = Query(
+        None, description="逗号分隔的记忆 ID；提供时只导出这些记忆（最多 500 条）"
+    ),
     limit: int = Query(5000, ge=1, le=20000),
     _identity: Annotated[AgentIdentity | None, Depends(get_current_agent)] = None,
 ) -> PlainTextResponse:
@@ -51,6 +55,19 @@ async def export_markdown(
     )
     if resolved_ws_id is not None:
         stmt = stmt.where(Memory.workspace_id == resolved_ws_id)
+    selected_ids: list[uuid.UUID] = []
+    if memory_ids:
+        for raw in memory_ids.split(","):
+            value = raw.strip()
+            if not value:
+                continue
+            try:
+                selected_ids.append(uuid.UUID(value))
+            except ValueError:
+                continue
+        if not selected_ids:
+            selected_ids = [uuid.UUID(int=0)]  # 全部非法时不返回意外全集
+        stmt = stmt.where(Memory.id.in_(selected_ids[:500]))
     memories = (await db.execute(stmt)).scalars().all()
 
     chunks: list[str] = []

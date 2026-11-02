@@ -4,11 +4,23 @@ import { motion } from 'framer-motion'
 import { spring } from '../../lib/motion'
 import { useTranslation } from '../../i18n/I18nProvider'
 import { type MemoryListRecord } from '../../lib/api/memories'
-import { typeLabel, sourceLabel, SOURCE_COLORS, TYPE_COLORS } from '../../lib/labels'
+import {
+  typeLabel,
+  sourceLabel,
+  memoryStatusLabel,
+  SOURCE_COLORS,
+  TYPE_COLORS,
+  MASTERY_COLORS,
+} from '../../lib/labels'
 import { ensureUtc, formatRelativeTime } from '../../lib/format'
 import { Badge } from '../ui/Badge'
 import { Checkbox } from '../ui/Checkbox'
 import SearchHighlight from '../SearchHighlight'
+
+function summarize(text: string, max = 120): string {
+  const normalized = text.replace(/\s+/g, ' ').trim()
+  return normalized.length > max ? `${normalized.slice(0, max)}…` : normalized
+}
 
 export function getFreshness(memory: MemoryListRecord): 'fresh' | 'aging' | 'stale' {
   const type = memory.type || 'fact'
@@ -66,12 +78,7 @@ const MemoryItem = memo(function MemoryItem({
 }: MemoryItemProps) {
   const { t } = useTranslation()
   const statusKey = m.status || 'active'
-  const statusLbl =
-    statusKey === 'deprecated'
-      ? t.memories.statusDeprecated
-      : statusKey === 'archived'
-        ? t.memories.statusArchived
-        : t.memories.statusActive
+  const statusLbl = memoryStatusLabel(t.memories, statusKey)
 
   // 效用分（价值）：≥0.5 绿 / 0.3-0.5 黄 / <0.3 与 null 灰。
   // null 表示聚合降级未算出，不是 0 分，展示为「—」且不画进度条
@@ -157,13 +164,21 @@ const MemoryItem = memo(function MemoryItem({
                 v{m.version}
               </span>
               {m.confidence != null && (
-                <span className="text-xs text-[var(--text-tertiary)] tabular-nums font-medium">
+                <span
+                  className="text-xs text-[var(--text-tertiary)] tabular-nums font-medium"
+                  title={m.confidence === 0.5 ? t.memories.confidenceDefaultHint : undefined}
+                >
                   {Math.round((m.confidence || 0) * 100)}%
                 </span>
               )}
             </div>
           </div>
-          {/* 徽标行：合并类型+状态，省略默认来源 */}
+          {m.content && (
+            <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-[var(--text-tertiary)]">
+              <SearchHighlight text={summarize(m.content)} query={query} />
+            </p>
+          )}
+          {/* 徽标行：类型与状态同组展示，省略默认来源 */}
           <div className="flex flex-wrap items-center gap-1.5 mt-2">
             {/* 类型·状态合并 */}
             <Badge className={TYPE_COLORS[m.type] || ''}>
@@ -171,10 +186,28 @@ const MemoryItem = memo(function MemoryItem({
               <span className="opacity-60 mx-1">·</span>
               <span className="opacity-90">{statusLbl}</span>
             </Badge>
+            {m.mastery_level && (
+              <Badge
+                className={MASTERY_COLORS[m.mastery_level] || ''}
+                title={t.review.masteryTitle}
+              >
+                {(t.review as Record<string, string>)[`mastery_${m.mastery_level}`] ??
+                  m.mastery_level}
+              </Badge>
+            )}
             {/* 来源：仅显示非默认来源 */}
             {m.source && m.source !== 'memory_save' && (
               <Badge className={SOURCE_COLORS[m.source] || ''}>
                 {sourceLabel(t.common, m.source)}
+              </Badge>
+            )}
+            {/* 证据：审批/合并产生的 provenance 条数，0 时不占位 */}
+            {m.evidence_count != null && m.evidence_count > 0 && (
+              <Badge
+                className="bg-brand-badge-bg text-brand-badge-text border-brand-border text-[10px] px-1.5 py-0"
+                title={t.memories.evidenceBadge.replace('{n}', String(m.evidence_count))}
+              >
+                {t.memories.evidenceBadge.replace('{n}', String(m.evidence_count))}
               </Badge>
             )}
             {/* 标签：最多显示 2 个，其余省略 */}

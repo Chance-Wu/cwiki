@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, field_validator
 
+from packages.domain.schemas.common import MemoryType
 from packages.domain.types import validate_memory_content, validate_memory_title
 from packages.memory.content_security import validate_safe_content
 
@@ -56,6 +57,11 @@ class MemoryRead(BaseModel):
     # 列表端点现场批量计算的效用分；None 表示未计算（聚合降级/详情端点），
     # 与"算出为 0"区分——0 是合法效用分（先验底分约 0.145，几乎不会为 0）
     utility_score: float | None = None
+    evidence_count: int = 0
+    mastery_level: str | None = None
+    next_review: str | None = None
+    lapse_streak: int = 0
+    leech: bool = False
     content_contract: dict[str, Any] | None = None
     metadata: dict[str, Any] | None = Field(default=None, alias="metadata_")
     created_at: datetime
@@ -82,6 +88,39 @@ class MemoryUpdate(BaseModel):
     is_permanent: bool | None = None
     permanent_reason: str | None = None
     change_summary: str | None = None
+
+
+class BatchMemoryPatch(BaseModel):
+    """批量更新字段集合；不包含 status，避免误归档。"""
+
+    type: MemoryType | None = None
+    confidence: float | None = Field(default=None, ge=0, le=1)
+    importance: float | None = Field(default=None, ge=0, le=1)
+    tags: list[str] | None = None
+
+
+class BatchMemoryUpdateRequest(BaseModel):
+    """一次批量修改多条记忆。"""
+
+    ids: list[UUID] = Field(..., min_length=1, max_length=100)
+    patch: BatchMemoryPatch
+
+
+class BatchMemoryUpdateResultItem(BaseModel):
+    """批量修改中的单条结果。"""
+
+    memory_id: UUID
+    success: bool
+    error: str | None = None
+
+
+class BatchMemoryUpdateResult(BaseModel):
+    """批量修改汇总。"""
+
+    results: list[BatchMemoryUpdateResultItem]
+    total: int
+    succeeded: int
+    failed: int
 
 
 class MemoryVersionRead(BaseModel):
@@ -335,6 +374,10 @@ class ReviewItemRead(BaseModel):
     title: str
     content: str
     memory_type: str
+    source: str | None = None
+    confidence: float | None = None
+    tags: list[str] = []
+    importance: float | None = None
     ease_factor: float
     interval_days: int
     repetitions: int
@@ -343,6 +386,18 @@ class ReviewItemRead(BaseModel):
     days_overdue: int
     mastery_level: str
     total_reviews: int
+    lapse_streak: int = 0
+    leech: bool = False
+
+
+class SuspendedReviewRead(BaseModel):
+    """已暂停复习的记忆条目。"""
+
+    memory_id: UUID
+    title: str
+    memory_type: str
+    suspended_at: datetime | None = None
+    lapse_streak: int = 0
 
 
 class ReviewSubmitRequest(BaseModel):
@@ -362,17 +417,67 @@ class ReviewResultRead(BaseModel):
     last_review: datetime
     mastery_level: str
     total_reviews: int
+    lapse_streak: int = 0
+    leech: bool = False
+
+
+class ReviewQuizRead(BaseModel):
+    """填空复习题（不返回答案）。"""
+
+    memory_id: UUID
+    kind: Literal["cloze"] = "cloze"
+    prompt: str
+    blank_count: int
+
+
+class ReviewQuizSubmitRequest(BaseModel):
+    """提交填空答案。"""
+
+    kind: Literal["cloze"] = "cloze"
+    answers: list[str] = Field(..., min_length=1, max_length=10)
+
+
+class ReviewQuizResultRead(ReviewResultRead):
+    """填空题判分结果 + 更新后的复习计划。"""
+
+    correct: bool
+    matched: int
+    total: int
+    expected_terms: list[str]
+    quality: int
 
 
 class ReviewStatsRead(BaseModel):
-    """workspace 的复习统计。"""
+    """workspace 的复习统计。
+
+    reviewed_today 为当天去重记忆数；review_count_today 为当天复习事件数；
+    streak_days 为连续有复习记录的自然天数。
+    """
 
     total_scheduled: int
     due_now: int
     due_today: int
     reviewed_today: int
+    review_count_today: int = 0
+    streak_days: int = 0
     mastery_distribution: dict[str, int]
     review_trend: list[dict[str, str | int]] = []
+    quiz_attempts: int = 0
+    quiz_correct: int = 0
+    quiz_accuracy: float | None = None
+
+
+class ReviewPreferencesRead(BaseModel):
+    """跨设备复习偏好。"""
+
+    daily_goal: int
+    updated_at: str | None = None
+
+
+class ReviewPreferencesUpdate(BaseModel):
+    """更新每日复习目标。"""
+
+    daily_goal: int = Field(..., ge=1, le=200)
 
 
 class BatchReviewItem(BaseModel):

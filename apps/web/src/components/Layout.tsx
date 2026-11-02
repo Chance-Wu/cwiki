@@ -24,6 +24,7 @@ import { useTheme } from '../theme/ThemeProvider'
 import { BRAND } from '../theme/brandTokens'
 import { useDashboardStats } from '../hooks/useDashboard'
 import { useReviewStats } from '../hooks/useReview'
+import { useReviewReminder } from '../hooks/useReviewReminder'
 import { useNetworkStatus } from '../hooks/useNetworkStatus'
 import { spring, ease, duration } from '../lib/motion'
 
@@ -75,6 +76,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const pendingCount = stats?.candidates ?? 0
   const { data: reviewStats } = useReviewStats()
   const dueReviewCount = reviewStats?.due_now ?? 0
+  useReviewReminder()
   const online = useNetworkStatus()
   const [showMore, setShowMore] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
@@ -135,8 +137,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       '/settings': t.nav.settings,
     }
     const label = labels[location.pathname]
-    document.title = label ? `${label} - cwiki` : 'cwiki'
-  }, [location.pathname, t])
+    const prefix = dueReviewCount > 0 ? `(${dueReviewCount}) ` : ''
+    document.title = label ? `${prefix}${label} - cwiki` : prefix ? `${prefix}cwiki` : 'cwiki'
+  }, [location.pathname, t, dueReviewCount])
 
   const primaryItems = useMemo(
     () => [

@@ -105,25 +105,31 @@ def rank_by_priority(
     memories: list[dict[str, Any]],
     intent: str = "unknown",
 ) -> list[dict[str, Any]]:
-    """按类型优先级（随意图调整）排序，同优先级内按 score + w×utility 降序。
+    """相关性主导排序，类型优先级与效用只在带内微调。
+
+    排序键为 ``score + band × ((1-utility_weight)×类型优先级 + utility_weight×utility)``：
+    低相关但类型「更重要」的记忆不能跨带压过高相关记忆；类型与效用
+    只用于翻转相关性差 ≤band 的候选，避免检索结果被类型标签整体重排。
 
     Args:
         memories: 含 'type' 与 'score' 键的记忆字典列表，可选 'utility_score'。
         intent: 查询分析器给出的意图。
 
     Returns:
-        排序后的列表（优先级最高在前）。
+        排序后的列表（相关性最高在前）。
     """
     order = get_priority_order(intent)
     priority_map = {t: i for i, t in enumerate(order)}
-    # 效用分参与同优先级内部排序：让「检索到且实际有用」的记忆更靠前。
-    # utility 键缺省按 0 计，此时退化为纯 score 排序，与历史行为完全一致
-    utility_weight = settings.utility_weight
+    band = min(max(settings.reranker_relevance_band, 0.0), 1.0)
+    utility_weight = min(max(settings.utility_weight, 0.0), 1.0)
+    last_index = max(0, len(order) - 1)
 
-    return sorted(
-        memories,
-        key=lambda m: (
-            priority_map.get(m.get("type", "fact"), 99),
-            -(m.get("score", 0) + utility_weight * m.get("utility_score", 0)),
-        ),
-    )
+    def sort_key(mem: dict[str, Any]) -> float:
+        type_index = min(priority_map.get(mem.get("type", "fact"), last_index), last_index)
+        prio_norm = 1.0 - (type_index / last_index) if last_index else 1.0
+        utility = min(max(float(mem.get("utility_score", 0.0) or 0.0), 0.0), 1.0)
+        meta = (1.0 - utility_weight) * prio_norm + utility_weight * utility
+        score = float(mem.get("score", 0.0) or 0.0)
+        return -(score + band * meta)
+
+    return sorted(memories, key=sort_key)

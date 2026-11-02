@@ -2,7 +2,7 @@
 
 <div align="center">
 
-**Agent Persistent Memory & Knowledge Infrastructure**
+**Agent 持久记忆与知识基础设施**
 
 *让 AI Agent 拥有持续学习的长期记忆*
 
@@ -26,7 +26,7 @@ cwiki 为 AI Agent 提供知识的持久化存储、智能检索和持续进化�
 | 两阶段提交 | 会话笔记快速捕获，手动形式化为正式记忆 |
 | 类型系统 | 11 种记忆分类，自动类型推断，类型仅分类不做格式约束 |
 | 间隔重复 | SM-2 算法调度复习，追踪掌握度（new → learning → familiar → proficient → mastered） |
-| 自动演化 | 高相似记忆自动整合（BM25 + Jaccard 预筛，auto-merge 后源记忆归档） |
+| 自动演化 | 关系发现、Hebbian 强化、复习调度与演化指标；相近内容由 Agent 查重后更新既有记忆 |
 | 反馈闭环 | Agent 和人类可对记忆进行有用 / 无用 / 过时反馈，驱动记忆演进 |
 
 ### 检索与智能
@@ -35,7 +35,7 @@ cwiki 为 AI Agent 提供知识的持久化存储、智能检索和持续进化�
 |------|------|
 | 混合检索 | BM25（增量更新）+ 向量检索（numpy）→ RRF 融合 → 多信号 Rerank → 多样性过滤 |
 | 质量评估 | 5 维质量门控 + 5 维价值评分（novelty 仅作排序）+ 5 因子效用评分 + 健康状态机 |
-| 冲突检测 | 新候选与已有记忆的自动冲突 / 重复 / 合并检测 |
+| 冲突检测 | 新候选与已有记忆的自动冲突 / 重复检测 |
 | 主动推送 | 基于对话关键词主动推送相关记忆，无需手动检索 |
 | 记忆关联 | 关系图谱（相关、取代、依赖等），支持多层深度查询 |
 
@@ -55,42 +55,42 @@ cwiki 为 AI Agent 提供知识的持久化存储、智能检索和持续进化�
 
 ```mermaid
 graph TB
-    subgraph "Agent Layer"
+    subgraph "Agent 层"
         Qoder[Qoder]
         Claude[Claude Code]
         Cursor[Cursor]
         Codex[Codex]
     end
 
-    subgraph "Adapter Layer"
-        MCP[Host-neutral MCP Server<br/>tools / outbox / recall]
-        Hooks[Hook Runtime<br/>recall / capture / spool]
-        Skills[Skills & Instructions<br/>per-host install]
+    subgraph "适配层"
+        MCP[宿主无关 MCP Server<br/>工具 / 发件箱 / 召回]
+        Hooks[Hook 运行时<br/>召回 / 捕获 / 暂存]
+        Skills[Skills 与指令<br/>按宿主安装]
     end
 
-    subgraph "API Layer"
+    subgraph "API 层"
         API[FastAPI Server :5172<br/>24 路由模块]
-        Worker[Background Worker<br/>9 异步任务]
+        Worker[后台 Worker<br/>10 个异步任务]
     end
 
-    subgraph "Core Services"
-        Memory[Memory Service<br/>质量门控 / 效用评分]
-        Retrieval[Retrieval Engine<br/>BM25 + 向量 + RRF]
-        Spaced[Spaced Repetition<br/>SM-2 调度]
-        Evolution[Evolution Engine<br/>归档 / 整合 / 指标]
-        Conflict[Conflict Engine<br/>冲突 / 重复 / 矛盾]
-        Health[Health Monitor<br/>状态机 + 契约]
+    subgraph "核心服务"
+        Memory[记忆服务<br/>质量门控 / 效用评分]
+        Retrieval[检索引擎<br/>BM25 + 向量 + RRF]
+        Spaced[间隔重复<br/>SM-2 调度]
+        Evolution[演化引擎<br/>关系 / 复习 / 指标]
+        Conflict[冲突引擎<br/>冲突 / 重复 / 矛盾]
+        Health[健康监控<br/>状态机 + 契约]
     end
 
-    subgraph "Storage Layer"
-        DB[(SQLite<br/>24 Tables)]
-        Vector[Vector Index<br/>numpy]
-        BM25[BM25 Index<br/>custom BM25]
-        Files[Markdown Files<br/>cwiki-data/]
+    subgraph "存储层"
+        DB[(SQLite<br/>24 张表)]
+        Vector[向量索引<br/>numpy]
+        BM25[BM25 索引<br/>自研 BM25]
+        Files[Markdown 文件<br/>cwiki-data/]
     end
 
-    subgraph "Client Layer"
-        WebUI[Web Console :5173<br/>React 18 + Vite]
+    subgraph "客户端层"
+        WebUI[Web 控制台 :5173<br/>React 18 + Vite]
     end
 
     Qoder --> MCP
@@ -158,7 +158,7 @@ python tasks.py web
 4. 在「记忆库」页新建一条记忆；Agent 经 MCP 提交的候选默认出现在「待审」页等待人工审核（开启 `auto_approve` 时高分候选会自动生效）
 5. 在搜索框输入关键词，查看混合检索结果
 
-![首页仪表盘：今日记忆活动、系统诊断与进化指标](docs/images/dashboard.png)
+![首页仪表盘：今日记忆活动、本周回顾与进化指标](docs/images/dashboard.png)
 
 ![记忆库：混合检索、多维筛选与记忆价值分](docs/images/memories.png)
 
@@ -172,7 +172,7 @@ Agent 的工作过程经 MCP 工具提交为候选记忆，经人工审核（或
 
 ### 个人知识沉淀与间隔复习
 
-记忆按 11 种类型组织，SM-2 算法调度间隔复习并追踪掌握度（new → mastered）；高相似记忆自动整合归档，让知识库越用越准而不是越堆越多。
+记忆按 11 种类型组织，SM-2 算法调度间隔复习并追踪掌握度（new → mastered）；Agent 在写入前查重并更新既有记忆，让知识库越用越准而不是越堆越多。
 
 ### 多设备 Git 同步
 
@@ -182,7 +182,7 @@ Agent 的工作过程经 MCP 工具提交为候选记忆，经人工审核（或
 
 ## 实测效果
 
-> 数据来自 W3 基线回归报告（[w3-regression-report.md](benchmarks/reports/w3-regression-report.md)，2026-10-15）与 `benchmarks/reports/` 下评测 JSON，仓库内可复现。
+> 数据来自 eval-fixture 评测（[pipeline-comparison.md](benchmarks/reports/eval-fixture/pipeline-comparison.md) 与 [baseline.json](benchmarks/reports/baseline.json)），仓库内可复现。
 
 **评测集**：`eval-fixture` 夹具——99 条记忆、101 查询、983 条相关性判定（`benchmarks/fixtures/fixture_meta.json`）。
 
@@ -227,7 +227,7 @@ python -m benchmarks.runners.compare_reports --current benchmarks/reports/eval-f
 
 > 第一次接入？按 [Agent 接入指南](docs/agent-onboarding.md) 走：最小 MCP 配置（含关键 `cwd` 字段）、HTTP API 直连示例、兼容性验证清单与规则式故障排查。
 
-### Qoder Plugin（推荐）
+### Qoder 插件（推荐）
 
 ```bash
 # 注册 MCP + 启用 hooks + 更新 AGENTS.md + 安装 skill + 初始化数据库
@@ -307,12 +307,12 @@ python tasks.py doctor
 | [Git 同步](docs/git-sync.md) | 多设备同步、冲突处理、数据库重建与故障排查 |
 | [API 参考](docs/api-reference.md) | 23 个路由模块、核心接口、反馈与冲突 |
 | [开发指南](docs/development.md) | 安装配置、开发命令、config.yaml 完整参考 |
-| [学习文档](docs/dev-learning-guide.md) | 架构与实现原理逐层讲解 |
+| [架构与实现](docs/architecture.md) | 整体架构、模块职责与实现原理 |
 
 ---
 
 <div align="center">
 
-**Made with ❤️ for AI Agents**
+**为 AI Agent 用心打造 ❤️**
 
 </div>

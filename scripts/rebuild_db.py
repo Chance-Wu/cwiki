@@ -34,11 +34,10 @@ patch_metadata()
 
 from packages.domain.config import settings
 from packages.storage import config as storage_config
+from packages.storage.index_health import index_active_count, inspect_vector_index
 from packages.storage.rebuilder import (
     DatabaseRebuilder,
     index_files_present,
-    indexed_active_count,
-    vector_meta_count,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
@@ -74,18 +73,26 @@ async def _rebuild_vector_index_step(rebuilder: DatabaseRebuilder, *, force: boo
         if not present:
             reason = f"index files missing or incomplete: {', '.join(missing)}"
         else:
-            indexed_count = indexed_active_count()
-            vector_count = vector_meta_count()
+            health = inspect_vector_index(
+                Path(storage_config.vector_index_path),
+                Path(storage_config.vector_meta_path),
+                expected_dimensions=settings.embedding_dimensions,
+                expected_model=settings.embedding_model,
+            )
+            indexed_count = index_active_count(Path(storage_config.index_db_path))
             _, active_memories, _ = await rebuilder.table_counts()
-            if indexed_count == active_memories and vector_count == active_memories:
+            counts_match = indexed_count == active_memories and health.rows == active_memories
+            if health.ok and counts_match:
                 print_message(
-                    "  Skipped: index files present "
+                    "  Skipped: index files present and healthy "
                     f"(use --force-index to rebuild) [{active_memories} active memories]"
                 )
                 return
             reason = (
-                "index out of sync with memories "
-                f"(indexed active: {indexed_count}, vectors: {vector_count}, "
+                "; ".join(health.issues)
+                if not health.ok
+                else "index out of sync with memories "
+                f"(indexed active: {indexed_count}, vectors: {health.rows}, "
                 f"memories active: {active_memories})"
             )
     else:

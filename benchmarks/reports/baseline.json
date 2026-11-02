@@ -1,6 +1,6 @@
 {
   "dataset": "eval-fixture",
-  "description": "CI 回归门槛基线（允许 3% 容差）。P3-A1：新增 useful_at_10_ratio（密度/理论上限）；本数据集每条 query 仅 1–5 条相关，Useful@10 理论上限约 0.2386，原始密度不宜作绝对目标，门槛改用 ratio",
+  "description": "CI 回归门槛基线（允许 3% 容差）。P3-A1：新增 useful_at_10_ratio（密度/理论上限）；本数据集每条 query 仅 1–5 条相关，Useful@10 理论上限约 0.2386，原始密度不宜作绝对目标，门槛改用 ratio。重排改为相关性主导 + 元数据带内微调后，hybrid_rrf_rerank MRR/NDCG 反超 hybrid_rrf（Recall 允许 0.005 跨管线容差）",
   "pipelines": {
     "baseline_bm25": {
       "recall_at_10": 0.8625,
@@ -17,11 +17,11 @@
       "useful_at_10_ratio": 0.6763
     },
     "full_pipeline": {
-      "recall_at_10": 0.8743,
-      "mrr": 0.9212,
-      "ndcg_at_10": 0.7698,
-      "useful_at_10": 0.1891,
-      "useful_at_10_ratio": 0.7925
+      "recall_at_10": 0.8777,
+      "mrr": 0.9451,
+      "ndcg_at_10": 0.7916,
+      "useful_at_10": 0.1921,
+      "useful_at_10_ratio": 0.805
     },
     "hybrid_rrf": {
       "recall_at_10": 0.8693,
@@ -31,9 +31,9 @@
       "useful_at_10_ratio": 0.7884
     },
     "hybrid_rrf_rerank": {
-      "recall_at_10": 0.8664,
-      "mrr": 0.922,
-      "ndcg_at_10": 0.7655,
+      "recall_at_10": 0.8669,
+      "mrr": 0.9459,
+      "ndcg_at_10": 0.7883,
       "useful_at_10": 0.1881,
       "useful_at_10_ratio": 0.7884
     }

@@ -17,6 +17,9 @@ export function useCandidates(opts?: {
   status?: string
   limit?: number
   offset?: number
+  minQualityGate?: number
+  minValue?: number
+  maxDuplicate?: number
 }) {
   return useQuery({
     queryKey: ['candidates', opts],
@@ -57,7 +60,7 @@ export function useBatchReviewCandidate() {
   })
 }
 
-// 撤销 auto-approve：归档自动生成的正式记忆，候选保持 approved 留在列表
+// 撤销 auto-approve：物理删除自动生成的正式记忆，候选保持 approved 留在列表
 export function useRevertAutoApprove() {
   const queryClient = useQueryClient()
 

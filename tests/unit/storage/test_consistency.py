@@ -2,7 +2,7 @@
 
 在 tmp_path 下构造 DB / MD / index.db / vectors 四份小规模载体，
 覆盖完全一致、MD 缺失/孤儿、索引缺行/文件缺失、向量未覆盖、
-archived 记忆排除与只读保证等场景。
+superseded 记忆排除与只读保证等场景。
 """
 
 from __future__ import annotations
@@ -156,27 +156,37 @@ async def test_uncovered_vector_reported(env):
     assert report.vectors_missing_total == 1
 
 
-async def test_archived_memory_excluded_from_all_carriers(env):
-    """archived 记忆在四方同时退出比对时不计为漂移（active-only 语义）。"""
-    archived = env.ids[0]
+async def test_superseded_memory_excluded_from_all_carriers(env):
+    """superseded 记忆在四方同时退出比对时不计为漂移（active-only 语义）。"""
+    superseded = env.ids[0]
     async with env.sessions() as db:
-        mem = (await db.execute(select(Memory).where(Memory.id == archived))).scalar_one()
-        mem.status = "archived"
+        mem = (await db.execute(select(Memory).where(Memory.id == superseded))).scalar_one()
+        mem.status = "superseded"
         await db.commit()
     env.file_store.save(
-        MemoryFile(id=archived, title="记忆0", content="内容0", type="fact", status="archived"),
+        MemoryFile(id=superseded, title="记忆0", content="内容0", type="fact", status="superseded"),
         workspace_name="chat",
     )
     async with aiosqlite.connect(env.data_dir / "index.db") as conn:
-        await conn.execute("UPDATE memory_index SET status = 'archived' WHERE id = ?", (archived,))
+        await conn.execute("UPDATE memory_index SET status = 'superseded' WHERE id = ?", (superseded,))
         await conn.commit()
     vi = VectorIndex(dimensions=3, index_path=str(env.data_dir / "vectors.npz"))
-    vi.remove(archived)
+    vi.remove(superseded)
     vi.save()
 
     report = await env.check()
     assert report.healthy is True
     assert report.db_count == report.md_count == report.index_count == report.vector_count == 2
+
+
+async def test_embedded_id_mismatch_is_fail_closed(env):
+    meta_path = env.data_dir / "vectors.json"
+    meta = __import__("json").loads(meta_path.read_text())
+    meta["ids"] = list(reversed(meta["ids"]))
+    meta_path.write_text(__import__("json").dumps(meta))
+    report = await env.check()
+    assert report.healthy is False
+    assert "vectors" in report.errors
 
 
 async def test_check_does_not_write_any_file(env):

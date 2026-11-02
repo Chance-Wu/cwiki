@@ -6,7 +6,6 @@ import logging
 import uuid
 from collections.abc import Sequence
 from datetime import datetime
-from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,16 +14,6 @@ from sqlalchemy.orm import defer
 from packages.domain.models import Memory, MemoryUsage
 
 logger = logging.getLogger(__name__)
-
-# 合并建议的 TTL 缓存（计算开销大）
-_merge_suggestions_cache: dict[str, tuple[float, dict[str, Any]]] = {}
-_MERGE_SUGGESTIONS_CACHE_TTL = 300.0  # 5 分钟
-
-
-def invalidate_merge_suggestions_cache(workspace_id: str) -> None:
-    """使指定工作区的合并建议缓存失效。"""
-    _merge_suggestions_cache.pop(workspace_id, None)
-
 
 _MEMORY_NO_EMBED = (defer(Memory.embedding),)
 

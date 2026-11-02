@@ -5,6 +5,7 @@
     python scripts/check_integrity.py            # 人读报告，有异常退出 1
     python scripts/check_integrity.py --json     # JSON 输出
     python scripts/check_integrity.py --fix      # 仅做安全修复：补齐 _workspaces.json 缺失工作区
+    python scripts/check_integrity.py --fix-meta # 从 DB 正向补导出缺失的 _meta 快照
 
 不删除任何用户数据；不一致项只报告并给出建议命令。
 """
@@ -12,8 +13,8 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
-import re
 import sqlite3
 import sys
 import urllib.error
@@ -21,16 +22,29 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
-
-_ID_RE = re.compile(r"^id:\s*([0-9a-fA-F-]{36})\s*$")
 
 
 def _sqlite_ro(path: Path) -> sqlite3.Connection:
     uri = f"file:{path.resolve().as_posix()}?mode=ro"
     return sqlite3.connect(uri, uri=True, timeout=2)
+
+
+def _parse_tags(raw: Any) -> list[str]:
+    if isinstance(raw, list):
+        return [str(tag) for tag in raw]
+    if isinstance(raw, str) and raw:
+        try:
+            parsed = json.loads(raw)
+        except ValueError:
+            return []
+        if isinstance(parsed, list):
+            return [str(tag) for tag in parsed]
+    return []
 
 
 def _db_state(db_path: Path) -> dict[str, Any]:
@@ -51,6 +65,23 @@ def _db_state(db_path: Path) -> dict[str, Any]:
                 "select id from memory where status='active' and embedding is not null"
             ).fetchall()
         }
+        # 内容漂移需要完整行；老库/最小测试库缺列时退化为仅 id/status
+        try:
+            rows = {
+                str(row[0]): {
+                    "status": str(row[1]),
+                    "title": str(row[2] or ""),
+                    "content": str(row[3] or ""),
+                    "type": str(row[4] or "fact"),
+                    "tags": _parse_tags(row[5]),
+                    "updated_at": None if row[6] is None else str(row[6]),
+                }
+                for row in con.execute(
+                    "select id, status, title, content, type, tags, updated_at from memory"
+                ).fetchall()
+            }
+        except sqlite3.Error:
+            rows = {}
     finally:
         con.close()
     return {
@@ -58,29 +89,75 @@ def _db_state(db_path: Path) -> dict[str, Any]:
         "active_ids": active_ids,
         "workspaces": workspaces,
         "embedded_active": embedded_active,
+        "rows": rows,
     }
 
 
-def _md_ids(memory_dir: Path) -> dict[str, str]:
-    """Markdown frontmatter id → 文件路径（相对 memory_dir）。"""
-    found: dict[str, str] = {}
+def _md_entries(
+    memory_dir: Path,
+) -> tuple[dict[str, str], dict[str, dict[str, Any]], dict[str, str], list[str]]:
+    """解析 Markdown 的 frontmatter 与正文。
+
+    返回 (id→相对路径, id→字段, id→绝对路径, 无法解析的相对路径)。
+    """
+    ids: dict[str, str] = {}
+    entries: dict[str, dict[str, Any]] = {}
+    paths: dict[str, str] = {}
+    bad: list[str] = []
     for path in memory_dir.rglob("*.md"):
+        rel = path.relative_to(memory_dir).as_posix()
         try:
-            head = path.read_text(encoding="utf-8", errors="replace")[:4096]
+            text = path.read_text(encoding="utf-8", errors="replace")
         except OSError:
+            bad.append(rel)
             continue
-        for line in head.splitlines():
-            match = _ID_RE.match(line.strip())
-            if match:
-                found[match.group(1)] = path.relative_to(memory_dir).as_posix()
-                break
-    return found
+        if not text.startswith("---"):
+            bad.append(rel)
+            continue
+        parts = text.split("---", 2)
+        if len(parts) < 3:
+            bad.append(rel)
+            continue
+        try:
+            meta = yaml.safe_load(parts[1]) or {}
+        except yaml.YAMLError:
+            bad.append(rel)
+            continue
+        if not isinstance(meta, dict) or not meta.get("id"):
+            bad.append(rel)
+            continue
+        memory_id = str(meta["id"])
+        ids[memory_id] = rel
+        paths[memory_id] = str(path)
+        entries[memory_id] = {
+            "title": str(meta.get("title") or ""),
+            "content": parts[2].strip(),
+            "type": str(meta.get("type") or "fact"),
+            "tags": meta.get("tags") if isinstance(meta.get("tags"), list) else [],
+            "status": str(meta.get("status") or "active"),
+        }
+    return ids, entries, paths, bad
 
 
-def _meta_ids(meta_dir: Path) -> set[str]:
+def _meta_health(meta_dir: Path) -> tuple[set[str], list[str]]:
+    """返回 (可解析的 _meta id 集, 损坏文件名)。"""
     if not meta_dir.is_dir():
-        return set()
-    return {path.stem for path in meta_dir.glob("*.json") if not path.name.startswith("_")}
+        return set(), []
+    ids: set[str] = set()
+    bad: list[str] = []
+    for path in sorted(meta_dir.glob("*.json")):
+        if path.name.startswith("_"):
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            bad.append(path.stem)
+            continue
+        if not isinstance(data, dict):
+            bad.append(path.stem)
+            continue
+        ids.add(path.stem)
+    return ids, bad
 
 
 def _index_ids(index_db: Path) -> set[str]:
@@ -153,8 +230,8 @@ def collect(
 ) -> dict[str, Any]:
     meta_dir = memory_dir / "_meta"
     db = _db_state(db_path)
-    md = _md_ids(memory_dir)
-    meta = _meta_ids(meta_dir)
+    md, md_entries, _md_paths, bad_md = _md_entries(memory_dir)
+    meta, bad_meta = _meta_health(meta_dir)
     index = _index_ids(memory_dir / "index.db")
     vectors = _vector_ids(memory_dir / "vectors.json")
     ws_meta = _workspaces_meta(meta_dir)
@@ -179,7 +256,7 @@ def collect(
     _flag(
         "missing_markdown",
         db["active_ids"] - set(md),
-        "数据库 active 记忆缺少 Markdown 镜像；可执行 rebuild-db 或从 _meta 重建",
+        "数据库 active 记忆缺少 Markdown 镜像；执行 python tasks.py migrate-to-git 重新导出",
     )
     _flag(
         "orphan_meta",
@@ -189,7 +266,7 @@ def collect(
     _flag(
         "missing_meta",
         db["active_ids"] - meta,
-        "数据库 active 记忆缺少 _meta 快照；可执行 rebuild-db 重新导出",
+        "数据库 active 记忆缺少 _meta 快照；执行 python scripts/check_integrity.py --fix-meta 补齐",
     )
     _flag(
         "stale_index",
@@ -221,6 +298,77 @@ def collect(
         ws_meta_ids - db_ws_ids,
         "_workspaces.json 含数据库不存在的工作区；重建时会被复活，需人工确认",
     )
+    _flag(
+        "bad_markdown",
+        set(bad_md),
+        "Markdown frontmatter 缺失/无法解析；确认文件内容后修复或移出 memory_dir",
+    )
+    _flag(
+        "bad_meta",
+        set(bad_meta),
+        "_meta JSON 无法解析；执行 check_integrity.py --fix-meta 从 DB 重新导出",
+    )
+
+    # 内容漂移：MD 与 DB 的 title/content/type/tags/status 不一致
+    drift: list[str] = []
+    for memory_id in set(db["rows"]) & set(md_entries):
+        db_row = db["rows"][memory_id]
+        md_row = md_entries[memory_id]
+        if (
+            db_row["title"].strip() != md_row["title"].strip()
+            or db_row["content"].strip() != md_row["content"].strip()
+            or db_row["type"] != md_row["type"]
+            or sorted(db_row["tags"]) != sorted(md_row["tags"])
+            or db_row["status"] != md_row["status"]
+        ):
+            drift.append(memory_id)
+    _flag(
+        "content_drift",
+        set(drift),
+        "Markdown 与数据库内容不一致（手改 MD 未同步）；执行 "
+        "python tasks.py doctor --fix-drift（以 MD 为准）或 python tasks.py rebuild-db",
+    )
+
+    # 向量索引健康：配对、行数、维度、模型
+    from packages.domain.config import settings
+    from packages.storage.index_health import index_active_count, inspect_vector_index
+
+    npz_path = memory_dir / "vectors.npz"
+    vector_meta_path = memory_dir / "vectors.json"
+    vector_health = inspect_vector_index(
+        npz_path,
+        vector_meta_path,
+        expected_dimensions=settings.embedding_dimensions,
+        expected_model=settings.embedding_model,
+    )
+    if vector_health.present and not vector_health.ok:
+        issues.append(
+            {
+                "kind": "vector_index_unhealthy",
+                "count": len(vector_health.issues),
+                "sample": vector_health.issues[:10],
+                "hint": "执行 python tasks.py rebuild-db --index-only（必要时 --force-index）",
+            }
+        )
+    elif npz_path.exists() != vector_meta_path.exists():
+        issues.append(
+            {
+                "kind": "vector_index_broken",
+                "count": 1,
+                "sample": ["vectors.npz 与 vectors.json 必须成对存在"],
+                "hint": "执行 python tasks.py rebuild-db --index-only",
+            }
+        )
+    index_active = index_active_count(memory_dir / "index.db")
+    if vector_health.present and index_active is not None and index_active != vector_health.rows:
+        issues.append(
+            {
+                "kind": "index_vector_mismatch",
+                "count": 1,
+                "sample": [f"index active={index_active}, vectors={vector_health.rows}"],
+                "hint": "执行 python tasks.py rebuild-db --index-only",
+            }
+        )
 
     report: dict[str, Any] = {
         "counts": {
@@ -232,6 +380,8 @@ def collect(
             "index": len(index),
             "vectors": len(vectors),
             "workspaces_meta": len(ws_meta_ids),
+            "vector_dimensions": vector_health.dimensions,
+            "vector_model": vector_health.model,
         },
         "issues": issues,
         "ok": not issues,
@@ -268,6 +418,99 @@ def _fix_workspaces_meta(db_path: Path, memory_dir: Path) -> list[str]:
     return added
 
 
+def _fix_missing_meta(db_url: str, memory_dir: Path) -> list[str]:
+    """把 DB 中存在但 ``_meta`` 缺失的 active 记忆正向补导出（只增不删）。"""
+    from sqlalchemy import select
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    from packages.domain.models import Memory
+    from packages.storage.meta_export import export_memory_meta
+
+    async def _run() -> list[str]:
+        connect_args = {"check_same_thread": False} if "sqlite" in db_url else {}
+        engine = create_async_engine(db_url, connect_args=connect_args)
+        session_factory = async_sessionmaker(engine, expire_on_commit=False)
+        meta_dir = memory_dir / "_meta"
+        try:
+            async with session_factory() as session:
+                active_ids = (
+                    (await session.execute(select(Memory.id).where(Memory.status == "active")))
+                    .scalars()
+                    .all()
+                )
+                missing = [mid for mid in active_ids if not (meta_dir / f"{mid}.json").is_file()]
+                for mid in missing:
+                    await export_memory_meta(session, mid, meta_dir)
+                return [str(mid) for mid in missing]
+        finally:
+            await engine.dispose()
+
+    return asyncio.run(_run())
+
+
+def _drift_ids(db_path: Path, memory_dir: Path) -> list[str]:
+    """返回 MD 与 DB 内容不一致的 memory id。"""
+    db = _db_state(db_path)
+    _, md_entries, _, _ = _md_entries(memory_dir)
+    drift: list[str] = []
+    for memory_id in set(db["rows"]) & set(md_entries):
+        db_row = db["rows"][memory_id]
+        md_row = md_entries[memory_id]
+        if (
+            db_row["title"].strip() != md_row["title"].strip()
+            or db_row["content"].strip() != md_row["content"].strip()
+            or db_row["type"] != md_row["type"]
+            or sorted(db_row["tags"]) != sorted(md_row["tags"])
+            or db_row["status"] != md_row["status"]
+        ):
+            drift.append(memory_id)
+    return sorted(drift)
+
+
+async def _fix_drift(db_url: str, memory_dir: Path) -> list[str]:
+    """以 Markdown 为准，把内容漂移的单条记忆同步回数据库。"""
+    db_path = Path(db_url.partition(":///")[2])
+    if not db_path.is_absolute():
+        db_path = PROJECT_ROOT / db_path
+    drift = _drift_ids(db_path, memory_dir)
+    if not drift:
+        return []
+
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    from packages.storage.file_store import FileStore
+    from packages.storage.md_sync import sync_memory_from_markdown
+
+    _, _, md_paths, _ = _md_entries(memory_dir)
+    store = FileStore(memory_dir)
+    connect_args = {"check_same_thread": False} if "sqlite" in db_url else {}
+    engine = create_async_engine(db_url, connect_args=connect_args)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    fixed: list[str] = []
+    try:
+        for memory_id in drift:
+            path = md_paths.get(memory_id)
+            if not path:
+                continue
+            memory_file = store.load_from_path(path)
+            if memory_file is None:
+                continue
+            async with session_factory() as session:
+                try:
+                    result = await sync_memory_from_markdown(session, memory_file)
+                    if result.status == "updated":
+                        await session.commit()
+                        fixed.append(memory_id)
+                    else:
+                        await session.rollback()
+                except Exception as exc:
+                    await session.rollback()
+                    print(f"  修复 {memory_id} 失败：{exc}", file=sys.stderr)
+        return fixed
+    finally:
+        await engine.dispose()
+
+
 def _format_human(report: dict[str, Any]) -> str:
     counts = report["counts"]
     lines = [
@@ -300,6 +543,12 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="cwiki 三层存储一致性巡检")
     parser.add_argument("--json", action="store_true", help="输出 JSON")
     parser.add_argument("--fix", action="store_true", help="仅补齐 _workspaces.json 缺失工作区")
+    parser.add_argument("--fix-meta", action="store_true", help="从数据库补导出缺失的 _meta 快照")
+    parser.add_argument(
+        "--fix-drift",
+        action="store_true",
+        help="以 Markdown 为准，把内容漂移的单条记忆同步回数据库",
+    )
     parser.add_argument("--skip-port", action="store_true", help="跳过 API 端口诊断")
     args = parser.parse_args()
 
@@ -325,6 +574,16 @@ def main() -> int:
         added = _fix_workspaces_meta(db_path, memory_dir)
         if added:
             print(f"已补齐 _workspaces.json：{', '.join(added)}")
+
+    if args.fix_meta:
+        fixed = _fix_missing_meta(settings.database_url, memory_dir)
+        print(f"已补导出 _meta：{len(fixed)} 条" + (f"（{', '.join(fixed)}）" if fixed else ""))
+
+    if args.fix_drift:
+        fixed = asyncio.run(_fix_drift(settings.database_url, memory_dir))
+        print(
+            f"已按 MD 修复内容漂移：{len(fixed)} 条" + (f"（{', '.join(fixed)}）" if fixed else "")
+        )
 
     report = collect(
         db_path,

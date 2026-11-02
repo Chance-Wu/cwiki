@@ -69,6 +69,17 @@ export default function InboxPage() {
   // 撤销 auto-approve 的目标候选，非空时显示确认对话框
   const [revertTarget, setRevertTarget] = useState<Candidate | null>(null)
 
+  // 策略筛选：按质量门控 / 价值分 / 重复度筛选后跨页批量批准
+  const [gateMin, setGateMin] = useState('')
+  const [valueMin, setValueMin] = useState('')
+  const [dupMax, setDupMax] = useState('')
+  const [screening, setScreening] = useState(false)
+  const [screenPreview, setScreenPreview] = useState<{
+    ids: string[]
+    titles: string[]
+    risky: number
+  } | null>(null)
+
   const conflictsQuery = useConflicts()
   const conflicts = conflictsQuery.data ?? []
 
@@ -77,6 +88,16 @@ export default function InboxPage() {
 
   const workspacesQuery = useWorkspaces()
   const workspaces = workspacesQuery.data ?? []
+
+  const screenFilters = useMemo(
+    () => ({
+      minQualityGate:
+        gateMin !== '' && Number.isFinite(Number(gateMin)) ? Number(gateMin) : undefined,
+      minValue: valueMin !== '' && Number.isFinite(Number(valueMin)) ? Number(valueMin) : undefined,
+      maxDuplicate: dupMax !== '' && Number.isFinite(Number(dupMax)) ? Number(dupMax) : undefined,
+    }),
+    [gateMin, valueMin, dupMax],
+  )
 
   const queryOpts = useMemo(
     () => ({
@@ -87,8 +108,9 @@ export default function InboxPage() {
       status: activeTab === 'approved' ? 'approved' : 'pending_review',
       limit: pageSize,
       offset: (page - 1) * pageSize,
+      ...(activeTab === 'candidates' ? screenFilters : {}),
     }),
-    [workspaceId, typeFilter, deferredTitle, activeTab, page, pageSize],
+    [workspaceId, typeFilter, deferredTitle, activeTab, page, pageSize, screenFilters],
   )
 
   const candidatesQuery = useCandidates(queryOpts)
@@ -238,6 +260,75 @@ export default function InboxPage() {
     }
   }
 
+  // 按当前筛选条件跨页收集待审候选，先预览再确认批准
+  const handleScreenApprove = async () => {
+    setScreening(true)
+    try {
+      const ids: string[] = []
+      const titles: string[] = []
+      let risky = 0
+      let offset = 0
+      const limit = 100
+      const max = 500
+      while (ids.length < max) {
+        const pageData = await api.getCandidates({
+          workspaceId: workspaceId || undefined,
+          type: typeFilter || undefined,
+          title: deferredTitle || undefined,
+          status: 'pending_review',
+          limit,
+          offset,
+          ...screenFilters,
+        })
+        for (const candidate of pageData.items) {
+          ids.push(candidate.id)
+          if (titles.length < 8) titles.push(candidate.title)
+          if ((candidate.duplicate_probability ?? 0) > 0.4) risky += 1
+        }
+        if (pageData.items.length < limit) break
+        offset += limit
+      }
+      if (ids.length === 0) {
+        toast(t.inbox.noScreenedCandidates, 'error')
+        return
+      }
+      setScreenPreview({ ids, titles, risky })
+    } catch {
+      toast(t.inbox.loadFailed, 'error')
+    } finally {
+      setScreening(false)
+    }
+  }
+
+  const handleScreenConfirm = async () => {
+    if (!screenPreview) return
+    setBatchActionLoading('screen-approve')
+    try {
+      let succeeded = 0
+      let failed = 0
+      for (let i = 0; i < screenPreview.ids.length; i += 50) {
+        const chunk = screenPreview.ids.slice(i, i + 50)
+        const result = await batchReviewMutation.mutateAsync({
+          items: chunk,
+          action: 'approve',
+        })
+        succeeded += result.succeeded
+        failed += result.failed
+      }
+      setScreenPreview(null)
+      clearSelection()
+      candidatesQuery.refetch()
+      toast(
+        translate(t.inbox.screenResult, { ok: succeeded, fail: failed }),
+        failed > 0 ? 'error' : 'success',
+      )
+    } catch {
+      toast(t.inbox.batchAllFailed, 'error')
+    } finally {
+      setBatchActionLoading(null)
+    }
+  }
+
   const handleEditSubmit = async (candidate: Candidate, title: string, content: string) => {
     try {
       await reviewMutation.mutateAsync({
@@ -334,6 +425,95 @@ export default function InboxPage() {
           />
         </div>
       </div>
+
+      {activeTab === 'candidates' && (
+        <div className="mt-2.5 space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="flex items-center gap-1 text-xs text-[var(--text-tertiary)]">
+              {t.inbox.minGate}
+              <input
+                type="number"
+                min={0}
+                max={1}
+                step={0.05}
+                value={gateMin}
+                onChange={(e) => setGateMin(e.target.value)}
+                className="w-20 rounded-lg border border-[var(--border-default)] bg-surface-card px-2 py-1 text-sm text-[var(--text-primary)] outline-none focus-visible:border-brand-400"
+              />
+            </label>
+            <label className="flex items-center gap-1 text-xs text-[var(--text-tertiary)]">
+              {t.inbox.minValue}
+              <input
+                type="number"
+                min={0}
+                max={1}
+                step={0.05}
+                value={valueMin}
+                onChange={(e) => setValueMin(e.target.value)}
+                className="w-20 rounded-lg border border-[var(--border-default)] bg-surface-card px-2 py-1 text-sm text-[var(--text-primary)] outline-none focus-visible:border-brand-400"
+              />
+            </label>
+            <label className="flex items-center gap-1 text-xs text-[var(--text-tertiary)]">
+              {t.inbox.maxDuplicate}
+              <input
+                type="number"
+                min={0}
+                max={1}
+                step={0.05}
+                value={dupMax}
+                onChange={(e) => setDupMax(e.target.value)}
+                className="w-20 rounded-lg border border-[var(--border-default)] bg-surface-card px-2 py-1 text-sm text-[var(--text-primary)] outline-none focus-visible:border-brand-400"
+              />
+            </label>
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={screening || batchActionLoading !== null}
+              onClick={handleScreenApprove}
+            >
+              {screening ? <Loader2 size={14} className="animate-spin" /> : null}
+              {t.inbox.approveScreened}
+            </Button>
+          </div>
+
+          {screenPreview && (
+            <div className="rounded-xl border border-success/30 bg-success/5 p-3">
+              <p className="text-sm font-medium text-[var(--text-primary)]">
+                {translate(t.inbox.screenPreviewTitle, { n: screenPreview.ids.length })}
+              </p>
+              <ul className="mt-1 space-y-0.5">
+                {screenPreview.titles.map((title, index) => (
+                  <li
+                    key={`${title}-${index}`}
+                    className="truncate text-xs text-[var(--text-secondary)]"
+                  >
+                    · {title}
+                  </li>
+                ))}
+              </ul>
+              {screenPreview.risky > 0 && (
+                <p className="mt-1 text-xs text-warning-fg">
+                  {translate(t.inbox.screenRisky, { n: screenPreview.risky })}
+                </p>
+              )}
+              <div className="mt-2 flex gap-2">
+                <Button
+                  variant="success"
+                  size="sm"
+                  disabled={batchActionLoading !== null}
+                  onClick={handleScreenConfirm}
+                >
+                  {batchActionLoading ? <Loader2 size={14} className="animate-spin" /> : null}
+                  {t.inbox.batchApprove}
+                </Button>
+                <Button variant="secondary" size="sm" onClick={() => setScreenPreview(null)}>
+                  {t.common.cancel}
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 

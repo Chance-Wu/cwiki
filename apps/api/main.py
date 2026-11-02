@@ -23,6 +23,7 @@ from packages.domain.task_queue import startup as task_queue_startup
 from packages.domain.version import app_version
 from packages.retrieval.engine import get_retrieval_engine
 from packages.storage import config as storage_config
+from packages.storage.export_state import seconds_until_due
 from packages.storage.file_store import FileStore
 from packages.storage.indexer import MemoryIndexer
 
@@ -81,19 +82,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     from packages.domain.task_queue import queue as task_queue
 
     _scheduler = PeriodicScheduler(queue=task_queue)
-    if parasitic_evolution_config.auto_consolidate_enabled:
-        _scheduler.add(
-            "auto_consolidate_similar",
-            scheduler_config.auto_consolidate_interval_hours * 3600,
-        )
     if parasitic_evolution_config.review_reminders_enabled:
         _scheduler.add(
             "check_review_reminders",
             scheduler_config.review_reminders_interval_hours * 3600,
         )
+    # _meta 导出按上次成功导出的时间追赶：重启不会重置周期，
+    # 距离上次导出已超过间隔时本次启动立即补一次（initial_delay=0）
+    meta_interval_hours = scheduler_config.meta_export_interval_hours
     _scheduler.add(
         "periodic_meta_export",
-        scheduler_config.meta_export_interval_hours * 3600,
+        meta_interval_hours * 3600,
+        initial_delay=seconds_until_due(meta_interval_hours),
     )
     if parasitic_evolution_config.auto_relation_enabled:
         _scheduler.add(
@@ -108,25 +108,38 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await _scheduler.start()
 
     file_store = FileStore(storage_config.memory_dir)
-    _indexer = MemoryIndexer(storage_config.index_db_path, file_store)
+    _indexer = MemoryIndexer(
+        storage_config.index_db_path,
+        file_store,
+        enable_db_sync=True,
+    )
     await _indexer.init_db()
     init_storage_components(file_store, _indexer)
     # 向量检索以 vectors.npz 为权威源：DB embedding 列由单一任务双写维护，
     # 但历史/导入数据可能为空，检索不再依赖它
     get_retrieval_engine().set_vector_source(lambda: get_memory_indexer().vector_index)
-    # 优化：串行执行，sync 完成后自动 warm_up，避免资源峰值
-    asyncio.create_task(_sync_index_background(_indexer))
+    # 先重放未完成的镜像/删除意图，再允许 Markdown 扫描与 watchdog 读取。
+    from apps.api.file_sync import replay_file_sync_jobs, run_file_sync_recovery
+
+    async with async_session_maker() as db:
+        await replay_file_sync_jobs(db, limit=10000)
+    recovery_task = asyncio.create_task(run_file_sync_recovery())
+    index_sync_task = asyncio.create_task(_sync_index_background(_indexer))
     _indexer.start_watching()
 
     yield
 
+    recovery_task.cancel()
+    index_sync_task.cancel()
+    await asyncio.gather(recovery_task, index_sync_task, return_exceptions=True)
+    # worker 仍可能使用索引，必须先停生产者/worker 再关闭存储。
+    if _scheduler:
+        await _scheduler.stop()
+    await task_queue_shutdown()
     if _indexer:
         _indexer.stop_watching()
         await _indexer.save_vector_index()
         await _indexer.close()
-    if _scheduler:
-        await _scheduler.stop()
-    await task_queue_shutdown()
     await close_db()
     logger.info("cwiki API shut down")
 

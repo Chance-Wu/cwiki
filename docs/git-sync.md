@@ -23,6 +23,7 @@ cwiki/                      # 代码仓库（cwiki.git）
     ├── index.db            # BM25 索引（可重建）
     ├── vectors.npz         # 向量索引（可重建）
     ├── vectors.json        # 向量 id/metadata 侧车（缺失时向量索引不可加载，会触发重建）
+    └── _review_prefs.json  # 复习偏好（每日目标），`_` 前缀不会被记忆侧车清理，随数据仓库同步
     └── _meta/
         ├── <memory_id_1>.json   # 关系数据：feedback, usage, review_schedule 等
         ├── <memory_id_2>.json
@@ -90,6 +91,14 @@ python tasks.py start
 
 `start` 会自动 pull 代码仓库；`cwiki-data/cwiki.db` 缺失时从 MD + `_meta` 重建。数据更新与上报由数据仓库自带脚本完成：`python cwiki-data/sync.py`（见「日常使用」）。
 
+## 镜像失败恢复与升级
+
+- 主库的 `file_sync_job` 表随记忆修改/删除在同一事务中记录待同步意图；删除意图没有记忆外键，不会被级联删除。
+- API 初始化存储后先尝试重放，再启动文件扫描；运行期间每 5 秒重试一批。只有 MD、索引和 `_meta` 全部成功才确认该批记录，失败保留待办并记录日志。
+- 重放读取主库当前状态，不重放旧正文；类型、标题或 workspace 改动按 ID 清理旧路径。Markdown 写入使用临时文件原子替换。
+- 主库仍有待同步记录时，`rebuild-db` 会拒绝破坏性重建；先启动 API 完成补偿。重复 ID 的 Markdown 也会在清表前拒绝导入，需人工确认正确版本。
+- 升级执行 `python tasks.py migrate-up`（新增 `042_file_sync_jobs`）；API 初始化也会创建缺失表。补偿依赖主库待办，不能把尚未完成的 MD 镜像当成完整备份后删除主库。
+
 ## 日常使用
 
 ### 同步数据（数据仓库自管）
@@ -156,7 +165,8 @@ python scripts/verify_rebuild.py
 
 重建默认是轻量化的：
 
-- **跳过索引重建**：`index.db` + `vectors.npz` + `vectors.json` 都在且索引 active 行数与记忆 active 数一致时，跳过 embedding 重建（日志显示 `Skipped: index files present (use --force-index to rebuild)`），rebuild 从秒/分钟级降到数秒；不一致时自动重建并提示原因
+- **跳过索引重建**：`index.db` + `vectors.npz` + `vectors.json` 都在、索引 active 行数与记忆 active 数一致，且 `vectors.json` 记录的维度/模型与当前配置一致时，跳过 embedding 重建（日志显示 `Skipped: index files present and healthy (use --force-index to rebuild)`）；维度/模型不匹配或旧版索引缺少元数据会自动重建并提示原因。
+- **手改 Markdown**：API 进程的文件监听会把单条变更同步回 DB（正文/标题/类型/标签/状态，版本快照 + 清 embedding + 写 `_meta`），并重新入队向量任务；无法解析或跨 workspace 的改动仍由 doctor 报告。`python tasks.py doctor --fix-drift` 可在监听未开启/服务未运行时以 MD 为准批量修复内容漂移。
 - **跳过 recompute**：`_meta` 导入已恢复 review_schedule（重建日志 `review_schedule: 23`）时跳过 recompute（日志显示 `Skipped: review schedules restored from _meta`）；仅当调度为空（旧数据未导出过调度）时才自动跑 recompute
 - `python tasks.py recompute` 手动命令不受影响，始终执行
 

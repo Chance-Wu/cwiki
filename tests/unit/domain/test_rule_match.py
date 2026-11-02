@@ -2,24 +2,22 @@
 
 from __future__ import annotations
 
-import pytest
-
 from packages.domain.rule_match import matches_fields
 
 
 def _match(**overrides: object) -> bool:
-    defaults = dict(
-        workspaces=[],
-        types=[],
-        tags=[],
-        keywords=[],
-        workspace_name="cwiki",
-        workspace_id="ws-1",
-        memory_type="fact",
-        memory_tags=[],
-        title="",
-        content="",
-    )
+    defaults: dict[str, object] = {
+        "workspaces": [],
+        "types": [],
+        "tags": [],
+        "keywords": [],
+        "workspace_name": "cwiki",
+        "workspace_id": "ws-1",
+        "memory_type": "fact",
+        "memory_tags": [],
+        "title": "",
+        "content": "",
+    }
     defaults.update(overrides)
     return matches_fields(**defaults)  # type: ignore[arg-type]
 
@@ -153,26 +151,35 @@ class TestCombinedFilters:
     """多维度 AND 语义。"""
 
     def test_all_fields_must_match(self):
-        assert _match(
-            workspaces=["cwiki"],
-            types=["fact"],
-            tags=["pinned"],
-            keywords=["原理"],
-            memory_tags=["pinned"],
-            content="原理解析",
-        ) is True
+        assert (
+            _match(
+                workspaces=["cwiki"],
+                types=["fact"],
+                tags=["pinned"],
+                keywords=["原理"],
+                memory_tags=["pinned"],
+                content="原理解析",
+            )
+            is True
+        )
 
     def test_one_field_fails_returns_false(self):
-        assert _match(
-            workspaces=["cwiki"],
-            types=["decision"],  # 不匹配
-            content="some text",
-        ) is False
+        assert (
+            _match(
+                workspaces=["cwiki"],
+                types=["decision"],  # 不匹配
+                content="some text",
+            )
+            is False
+        )
 
     def test_workspace_and_type_match_but_keyword_fails(self):
-        assert _match(
-            workspaces=["cwiki"],
-            types=["fact"],
-            keywords=["missing"],
-            content="some text",
-        ) is False
+        assert (
+            _match(
+                workspaces=["cwiki"],
+                types=["fact"],
+                keywords=["missing"],
+                content="some text",
+            )
+            is False
+        )

@@ -25,6 +25,7 @@ def build_tool_definitions() -> list[dict[str, Any]]:
             "description": (
                 "搜索记忆。省略 workspace_name 跨全部工作区；项目相关建议指定工作区。"
                 "curated=true 时按 token 预算组装上下文并提示记忆缺口。"
+                "结果含 id/source/version/updated_at/evidence_count，curated 另含 citations，可直接引用来源。"
             ),
             "inputSchema": {
                 "type": "object",
@@ -147,7 +148,7 @@ def build_tool_definitions() -> list[dict[str, Any]]:
                     "is_permanent": {
                         "type": "boolean",
                         "description": (
-                            "标记为永久记忆：审批通过后不参与自动衰减与自动合并归档，"
+                            "标记为永久记忆：审批通过后不参与自动衰减，"
                             "仅在用户明确指定需要长期保留时使用"
                         ),
                         "default": False,
@@ -384,7 +385,7 @@ def build_tool_definitions() -> list[dict[str, Any]]:
             "name": "memory_feedback",
             "description": (
                 "对一条记忆提交反馈。回答中使用了某条记忆后标记 useful；"
-                "与事实不符/已过时标记 not_useful/outdated/wrong，驱动后续排序与归档。"
+                "与事实不符/已过时标记 not_useful/outdated/wrong，驱动后续排序与更新。"
             ),
             "inputSchema": {
                 "type": "object",
@@ -408,18 +409,18 @@ def build_tool_definitions() -> list[dict[str, Any]]:
         {
             "name": "memory_forget",
             "description": (
-                "归档一条错误或不再需要的记忆（软删除，可恢复）。"
-                "归档后不再出现在搜索/复习中，但保留来源与版本。"
+                "物理删除一条错误或不再需要的记忆（不可恢复）。"
+                "记忆记录、版本、关系、复习计划和文件资产都会被删除。"
             ),
             "inputSchema": {
                 "type": "object",
                 "additionalProperties": False,
                 "properties": {
                     "memory_id": {"type": "string", "description": "记忆 ID"},
-                    "reason": {"type": "string", "description": "归档原因"},
+                    "reason": {"type": "string", "maxLength": 500, "description": "删除原因"},
                     "workspace_name": {
                         "type": "string",
-                        "description": "工作区名称或 UUID；省略回落会话工作区",
+                        "description": "兼容字段；删除按全局唯一 memory_id 执行",
                     },
                 },
                 "required": ["memory_id"],

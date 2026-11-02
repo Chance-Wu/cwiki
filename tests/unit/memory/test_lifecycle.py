@@ -19,15 +19,11 @@ class TestMemoryStatusTransitions:
         [
             ("active", "superseded"),
             ("active", "conflicted"),
-            ("active", "archived"),
             ("active", "deprecated"),
             ("superseded", "active"),
-            ("superseded", "archived"),
             ("conflicted", "active"),
             ("conflicted", "superseded"),
-            ("conflicted", "archived"),
-            ("archived", "active"),
-            ("deprecated", "archived"),
+            ("deprecated", "active"),
         ],
     )
     def test_valid_transitions(self, current, target):
@@ -37,8 +33,8 @@ class TestMemoryStatusTransitions:
         "current,target",
         [
             ("active", "active"),
-            ("archived", "superseded"),
-            ("deprecated", "active"),
+            ("unknown", "active"),
+            ("deprecated", "superseded"),
             ("superseded", "conflicted"),
         ],
     )
@@ -48,8 +44,8 @@ class TestMemoryStatusTransitions:
 
     def test_error_contains_details(self):
         with pytest.raises(InvalidStatusTransition) as exc_info:
-            validate_memory_status_transition("archived", "superseded")
-        assert exc_info.value.current == "archived"
+            validate_memory_status_transition("deprecated", "superseded")
+        assert exc_info.value.current == "deprecated"
         assert exc_info.value.target == "superseded"
         assert "active" in exc_info.value.allowed
 
@@ -88,9 +84,9 @@ class TestCandidateStatusTransitions:
 
 
 class TestAllowedTransitions:
-    def test_memory_active_allows_four(self):
+    def test_memory_active_allows_three(self):
         allowed = get_allowed_memory_transitions("active")
-        assert set(allowed) == {"superseded", "conflicted", "archived", "deprecated"}
+        assert set(allowed) == {"superseded", "conflicted", "deprecated"}
 
     def test_candidate_pending_review_allows_five(self):
         allowed = get_allowed_candidate_transitions("pending_review")

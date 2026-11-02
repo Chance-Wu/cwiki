@@ -25,7 +25,7 @@ graph TB
         Memory[Memory Service<br/>质量门控 / 效用评分]
         Retrieval[Retrieval Engine<br/>BM25 + 向量 + RRF]
         Spaced[Spaced Repetition<br/>SM-2 调度]
-        Evolution[Evolution Engine<br/>归档 / 整合 / 指标]
+        Evolution[Evolution Engine<br/>关系 / 复习 / 指标]
         Conflict[Conflict Engine<br/>冲突 / 重复 / 矛盾]
         Health[Health Monitor<br/>状态机 + 契约]
     end
@@ -126,7 +126,7 @@ cwiki/
 │   │                         # _skill_scanner / _skill_publisher（内部模块）
 │   ├── worker/               # 后台任务（asyncio.Queue，随 API 进程启动）
 │   │   ├── run_worker.py     # 历史事件手动回填入口
-│   │   ├── tasks/            # 9 个注册任务：Episode 处理 / 候选评分 /
+│   │   ├── tasks/            # 10 个注册任务：Episode 处理 / 候选评分 /
 │   │   │                     #   Embedding / 去重 / 整合 / 复习提醒 / meta 导出
 │   │   ├── episode_builder.py
 │   │   ├── scoring.py        # 候选价值评分（5 维加权，novelty 仅作排序）
@@ -135,7 +135,7 @@ cwiki/
 │
 ├── packages/
 │   ├── domain/               # 领域层
-│   │   ├── models/           # SQLAlchemy 2.0 ORM（25 表，4 个模块文件）
+│   │   ├── models/           # SQLAlchemy 2.0 ORM（24 表，4 个模块文件）
 │   │   ├── schemas/          # Pydantic v2 Schema（按领域拆分）
 │   │   ├── config.py         # 配置加载
 │   │   ├── task_queue.py     # 进程内异步任务队列（磁盘持久化）
@@ -186,7 +186,7 @@ cwiki/
 │   ├── port_utils.py         # 跨平台端口管理
 │   └── restart_watcher.py    # 重启守护
 │
-├── migrations/               # Alembic 迁移（31 个版本）
+├── migrations/               # Alembic 迁移（42 个版本）
 ├── benchmarks/               # 检索基准测试（见 benchmarks/README.md）
 ├── docs/                     # 设计与发布文档
 ├── config.yaml               # 统一配置文件
@@ -284,7 +284,7 @@ cwiki/
 | 向量索引 | `engine.py` | FIFO（2 条） | 同上 |
 | Skill 列表 | `_skill_scanner.py` | 手动 invalidate | Skill 增删改 |
 
-所有写端点（create / update / delete / merge / review）在提交后调用 `invalidate_search_cache()` + `invalidate_context_cache()`，确保缓存一致性。
+所有写端点（create / update / delete / review）在提交后调用 `invalidate_search_cache()` + `invalidate_context_cache()`，确保缓存一致性。
 
 ### 阻塞 I/O 卸载
 

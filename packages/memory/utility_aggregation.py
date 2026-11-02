@@ -101,6 +101,31 @@ async def aggregate_utility_scores(
     return utility_map
 
 
+async def aggregate_evidence_counts(
+    db: AsyncSession,
+    memories: Sequence[Any],
+) -> dict[str, int]:
+    """批量统计每条记忆的证据数，供检索结果/上下文的 citation 展示。
+
+    与 utility 聚合分离：检索排序不依赖该值，只用于可追溯性；
+    查询失败时返回空字典，不阻断检索。
+    """
+    uuid_ids = [getattr(mem, "id", None) for mem in memories]
+    uuid_ids = [mem_id for mem_id in uuid_ids if mem_id is not None]
+    if not uuid_ids:
+        return {}
+    try:
+        result = await db.execute(
+            select(Evidence.memory_id, func.count(Evidence.id))
+            .where(Evidence.memory_id.in_(uuid_ids))
+            .group_by(Evidence.memory_id)
+        )
+        return {str(row[0]): int(row[1]) for row in result.all()}
+    except Exception:
+        logger.debug("Evidence count aggregation failed, defaulting to empty", exc_info=True)
+        return {}
+
+
 def latest_used_at(*candidates: datetime | None) -> datetime | None:
     """取候选时间中最新者；naive 一律视为 UTC（与 days_since 口径一致）。
 

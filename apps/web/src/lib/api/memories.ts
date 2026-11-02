@@ -10,8 +10,6 @@ import type {
   Lifecycle,
   Relation,
   RelatedMemory,
-  MergeSuggestion,
-  MergeHistoryItem,
 } from './types'
 
 // --- File Memories CRUD ---
@@ -30,7 +28,7 @@ export type MemoryListRecord = FileMemory & { utility_score?: number | null }
 
 // 列表走 /v1/memories（DB 视图）：支持 workspace_id/type/status 过滤，响应含
 // utility_score 与 last_used_at；与 /v1/file-memories（文件视图）共享同一批 id，
-// status 合法值为 active | archived，不传则不过滤（含全部状态）
+// status 合法值为 active | superseded | conflicted | deprecated，不传则不过滤
 export const getMemories = (opts?: {
   workspace_id?: string
   type?: string
@@ -44,6 +42,15 @@ export const getMemories = (opts?: {
   max_importance?: number
   usage?: 'unused' | 'low' | 'medium' | 'high'
   decay?: 'fresh' | 'aging' | 'stale'
+  review_status?:
+    | 'due'
+    | 'new'
+    | 'learning'
+    | 'familiar'
+    | 'proficient'
+    | 'mastered'
+    | 'suspended'
+    | 'unscheduled'
 }) => {
   const params = new URLSearchParams()
   if (opts?.workspace_id) params.set('workspace_id', opts.workspace_id)
@@ -58,19 +65,22 @@ export const getMemories = (opts?: {
   if (opts?.max_importance !== undefined) params.set('max_importance', String(opts.max_importance))
   if (opts?.usage) params.set('usage', opts.usage)
   if (opts?.decay) params.set('decay', opts.decay)
+  if (opts?.review_status) params.set('review_status', opts.review_status)
   const qs = params.toString()
   return request<PaginatedResponse<MemoryListItem>>(`/memories${qs ? `?${qs}` : ''}`)
 }
 
-export const getMemoryStats = () =>
-  request<{
+export const getMemoryStats = (status?: string) => {
+  const qs = status ? `?status=${encodeURIComponent(status)}` : ''
+  return request<{
     file_count: number
     vector_count: number
     vector_index_path: string
     git_commits: number
     has_changes: boolean
     type_distribution: Record<string, number>
-  }>('/file-memories/stats')
+  }>(`/file-memories/stats${qs}`)
+}
 
 export const getMemoryDetail = (id: string) => request<FileMemory>(`/file-memories/${id}`)
 
@@ -192,6 +202,20 @@ export const createMemoryRelation = (
     }),
   })
 
+export const batchUpdateMemories = (
+  ids: string[],
+  patch: { type?: string; confidence?: number; importance?: number; tags?: string[] },
+) =>
+  request<{
+    results: { memory_id: string; success: boolean; error: string | null }[]
+    total: number
+    succeeded: number
+    failed: number
+  }>('/memories/batch-update', {
+    method: 'POST',
+    body: JSON.stringify({ ids, patch }),
+  })
+
 export const deleteMemoryRelation = (memoryId: string, relationId: string) =>
   request<{ status: string; id: string }>(`/memories/${memoryId}/relations/${relationId}`, {
     method: 'DELETE',
@@ -205,59 +229,6 @@ export const updateMemoryRelation = (
   request<Relation>(`/memories/${memoryId}/relations/${relationId}`, {
     method: 'PATCH',
     body: JSON.stringify(patch),
-  })
-
-export const dismissMergeSuggestion = (
-  workspaceId: string | undefined,
-  sourceId: string,
-  targetId: string,
-) =>
-  request<{ status: string }>('/memories/merge-suggestions/dismiss', {
-    method: 'POST',
-    body: JSON.stringify({
-      workspace_id: workspaceId,
-      source_id: sourceId,
-      target_id: targetId,
-    }),
-  })
-
-export const getMergeSuggestions = (workspaceId: string, limit = 10) =>
-  request<{
-    items: MergeSuggestion[]
-    total: number
-    generated_at: string | null
-    strategy?: string
-  }>(`/memories/merge-suggestions?workspace_id=${workspaceId}&limit=${limit}`)
-
-export const getMergeHistory = (workspaceId: string, limit = 20, offset = 0) =>
-  request<{
-    items: MergeHistoryItem[]
-    total: number
-    limit: number
-    offset: number
-  }>(`/memories/merge-history?workspace_id=${workspaceId}&limit=${limit}&offset=${offset}`)
-
-export const triggerConsolidate = () =>
-  request<{ status: string; message: string }>(`/memories/consolidate`, {
-    method: 'POST',
-  })
-
-export const mergeMemories = (
-  sourceId: string,
-  targetId: string,
-  mergedContent: string,
-  similarity?: number,
-  strategy?: string,
-) =>
-  request<{ merged_memory_id: string; archived_memory_id: string }>(`/memories/merge`, {
-    method: 'POST',
-    body: JSON.stringify({
-      source_memory_id: sourceId,
-      target_memory_id: targetId,
-      merged_content: mergedContent,
-      similarity,
-      strategy,
-    }),
   })
 
 // --- Tags ---

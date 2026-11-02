@@ -18,17 +18,37 @@ graph LR
 
 ## Rerank 信号权重
 
-config.yaml 可配置，总和为 1.0：
+重排分两组，组内各自归一，config.yaml 可配置：
 
-| 信号 | 权重 | 说明 |
-|------|------|------|
-| `rrf` | 0.38 | RRF 融合分数 |
-| `importance` | 0.16 | 重要度 |
-| `confidence` | 0.13 | 记忆置信度 |
-| `freshness` | 0.13 | 新鲜度 |
-| `intent` | 0.12 | 意图-类型匹配度 |
-| `usage` | 0.08 | 使用频率 |
-| `key_term` | 0.08 | 关键术语命中加成 |
+**相关性组**
+
+| 信号 | 默认权重 | 说明 |
+|------|---------|------|
+| `rrf` | 0.40 | RRF 分数 / 理论满分（`(bm25_weight+vector_weight)/(RRF_K+1)`） |
+| `semantic` | 0.30 | 向量余弦相似度（绝对值） |
+| `bm25` | 0.30 | BM25 分数 / 池内最大值 |
+| `intent` | 0.15 | 意图-类型匹配，以中性 0.5 为中心 |
+
+`key_term_bonus`（默认 0.08）为相关性组内的加性奖励；否定词命中对相关性做乘性衰减（保底 20%）。
+
+**元数据组（仅 `band` 内生效）**
+
+| 信号 | 默认权重 | 说明 |
+|------|---------|------|
+| `confidence` | 0.35 | 记忆置信度 |
+| `importance` | 0.30 | 重要度 |
+| `freshness` | 0.20 | 新鲜度 |
+| `usage` | 0.15 | 使用频率 |
+
+最终分：
+
+```
+final = (1 - band) × relevance + band × metadata
+```
+
+`reranker_relevance_band` 默认 0.05：元数据最多翻转相关性差 ≤band 的候选，不能跨带压过相关性。`band=0` 即纯相关性排序。RRF 用理论满分锚定而非池内 min-max，候选池大小变化不会改变同名词次的相关性分。
+
+权重由 `benchmarks/runners/calibrate_reranker.py` 在固定种子的 eval-fixture 上标定（20% 查询留出做过拟合检查），真实库另做不回退抽样。
 
 ---
 
@@ -57,9 +77,7 @@ RRF_score(d) = Σ 1 / (k + rank_i(d))
 
 ### 5. Multi-signal Rerank
 
-加权综合多信号：RRF 分数、置信度、重要度、意图匹配度、新鲜度、使用频率。
-
-意图匹配度（intent bonus）根据查询意图与记忆类型的匹配关系计算：
+相关性组与元数据组按上文公式合成。意图匹配度（intent bonus）根据查询意图与记忆类型的匹配关系计算：
 
 | 查询意图 | 高匹配类型 | 次匹配类型 |
 |----------|-----------|-----------|
@@ -71,13 +89,32 @@ RRF_score(d) = Σ 1 / (k + rank_i(d))
 | `fact` | fact (1.0) | — |
 | `unknown` | 所有类型 (0.5) | — |
 
+意图匹配以中性 0.5 为中心：unknown 或类型不匹配不改变相关性，匹配类型才产生正加成。
+
 ### 6. Diversity Filter
 
 限制每种记忆类型最多返回 3 条（`max_per_type=3`），确保结果多样性。
 
 ### 7. Context Assembly
 
-在 Token 预算内组装记忆内容，生成可直接注入 Prompt 的上下文文本。
+在 Token 预算内组装记忆内容，生成可直接注入 Prompt 的上下文文本。每条记忆带可追溯属性：
+
+```xml
+[1] [FACT] 标题
+<memory type="fact" id="..." source="mcp" version="3" confidence="0.50" evidence="2" updated="2026-11-01">
+正文
+</memory>
+```
+
+`source / version / confidence / evidence` 来自正式记忆与 Evidence 表；`updated` 只取日期以控制 token。结构化引用另由 `/v1/context` 的 `citations` 返回。
+
+组装排序同样采用相关性主导：
+
+```
+rank_score = score + band × ((1-utility_weight) × 类型优先级 + utility_weight × utility)
+```
+
+类型优先级与效用只在 band 内翻转候选，不会整体重排检索结果。embedding 微调（band 默认 0.03）也在 `rank_by_priority` 之前执行，仅用于近邻并列的语义补足。
 
 ---
 
@@ -98,7 +135,7 @@ fingerprint = (active 数量, MAX(updated_at), SUM(LENGTH(title) + LENGTH(conten
 ### 失效保证
 
 - **写操作**：SQLAlchemy 的 `onupdate=func.now()` 使 `Memory.updated_at` 自动更新，指纹变化
-- **结构变化**：插入、归档和删除改变 active 数量，指纹变化
+- **结构变化**：插入、状态离开 active 和删除都会改变 active 数量，指纹变化
 - **已知盲区**：SQLite `CURRENT_TIMESTAMP` 秒级精度，同秒同总长度原地编辑可能漏检，由 30 秒 TTL 兜底
 
 ### 缓存策略
@@ -126,9 +163,11 @@ BM25 索引支持增量 `add()` / `remove()` / `update()`，无需调用 `build(
 重排后取前 5 条记忆，沿显式关系边做一跳扩展。关系按无向图处理：入边与出边都会把另一端作为邻居，邻居加分：
 
 ```
-boost = 0.15 × confidence + 0.10 × effective_strength
+boost = (0.15 × confidence + 0.10 × effective_strength) × band / 0.25
 effective_strength = strength × 0.5 ^ (距上次强化的天数 / 半衰期天数)
 ```
+
+- 邻居加分按理论满分 0.25 等比缩放到 `reranker_relevance_band`（默认 0.05）：保留邻居之间的强度差异，但最大加分不超过 band，关系图不会压过检索相关性。
 
 - 邻居仍受 `memory_type`、`min_confidence`、`min_similarity` 与 `tags` 过滤约束，不会绕过检索条件。
 - 每次 `record_trace=True` 的检索结束后，对最终结果中两端都命中的**既有关系边**做 Hebbian 强化：先按半衰期衰减，再按 `strength += rate × (1 - strength)` 逼近 1。不会自动新建关系边，避免关系图噪声膨胀。

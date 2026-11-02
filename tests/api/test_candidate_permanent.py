@@ -33,7 +33,7 @@ async def test_candidate_permanent_is_saved_and_copied_on_approval(
             "content": (
                 "## 场景\n用户明确要求长期保留的知识在提交候选时声明永久。\n\n"
                 "## 知识\n永久标记必须随候选进入正式记忆，避免审批后重新补标。\n\n"
-                "## 边界\n永久记忆不参与自动合并归档，普通记忆不受影响。"
+                "## 边界\n永久记忆不参与自动衰减，普通记忆不受影响。"
             ),
             "type": "fact",
             "is_permanent": True,

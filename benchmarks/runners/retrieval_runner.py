@@ -39,8 +39,8 @@ from packages.domain.database import async_session_maker
 from packages.domain.models import Memory
 from packages.retrieval.bm25 import BM25Index
 from packages.retrieval.embedding import get_embedding_service
-from packages.retrieval.engine import RRF_K
-from packages.retrieval.query.analyzer import analyze_query
+from packages.retrieval.query.analyzer import AnalyzedQuery, analyze_query
+from packages.retrieval.ranking.constants import RRF_K
 from packages.retrieval.ranking.diversity import apply_diversity
 from packages.retrieval.ranking.reranker import RerankInput, rerank
 from packages.retrieval.ranking.temporal import temporal_score
@@ -161,46 +161,26 @@ def _rrf_fusion(
     return rrf_scores
 
 
-async def run_pipeline(
-    pipeline: str,
+async def prepare_query_candidates(
     query: str,
     workspace_id: uuid.UUID,
     bm25_index: BM25Index,
     memories: list[Memory],
     db: AsyncSession,
     max_items: int = 20,
-) -> tuple[list[str], int]:
-    start = time.time()
+) -> tuple[AnalyzedQuery, list[RerankInput], dict[str, Memory]]:
+    """构建单条查询的重排输入（BM25 + 向量 + RRF），供运行器与标定脚本共用。"""
     mem_map = {str(m.id): m for m in memories}
-
-    if pipeline == "baseline_bm25":
-        results = await _bm25_search(bm25_index, query, top_k=max_items)
-        ranked = [doc_id for doc_id, _ in results[:max_items]]
-        latency = int((time.time() - start) * 1000)
-        return ranked, latency
-
-    if pipeline == "baseline_vector":
-        results = await _vector_search(db, query, workspace_id, top_k=max_items)
-        ranked = [doc_id for doc_id, _ in results[:max_items]]
-        latency = int((time.time() - start) * 1000)
-        return ranked, latency
-
     bm25_results = await _bm25_search(bm25_index, query, top_k=50)
     vector_results = await _vector_search(db, query, workspace_id, top_k=50)
     rrf_scores = _rrf_fusion(
         bm25_results, vector_results, settings.bm25_weight, settings.vector_weight
     )
-
-    if pipeline == "hybrid_rrf":
-        sorted_ids = sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)
-        ranked = [doc_id for doc_id, _ in sorted_ids[:max_items]]
-        latency = int((time.time() - start) * 1000)
-        return ranked, latency
-
     sorted_candidates = sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)
     top_ids = [doc_id for doc_id, _ in sorted_candidates[: max_items * 3]]
-
     analyzed = analyze_query(query)
+    bm25_score_map = dict(bm25_results)
+    vector_score_map = dict(vector_results)
 
     rerank_inputs: list[RerankInput] = []
     for doc_id in top_ids:
@@ -215,27 +195,14 @@ async def run_pipeline(
             ignore_expiry=analyzed.is_historical_query,
         )
         usage_score = min(m.usage_count / 100.0, 1.0) if m.usage_count else 0.0
-
-        bm25_score = 0.0
-        for rank, (did, s) in enumerate(bm25_results, 1):
-            if did == doc_id:
-                bm25_score = s
-                break
-
-        vector_score = 0.0
-        for rank, (did, s) in enumerate(vector_results, 1):
-            if did == doc_id:
-                vector_score = s
-                break
-
         rerank_inputs.append(
             RerankInput(
                 memory_id=doc_id,
                 title=m.title,
                 content=m.content,
                 memory_type=m.type,
-                bm25_score=bm25_score,
-                vector_score=vector_score,
+                bm25_score=bm25_score_map.get(doc_id, 0.0),
+                vector_score=vector_score_map.get(doc_id, 0.0),
                 rrf_score=rrf_scores.get(doc_id, 0.0),
                 confidence=m.confidence,
                 importance=m.importance,
@@ -243,6 +210,51 @@ async def run_pipeline(
                 usage_score=usage_score,
             )
         )
+    return analyzed, rerank_inputs, mem_map
+
+
+async def run_pipeline(
+    pipeline: str,
+    query: str,
+    workspace_id: uuid.UUID,
+    bm25_index: BM25Index,
+    memories: list[Memory],
+    db: AsyncSession,
+    max_items: int = 20,
+) -> tuple[list[str], int]:
+    start = time.time()
+
+    if pipeline == "baseline_bm25":
+        results = await _bm25_search(bm25_index, query, top_k=max_items)
+        ranked = [doc_id for doc_id, _ in results[:max_items]]
+        latency = int((time.time() - start) * 1000)
+        return ranked, latency
+
+    if pipeline == "baseline_vector":
+        results = await _vector_search(db, query, workspace_id, top_k=max_items)
+        ranked = [doc_id for doc_id, _ in results[:max_items]]
+        latency = int((time.time() - start) * 1000)
+        return ranked, latency
+
+    if pipeline == "hybrid_rrf":
+        bm25_results = await _bm25_search(bm25_index, query, top_k=50)
+        vector_results = await _vector_search(db, query, workspace_id, top_k=50)
+        rrf_scores = _rrf_fusion(
+            bm25_results, vector_results, settings.bm25_weight, settings.vector_weight
+        )
+        sorted_ids = sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)
+        ranked = [doc_id for doc_id, _ in sorted_ids[:max_items]]
+        latency = int((time.time() - start) * 1000)
+        return ranked, latency
+
+    analyzed, rerank_inputs, mem_map = await prepare_query_candidates(
+        query,
+        workspace_id,
+        bm25_index,
+        memories,
+        db,
+        max_items=max_items,
+    )
 
     reranked = rerank(
         rerank_inputs,
