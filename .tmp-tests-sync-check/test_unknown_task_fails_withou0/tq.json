@@ -1,0 +1,1 @@
+[{"id": "2eb11c17-1e49-45c3-a8a6-574560d349d3", "name": "nonexistent_task", "args": [], "kwargs": {}, "retry_count": 0, "created_at": "2026-11-02T01:27:49.956411+00:00", "status": "failed", "error": "Unknown task: nonexistent_task", "completed_at": "2026-11-02T01:27:49.958023+00:00"}]

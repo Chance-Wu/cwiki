@@ -63,6 +63,20 @@ async def test_replay_failure_retains_intent_then_uses_latest_state(repair_db, m
     assert not list(await repair_db.scalars(select(FileSyncJob.id)))
 
 
+async def test_new_intent_during_replay_is_not_acknowledged(repair_db, monkeypatch):
+    _, memory = await seed(repair_db)
+    mid = memory.id
+
+    async def concurrent_edit(*args, **kwargs):
+        repair_db.add(FileSyncJob(memory_id=mid))
+        await repair_db.flush()
+        return True
+
+    monkeypatch.setattr("apps.api.file_sync.sync_memory_to_file", concurrent_edit)
+    assert await replay_file_sync_jobs(repair_db) == 1
+    assert list(await repair_db.scalars(select(FileSyncJob.memory_id))) == [mid]
+
+
 async def test_bulk_delete_intent_survives_missing_memory(repair_db, monkeypatch):
     _, memory = await seed(repair_db)
     mid = memory.id

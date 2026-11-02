@@ -373,6 +373,8 @@ async def test_rebuild_clears_stale_rows_in_four_tables(tmp_path):
         stale_version = uuid.uuid4()
         stale_history = uuid.uuid4()
         async with rebuilder._session_factory() as session:
+            # 导入夹具表示已有导出快照，不模拟未完成的在线镜像写入。
+            session.info["skip_file_sync_intents"] = True
             session.add(Workspace(id=stale_ws, name="stale-ws"))
             session.add(
                 CandidateMemory(

@@ -1,0 +1,1 @@
+[{"id": "e4f05f7b-45bb-4fe6-873e-f45eab35c840", "name": "counting_fail", "args": [], "kwargs": {}, "retry_count": 0, "created_at": "2026-11-02T01:27:51.920483+00:00", "status": "failed", "error": "boom", "completed_at": "2026-11-02T01:27:51.928645+00:00"}]
