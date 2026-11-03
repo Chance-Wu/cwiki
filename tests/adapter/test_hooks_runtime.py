@@ -84,7 +84,7 @@ def test_post_compact_writes_full_content_to_spool(tmp_path):
     assert records[0]["content"] == content
 
 
-def test_tool_failure_redacts_secret_and_skips_interrupt(tmp_path):
+def test_tool_failure_writes_nothing_to_spool(tmp_path):
     result = _run(
         ["qoder", "post-tool-failure"],
         {
@@ -98,10 +98,9 @@ def test_tool_failure_redacts_secret_and_skips_interrupt(tmp_path):
         tmp_path,
     )
     assert result.returncode == 0
-    files = list((tmp_path / "state" / "qoder").glob("*.jsonl"))
-    record = json.loads(files[0].read_text().splitlines()[0])
-    assert "sk-abcdefghijklmnop" not in record["content"]
-    assert "[REDACTED]" in record["content"]
+    assert not (tmp_path / "state" / "qoder").exists() or not list(
+        (tmp_path / "state" / "qoder").glob("session-fail*.jsonl")
+    )
 
     interrupted = _run(
         ["qoder", "post-tool-failure"],

@@ -115,6 +115,10 @@ class SessionNoteFormalize(BaseModel):
     memory_id: UUID | None = None
 
 
+class SessionNoteBatchDiscard(BaseModel):
+    note_ids: list[UUID] = Field(..., min_length=1, max_length=200)
+
+
 class SessionNoteRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: UUID

@@ -88,10 +88,11 @@ class TestAllowedTransitions:
         allowed = get_allowed_memory_transitions("active")
         assert set(allowed) == {"superseded", "conflicted", "deprecated"}
 
-    def test_candidate_pending_review_allows_five(self):
+    def test_candidate_pending_review_allows_six(self):
         allowed = get_allowed_candidate_transitions("pending_review")
         assert "approved" in allowed
         assert "needs_enrichment" in allowed
+        assert "discarded" in allowed
 
     def test_unknown_status_returns_empty(self):
         assert get_allowed_memory_transitions("unknown") == []

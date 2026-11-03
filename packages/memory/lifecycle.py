@@ -30,7 +30,7 @@ MEMORY_STATUS_TRANSITIONS: dict[str, list[str]] = {
 
 # 候选记忆合法状态转换表
 CANDIDATE_STATUS_TRANSITIONS: dict[str, list[str]] = {
-    "pending_review": ["approved", "rejected", "merged", "deferred", "needs_enrichment"],
+    "pending_review": ["approved", "rejected", "merged", "deferred", "needs_enrichment", "discarded"],
     "needs_enrichment": ["pending_review", "rejected"],
     "deferred": ["pending_review", "rejected"],
     "approved": [],  # 终态

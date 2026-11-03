@@ -270,7 +270,8 @@ async def _apply_simple_review_action(
 
     "approve" 返回生成的已验证记忆，其余返回 None；
     "reject" 标记 rejected 隔离留存（行不删除，可恢复）；
-    动作不是 approve/reject/later 时抛 ValueError。
+    "discard" 标记 discarded 彻底丢弃（行不删除，可恢复）；
+    动作不是 approve/reject/later/discard 时抛 ValueError。
     """
     if action == "approve":
         return await approve_candidate(db, candidate, embedding=embedding)
@@ -279,6 +280,9 @@ async def _apply_simple_review_action(
         return None
     if action == "later":
         await claim_candidate(db, candidate, "deferred")
+        return None
+    if action == "discard":
+        await claim_candidate(db, candidate, "discarded")
         return None
     raise ValueError(f"Unsupported simple action: {action}")
 
@@ -347,13 +351,14 @@ async def create_review(
 ) -> ReviewRead:
     """提交候选记忆的审核动作。
 
-    动作：approve、edit、reject、merge、update、later。
+    动作：approve、edit、reject、merge、update、later、discard。
     - approve: 由候选创建新已验证记忆
     - edit: 以编辑后的内容创建新已验证记忆
     - reject: 拒绝候选
     - merge: 把候选内容并入已有记忆
     - update: 用候选内容替换已有记忆
     - later: 暂缓审核
+    - discard: 彻底丢弃候选
     """
     candidate = await get_or_404(db, CandidateMemory, body.candidate_id)
 
@@ -368,7 +373,7 @@ async def create_review(
     review_embedding: list[float] | None = None
 
     try:
-        if action in ("approve", "reject", "later"):
+        if action in ("approve", "reject", "later", "discard"):
             if action == "approve":
                 review_embedding = await _prepare_review_embedding_for_text(
                     candidate.title, candidate.content
@@ -601,7 +606,7 @@ async def batch_review(
                         candidate.title, candidate.content
                     )
 
-                if action in ("approve", "reject", "later"):
+                if action in ("approve", "reject", "later", "discard"):
                     memory = await _apply_simple_review_action(
                         db, candidate, action, embedding=review_embedding
                     )
@@ -610,7 +615,7 @@ async def batch_review(
                         _batch_failure(
                             str(item.candidate_id),
                             action,
-                            f"Batch mode only supports approve/reject/later, got: {action}",
+                            f"Batch mode only supports approve/reject/later/discard, got: {action}",
                         )
                     )
                     failed += 1

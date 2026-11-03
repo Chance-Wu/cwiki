@@ -646,7 +646,9 @@ export default function InboxPage() {
                     <span className="text-sm text-[var(--text-secondary)]">
                       {batchConfirmAction === 'approve'
                         ? translate(t.inbox.confirmBatchApprove, { n: selectedIds.size })
-                        : translate(t.inbox.confirmBatchReject, { n: selectedIds.size })}
+                        : batchConfirmAction === 'discard'
+                          ? translate(t.inbox.confirmBatchDiscard, { n: selectedIds.size })
+                          : translate(t.inbox.confirmBatchReject, { n: selectedIds.size })}
                     </span>
                     <div className="flex items-center gap-2">
                       <Button
@@ -683,6 +685,14 @@ export default function InboxPage() {
                       {translate(t.inbox.selectedCount, { n: selectedIds.size })}
                     </span>
                     <div className="flex items-center gap-2">
+                      <Button
+                        onClick={() => setBatchConfirmAction('discard')}
+                        disabled={batchActionLoading !== null}
+                        variant="danger"
+                        size="sm"
+                      >
+                        {t.inbox.batchDiscard}
+                      </Button>
                       <Button
                         onClick={() => setBatchConfirmAction('reject')}
                         disabled={batchActionLoading !== null}

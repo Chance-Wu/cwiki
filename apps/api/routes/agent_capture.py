@@ -42,7 +42,6 @@ _WORKSPACE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 _PATH_LIKE_RE = re.compile(r"^[A-Za-z]--")
 _DEFAULT_SIGNAL = {
     "compact_summary": "session_snapshot",
-    "tool_failure": "issue",
     "session_end": "other",
 }
 

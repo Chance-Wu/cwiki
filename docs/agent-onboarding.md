@@ -77,7 +77,7 @@ Hook 事件与宿主能力：
 | `session-start` | ✅ 注入提醒 + 补投 spool | ✅ |
 | `user-prompt-submit` | ✅ 自动召回（每 prompt） | ❌（`beforeSubmitPrompt` 不能注入 context） |
 | `post-compact` | ✅ 捕获 `compact_summary` | ❌（无 summary） |
-| `post-tool-failure` | ✅ 捕获脱敏错误 | ✅ |
+| `post-tool-failure` | ⚪ 接收但不捕获（工具失败不进待整理，教训由 checkpoint 链路提炼） | ⚪ |
 | `session-end` | ✅ 结束会话 + 补投 | ✅ |
 
 > Cursor 的 hooks 与 rules 只有项目级入口，安装器不再写入；需要时请手动在项目内配置 `.cursor/hooks.json` 与 `.cursor/rules/cwiki.mdc`。

@@ -12,15 +12,17 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-CaptureKind = Literal["compact_summary", "tool_failure", "session_end"]
+CaptureKind = Literal["compact_summary", "session_end"]
 
 
 class AgentCaptureRecord(BaseModel):
     """一条待整理的捕获记录。
 
     - compact_summary：宿主压缩上下文后提供的摘要（已由宿主总结，非 cwiki 截断）
-    - tool_failure：工具失败的结构化信息（已脱敏）
     - session_end：只更新会话生命周期，不产生 note
+
+    tool_failure 已从协议移除：工具失败内容不进待整理（0 转化噪声），
+    真实的失败教训由事件/checkpoint 链路提炼。
     """
 
     record_id: str | None = Field(

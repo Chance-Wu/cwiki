@@ -13,7 +13,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Body, Depends, Query
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.auth import AgentIdentity
@@ -28,6 +28,7 @@ from packages.domain.config import API_V1_PREFIX
 from packages.domain.models import AgentSession, SessionNote, Workspace
 from packages.domain.schemas import (
     PaginatedResponse,
+    SessionNoteBatchDiscard,
     SessionNoteCreate,
     SessionNoteFormalize,
     SessionNoteRead,
@@ -214,6 +215,23 @@ async def search_session_notes(
         "offset": offset,
         "limit": limit,
     }
+
+
+@router.post("/session-notes/batch-discard")
+async def batch_discard_notes(
+    body: SessionNoteBatchDiscard,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _identity: Annotated[AgentIdentity | None, Depends(require_scope("notes:write"))] = None,
+) -> dict[str, int]:
+    """批量软删除笔记：标记 discarded_at，不在列表显示。"""
+    result = await db.execute(
+        update(SessionNote)
+        .where(SessionNote.id.in_(body.note_ids), SessionNote.discarded_at.is_(None))
+        .values(discarded_at=datetime.now(UTC))
+        .execution_options(synchronize_session=False)
+    )
+    await db.flush()
+    return {"discarded": result.rowcount or 0}
 
 
 @router.get("/session-notes/{note_id}", response_model=SessionNoteRead)

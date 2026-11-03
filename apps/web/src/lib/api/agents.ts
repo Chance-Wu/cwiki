@@ -87,3 +87,9 @@ export const formalizeNote = (
 
 export const discardNote = (noteId: string) =>
   request<void>(`/session-notes/${noteId}`, { method: 'DELETE' })
+
+export const batchDiscardNotes = (noteIds: string[]) =>
+  request<{ discarded: number }>('/session-notes/batch-discard', {
+    method: 'POST',
+    body: JSON.stringify({ note_ids: noteIds }),
+  })

@@ -51,11 +51,11 @@ async def test_list_returns_preview_not_full_content(client):
         [
             {
                 "record_id": "rec-preview",
-                "kind": "tool_failure",
+                "kind": "compact_summary",
                 "session_id": "host-session-preview",
                 "workspace": "preview-test",
                 "content": content,
-                "signal_type": "issue",
+                "signal_type": "session_snapshot",
             }
         ],
     )
@@ -99,7 +99,7 @@ async def test_invalid_workspace_is_rejected_without_creating_workspace(client):
         [
             {
                 "record_id": "bad-ws",
-                "kind": "tool_failure",
+                "kind": "compact_summary",
                 "session_id": "s",
                 "workspace": "C--Users-Administrator--qoder",
                 "content": "error",
@@ -110,6 +110,22 @@ async def test_invalid_workspace_is_rejected_without_creating_workspace(client):
     data = resp.json()
     assert data["accepted"] == 0
     assert data["rejected"][0]["record_id"] == "bad-ws"
+
+
+async def test_tool_failure_kind_is_rejected_by_contract(client):
+    resp = await _capture(
+        client,
+        [
+            {
+                "record_id": "old-kind",
+                "kind": "tool_failure",
+                "session_id": "s",
+                "workspace": "kind-test",
+                "content": "error",
+            }
+        ],
+    )
+    assert resp.status_code == 422
 
 
 async def test_session_end_updates_session_without_note(client):

@@ -125,6 +125,7 @@ import {
   searchSessionNotes,
   formalizeNote,
   discardNote,
+  batchDiscardNotes,
 } from './agents'
 import {
   getSkills,
@@ -223,6 +224,7 @@ export const api = {
   searchSessionNotes,
   formalizeNote,
   discardNote,
+  batchDiscardNotes,
   getDueReviews,
   submitReview,
   submitReviewQuiz,
