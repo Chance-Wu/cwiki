@@ -48,6 +48,10 @@ class QueryMetrics:
     # 误召回 = top-10 出现 ≥1 分（弱相关）结果，困难负例的弱相关干扰项在此生效。
     is_negative_probe: bool = False
     negative_fp_at_10: bool = False
+    # Preserve evidence, including unjudged hits (None, not grade 0).
+    query: str = ""
+    ranked_memory_ids: list[str] = field(default_factory=list)
+    ranked_relevance: list[int | None] = field(default_factory=list)
 
 
 @dataclass
@@ -139,6 +143,9 @@ def evaluate_query(
     relevant = _relevant_ids(judgment.judgments)
     qm = QueryMetrics(
         query_id=result.query_id,
+        query=judgment.query,
+        ranked_memory_ids=list(result.ranked_memory_ids),
+        ranked_relevance=[judgment.judgments.get(mid) for mid in result.ranked_memory_ids],
         relevant_count=len(relevant),
         recall_at_5=recall_at_k(result.ranked_memory_ids, relevant, 5),
         recall_at_10=recall_at_k(result.ranked_memory_ids, relevant, 10),

@@ -27,6 +27,7 @@ from packages.domain.schemas import (
     ProactivePushResponse,
 )
 from packages.memory.similarity import jaccard_similarity
+from packages.retrieval.context.assembler import assemble_context
 from packages.retrieval.engine import get_retrieval_engine
 
 router = APIRouter(prefix=API_V1_PREFIX, tags=["context"])
@@ -473,20 +474,8 @@ async def get_context(
         usage_counts = {}
 
     items = []
-    usage_records: list[MemoryUsage] = []
-    for mem_id, mem_type, mem, position in valid_memories:
+    for mem_id, mem_type, mem, _position in valid_memories:
         freshness = freshness_map.get(mem_id, {"days_unused": None})
-        # curated 上下文是 Agent 主动拉取并实际消费的内容 → 记 used；
-        # 检索（/v1/search）命中的记 retrieved，两者构成 utility 的成功率信号
-        usage_records.append(
-            MemoryUsage(
-                workspace_id=resolved_ws_id,
-                memory_id=mem_id,
-                session_id=body.session_id,
-                position=position,
-                stage="used",
-            )
-        )
 
         items.append(
             ContextItem(
@@ -510,9 +499,6 @@ async def get_context(
             if item.type in preferred_types:
                 item.score = (item.score if item.score is not None else 0.0) + 0.05
 
-    if usage_records:
-        db.add_all(usage_records)
-
     items = await rerank_context_results(
         items,
         resolved_ws_id,
@@ -522,38 +508,64 @@ async def get_context(
         usage_counts=usage_counts,
     )
     items = await deduplicate_results(items)
-    items = await fit_to_token_budget(
-        items, budget=body.max_tokens or settings.context_token_budget
+    # Preserve the shared assembler's safety filters, provenance and CJK-aware
+    # rendered budget; its selected/compressed memories are the delivery authority.
+    original = {str(mem_id): mem for mem_id, _type, mem, _pos in valid_memories}
+    assembled = assemble_context(
+        [
+            {
+                **original[str(item.memory_id)],
+                "id": str(item.memory_id),
+                "score": item.score,
+                "content": item.content,
+            }
+            for item in items
+        ],
+        query=body.keyword or "",
+        max_tokens=body.max_tokens or settings.context_token_budget,
     )
+    item_map = {str(item.memory_id): item for item in items}
+    items = [item_map[mem.memory_id] for mem in assembled.memories]
+    for item, mem in zip(items, assembled.memories, strict=True):
+        item.content = mem.content
 
+    # Only delivered items count as context use, not deduplicated/budget-dropped candidates.
+    db.add_all(
+        [
+            MemoryUsage(
+                workspace_id=resolved_ws_id,
+                memory_id=item.memory_id,
+                session_id=body.session_id,
+                position=position,
+                stage="used",
+            )
+            for position, item in enumerate(items)
+        ]
+    )
     await db.commit()
 
-    sources = [f"memory:{s['memory_id']}" for s in result.get("sources", []) if isinstance(s, dict)]
+    # All delivery representations must describe the same final selection.
+    sources = [f"memory:{item.memory_id}" for item in items]
     citations = [
         ContextCitation(
-            memory_id=(
-                uuid.UUID(str(s["memory_id"]))
-                if not isinstance(s.get("memory_id"), uuid.UUID)
-                else s["memory_id"]
-            ),
-            title=str(s.get("title", "")),
-            source=str(s.get("source", "memory")),
-            version=s.get("version"),
-            updated_at=s.get("updated_at"),
-            confidence=s.get("confidence"),
-            evidence_count=int(s.get("evidence_count", 0) or 0),
-            score=s.get("score"),
+            memory_id=item.memory_id,
+            title=item.title,
+            source=item.source,
+            version=item.version,
+            updated_at=item.updated_at,
+            confidence=item.confidence,
+            evidence_count=item.evidence_count,
+            score=item.score,
         )
-        for s in result.get("sources", [])
-        if isinstance(s, dict) and s.get("memory_id")
+        for item in items
     ]
 
     response = ContextResponse(
-        context=result.get("context", ""),
+        context=assembled.text,
         items=items,
         sources=sources,
         citations=citations,
-        total=result.get("total", len(items)),
+        total=len(items),
         keyword=body.keyword,
         latency_ms=int(result.get("latency_ms", 0)),
         degraded=result.get("degraded", []),

@@ -111,7 +111,7 @@ async def test_aggregate_counts_match_expected(utility_env):
     result = await env.engine._aggregate_utility_scores(env.db, [env.a_id, env.b_id], mem_map)
 
     expected = compute_utility_score(
-        retrieval_count=5,
+        retrieval_count=3,
         used_count=2,
         cited_count=0,
         useful_votes=2,
@@ -158,7 +158,7 @@ async def test_retrieve_injects_nonzero_utility_into_final_memories(utility_env,
     assert env.a_id in by_id
     expected = round(
         compute_utility_score(
-            retrieval_count=5,
+            retrieval_count=3,
             used_count=2,
             cited_count=0,
             useful_votes=2,

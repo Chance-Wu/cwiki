@@ -44,6 +44,8 @@ class HostProfile:
     # 宿主能否在 UserPromptSubmit 阶段注入上下文（Cursor 不支持）
     prompt_context: bool = True
     hook_commands: tuple[HookCommandSpec, ...] = ()
+    # 当前仓库声明的能力状态；manual 表示可由用户/脚本显式调用，不代表宿主自动触发。
+    manual_events: frozenset[str] = frozenset()
 
 
 def _profile(
@@ -56,6 +58,7 @@ def _profile(
     context_shape: ContextShape = "hook_specific_output",
     prompt_context: bool = True,
     hook_commands: tuple[HookCommandSpec, ...] = (),
+    manual_events: frozenset[str] = frozenset(),
 ) -> HostProfile:
     return HostProfile(
         name=name,
@@ -66,6 +69,7 @@ def _profile(
         context_shape=context_shape,
         prompt_context=prompt_context,
         hook_commands=hook_commands,
+        manual_events=manual_events,
     )
 
 
@@ -93,6 +97,7 @@ PROFILES: dict[str, HostProfile] = {
         # dsh 的归属靠安装器写入的 CWIKI_WORKSPACE_DIR；无 hooks 时此表仅手动调用生效。
         project_env=("CWIKI_WORKSPACE_DIR", "CWIKI_PROJECT_DIR"),
         hook_commands=(HookCommandSpec("session-start", 5),),
+        manual_events=frozenset({"session-start", "session-end", "drain"}),
     ),
     "qoder": _profile(
         "qoder",
@@ -205,6 +210,41 @@ def supported_events(host: str) -> set[str]:
     if not profile.prompt_context:
         events.discard("user-prompt-submit")
     return events
+
+
+def capability_report(host: str) -> dict[str, Any]:
+    """Return declared hook capability states for an Agent host.
+
+    This describes adapter support, not a runtime proof that the host has
+    installed or enabled its hook configuration.
+    """
+    profile = profile_for(host)
+    automatic = supported_events(host) - set(profile.manual_events)
+    manual = set(profile.manual_events)
+    events = sorted(automatic | manual)
+    return {
+        "host": profile.name,
+        "mcp": "configured_by_adapter",
+        "events": {
+            event: "automatic" if event in automatic else "manual"
+            for event in events
+        },
+        "prompt_recall": (
+            "automatic"
+            if profile.recall_mode == "per_prompt" and profile.prompt_context
+            else "unsupported"
+        ),
+        "session_start": (
+            "automatic" if "session-start" in automatic
+            else "manual" if "session-start" in manual
+            else "unsupported"
+        ),
+        "session_end_capture": (
+            "automatic" if "session-end" in profile.capture_events and "session-end" in automatic
+            else "manual" if "session-end" in manual
+            else "unsupported"
+        ),
+    }
 
 
 def normalize_event(host: str, event: str, payload: dict[str, Any]) -> HookEvent | None:

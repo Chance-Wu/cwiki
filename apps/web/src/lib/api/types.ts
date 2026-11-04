@@ -617,7 +617,14 @@ export interface WeeklyReview {
   mastered_up: number
   due_now: number
   pending_notes: number
-  most_used: { memory_id: string; title: string; uses: number }[]
+  most_used: {
+    memory_id: string
+    title: string
+    uses: number
+    retrievals: number
+    context_uses: number
+    citations: number
+  }[]
   actions: {
     conflicts: { id: string; description: string | null; created_at: string | null }[]
     stale_memories: { memory_id: string; title: string; valid_to: string | null }[]

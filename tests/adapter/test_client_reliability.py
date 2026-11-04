@@ -72,7 +72,7 @@ async def test_invalid_update_response_is_uncertain(client):
 
 
 @pytest.mark.parametrize("expected_version", [None, 0, 3])
-async def test_expected_version_only_forwarded_when_provided(client, expected_version):
+async def test_expected_version_and_change_metadata_only_forwarded_when_provided(client, expected_version):
     requests = []
 
     def handler(request):
@@ -81,9 +81,17 @@ async def test_expected_version_only_forwarded_when_provided(client, expected_ve
 
     mock_transport(client, handler)
     result = await client.update_memory(
-        "memory-1", confidence=0.0, expected_version=expected_version
+        "memory-1",
+        confidence=0.0,
+        expected_version=expected_version,
+        reason="纠正过时信息",
+        change_summary="更新事实并保留来源",
     )
-    expected_body = {"confidence": 0.0}
+    expected_body = {
+        "confidence": 0.0,
+        "reason": "纠正过时信息",
+        "change_summary": "更新事实并保留来源",
+    }
     if expected_version is not None:
         expected_body["expected_version"] = expected_version
     assert requests == [expected_body]

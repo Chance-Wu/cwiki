@@ -67,6 +67,7 @@ class ContextBenchmarkReport:
     budget_compliance: float = 0.0
     conflict_warning_recall: float = 0.0
     per_query: list[ContextQueryMetrics] = field(default_factory=list)
+    delivery_diagnostics: list[dict] = field(default_factory=list)
 
 
 def load_context_gold(path: Path) -> list[ContextGold]:

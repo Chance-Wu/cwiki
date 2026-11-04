@@ -1,0 +1,17 @@
+{
+  "provenance": "Agent-authored synthetic diagnostic pairs; not independent human judgments. Labels are support-for-query, not existing 0-3 retrieval grades.",
+  "pairs": [
+    {"id":"negative-mysql-sentinel","query":"MySQL 主从复制延迟如何排查","key":"redis-sentinel-legacy","relevant":false,"reason":"Redis Sentinel 部署不提供 MySQL 复制延迟排查步骤"},
+    {"id":"positive-redis-history","query":"回顾旧 Redis Sentinel 主从方案的 quorum 和迁移原因","key":"redis-sentinel-legacy","relevant":true,"reason":"历史回顾显式需要已废弃部署，过时不等于无用"},
+    {"id":"negative-lock-cache","query":"Redis 分布式锁如何保证持有者安全释放和续租","key":"redis-cache-avalanche","relevant":false,"reason":"仅提 setnx 防击穿，没有安全解锁或续租方案"},
+    {"id":"positive-cache-rebuild","query":"Redis 热 key 击穿为什么使用互斥锁重建缓存","key":"redis-cache-avalanche","relevant":true,"reason":"正文直接解释击穿与互斥重建"},
+    {"id":"negative-sqlite-redis","query":"SQLite busy_timeout 如何应对写锁","key":"redis-sentinel-legacy","relevant":false,"reason":"Redis 故障切换不支持 SQLite 写锁处理"},
+    {"id":"positive-sqlite-lock","query":"SQLite busy_timeout 如何应对写锁","key":"sqlite-locking","relevant":true,"reason":"正文介绍 SQLite 写锁与 busy_timeout"},
+    {"id":"positive-cross-compare","query":"对比 MySQL 复制延迟与 Redis Sentinel 故障转移，先回顾 Sentinel 部署","key":"redis-sentinel-legacy","relevant":true,"reason":"比较任务明确需要 Redis 一侧材料"},
+    {"id":"negative-cross-extra","query":"对比 MySQL 复制延迟与 Redis Sentinel 故障转移","key":"sqlite-locking","relevant":false,"reason":"多领域问题不意味着可引入任意第三领域"},
+    {"id":"positive-no-domain","query":"旧方案 quorum=2 的自动故障转移如何部署","key":"redis-sentinel-legacy","relevant":true,"reason":"无显式产品名仍可通过具体机制匹配"},
+    {"id":"negative-same-domain","query":"Redis Cluster 的 CRC16 slot 路由怎么算","key":"redis-cache-avalanche","relevant":false,"reason":"同为 Redis 但主题无关"},
+    {"id":"positive-slot","query":"Redis Cluster 的 CRC16 slot 路由怎么算","key":"redis-slot-principle","relevant":true,"reason":"正文直接给出 CRC16 mod 16384"},
+    {"id":"positive-cross-implicit","query":"MySQL 复制故障排查时借鉴哨兵选主的 quorum 设计","key":"redis-sentinel-legacy","relevant":true,"reason":"跨领域借鉴用中文哨兵代指 Sentinel，产品名不完整"}
+  ]
+}

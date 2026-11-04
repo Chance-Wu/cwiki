@@ -726,6 +726,14 @@ async def test_memory_save_preserves_agent_title_and_complete_content(
     result = await memory_server._handle_tool("memory_save", arguments)
 
     assert result["delivery"] == "confirmed"
+    assert result["receipt"] == {
+        "delivery_status": "confirmed",
+        "candidate_status": "pending_review",
+        "publication_status": "not_published",
+        "replayed": False,
+        "client_write_id": result["receipt"]["client_write_id"],
+        "candidate_id": "candidate",
+    }
     assert result["title"] == title
     memory_server.client.submit_candidate.assert_awaited_once()
     assert memory_server.outbox.load_all("workspace") == []
@@ -743,6 +751,8 @@ async def test_memory_save_keeps_security_check_before_outbox(memory_server, mon
     )
 
     assert result["security_flag"] == "suspicious_content"
+    assert result["receipt"]["delivery_status"] == "rejected"
+    assert result["receipt"]["publication_status"] == "not_published"
     check.assert_called_once_with(content.strip())
     log.assert_not_called()
     memory_server.client.submit_candidate.assert_not_awaited()
@@ -779,6 +789,25 @@ async def test_memory_update_validates_only_supplied_fields(
     result = json.loads(response["result"]["content"][0]["text"])
     assert field in result["error"]
     memory_server.client.update_memory.assert_not_awaited()
+
+
+async def test_memory_update_version_conflict_returns_rebase_guidance(memory_server, monkeypatch):
+    request = AsyncMock(side_effect=httpx.HTTPStatusError(
+        "conflict",
+        request=httpx.Request("PATCH", "http://test/v1/memories/memory"),
+        response=httpx.Response(409),
+    ))
+    client = mcp_server.CwikiClient("http://test")
+    monkeypatch.setattr(client, "_request", request)
+    memory_server.client = client
+
+    result = await memory_server._handle_tool(
+        "memory_update", {"memory_id": "memory", "expected_version": 2, "content": VALID_MEMORY_CONTENT}
+    )
+
+    assert result["code"] == "memory_version_conflict"
+    assert "重新读取" in result["hint"]
+    request.assert_awaited_once()
 
 
 @pytest.mark.parametrize("title_limit", [1, 20, 80])
@@ -1109,6 +1138,9 @@ async def test_tools_list_reloads_only_when_disk_changes_and_status_is_safe(
     assert result["effective_config"]["title_max_length"] == 7
     assert result["effective_config"]["config_file"] == str(path.resolve())
     assert result["outbox_total"] == 0
+    assert result["agent"]["host"] == mcp_server.HOST_ID
+    assert result["agent"]["workspace"] == {"workspace": "offline", "source": "tool_argument"}
+    assert result["agent"]["capabilities"]["mcp"] == "configured_by_adapter"
 
 
 @pytest.mark.parametrize("first_failure", ["empty", "exception", "timeout"])

@@ -168,7 +168,10 @@ def build_tool_definitions() -> list[dict[str, Any]]:
         },
         {
             "name": "memory_status",
-            "description": "查看工作区统计和本地投递积压。API 离线时仍返回本地计数。",
+            "description": (
+                "查看工作区统计、本地投递积压、Agent 宿主声明能力及工作区解析来源。"
+                "API 离线时仍返回本地计数。"
+            ),
             "inputSchema": {
                 "type": "object",
                 "additionalProperties": False,
@@ -323,7 +326,7 @@ def build_tool_definitions() -> list[dict[str, Any]]:
         },
         {
             "name": "memory_update",
-            "description": "更新正式记忆，未传字段保持不变。用 expected_version 防并发覆盖。",
+            "description": "更新正式记忆，未传字段保持不变。先读取当前记忆并传 expected_version 防并发覆盖；版本冲突时回读后重新编辑，不要直接重放旧内容。",
             "inputSchema": {
                 "type": "object",
                 "additionalProperties": False,
@@ -367,7 +370,11 @@ def build_tool_definitions() -> list[dict[str, Any]]:
                     },
                     "reason": {
                         "type": "string",
-                        "description": "更新原因",
+                        "description": "更新原因，用于生命周期审计",
+                    },
+                    "change_summary": {
+                        "type": "string",
+                        "description": "本次变更摘要，用于版本/生命周期审计",
                     },
                     "is_permanent": {
                         "type": "boolean",

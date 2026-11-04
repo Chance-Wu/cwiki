@@ -1,5 +1,13 @@
 # 记忆系统
 
+## 上下文质量验收
+
+运行 `python -m benchmarks.runners.context_runner`，使用合成夹具与黄金候选池评估选择召回、负例排除、渲染 Token 预算和冲突告警；报告默认写入 `benchmarks/reports/eval-fixture/`。它不读取个人记忆库，夹具数据库以 SQLite 只读模式打开，结束或异常时释放连接。缺失数据库、候选池引用不存在的记忆、空黄金集均报错，不跳过后继续生成看似正常的报告；黄金集按 UTF-8 读取。
+
+此运行器需在独立进程中执行，不能嵌入正在处理请求的服务并发调用：它暂时将相关性门限设为 `hard / 0.5`，以匹配手工分配的候选分数，退出时（包括异常）恢复原值。这不是生产配置的推荐阈值。
+
+**结果边界**：该评估从预先给定的候选池开始，不能证明端到端检索召回、API 交付一致性、最终回答真实引用或任务成功率。冲突告警指标仅在含预期冲突对的样本上统计。合成数据满分不等于真实任务满分；真实验收仍需独立标注的问题、相关记忆与负例，并分别检查检索、交付和最终回答。
+
 ## 端到端写入流程
 
 ```mermaid
@@ -57,10 +65,12 @@ sequenceDiagram
 
 ### 关键保障
 
+- **写入 receipt**：MCP `memory_save` 响应中的 `receipt.delivery_status` 表示投递状态（`confirmed` / `queued` / `unconfirmed` / `rejected`），`candidate_status` 表示候选处理状态，`publication_status` 表示是否已成为正式记忆；HTTP 确认候选不代表正式发布。`replayed` 标记服务端幂等命中；失败时 `outbox_status` 说明本地待重试或已拒绝状态。旧版 `delivery`、`created` 字段保留兼容。
 - **Write-Ahead Outbox**：HTTP 调用前写盘，崩溃后自动重放，确保不丢失
 - **幂等写入**：相同内容的重试返回已有候选，不重复创建
 - **两层去重**：Agent 端主动搜索 + Server 端相似检测
 - **质量门控**：5 维评分决定审核优先级；价值分过低标记为 `needs_enrichment`，物理行保留
+- **Capture 漏斗统计**：`GET /v1/integrations/agent/stats` 除总量和 formalization rate 外，返回 `notes_with_candidate`、`notes_discarded`、`oldest_pending_at`、`oldest_pending_age_days`；待整理统计排除已丢弃笔记，年龄按 UTC 计算。这些指标用于发现积压，不触发自动整理或删除。
 
 ---
 
@@ -174,7 +184,7 @@ memory:
 
 确定性拒绝和重试耗尽保留原文与错误，不再在启动时自动删除；修复原因后显式重试，并检查逐条结果。
 
-**更新操作**不具有相同的离线 outbox 保证。`memory_update` 超时后先读取当前正文和版本，避免重复修改；支持 `expected_version` 时带上旧版本，冲突时重新读取再合并。审核合并、候选更新和直接编辑均保存修改前的版本快照。
+**更新操作**不具有相同的离线 outbox 保证。`memory_update` 超时后先读取当前正文和版本，避免重复修改；支持 `expected_version` 时带上旧版本，冲突时MCP返回 `memory_version_conflict`，须重新读取当前内容/version并重新编辑，不要重放旧内容。更新可附 `reason` / `change_summary`（后者优先），内容编辑和状态变更的生命周期事件均记录原因、版本与 actor；未传时原因留空。审核合并、候选更新和直接编辑均保存修改前的版本快照。
 
 ---
 
@@ -254,6 +264,18 @@ graph LR
 
 **来源证据（Evidence）**：审批/合并/更新时，候选已有的 Evidence（如 episode 证据）会改挂到正式记忆，并额外写入一条 provenance 记录（`source_type=candidate_approval|merge|update`，`source_ref=client_write_id 或候选 id`，metadata 含来源渠道与命中规则）。检索结果与上下文的 `evidence_count` 来自该表，不再恒为 0；`_meta` 会随记忆导出/恢复证据。
 
+### 人工复核与恢复闭环
+
+周报的未决冲突、过时记忆和知识缺口是**复核建议**，不会自动改写正文、状态或删除记忆：
+
+1. 先读取当前正文、版本、来源证据及关联记忆；过期时间或负反馈只能触发复核，不单独证明内容错误。
+2. 修正正文时用 `memory_update` / HTTP PATCH，携带 `expected_version` 与 `change_summary`。409 时回读后重新编辑；超时先确认是否已生效，不盲重试。
+3. 如需标记废弃/被替代/冲突，通过 HTTP PATCH 的合法状态转换显式操作并记录原因；恢复时也显式转回 active。状态恢复不等于回滚正文，也不等于延长有效期。
+4. 冲突裁决通过 `POST /v1/conflicts/{id}/resolve` 记录 resolution 并关闭冲突，留下 `conflict_resolved` 审计；它**不自动修改正文或记忆状态**。先完成必要的内容修正，再关闭冲突；多条 open 冲突要分别处理。
+5. 历史正文可从版本接口读取，再以当前版本为 expected_version 发起显式更新以恢复；这会形成新的版本，而不是删除后续历史。当前没有独立的一键版本回滚接口。物理删除不能用状态恢复撤销。
+
+现有版本快照、合法状态转换、冲突审计和人工确认构成保守闭环；自动替代推断、自动废弃和最终回答引用识别不在当前实现范围内。
+
 ### 检查点的覆盖边界
 
 `memory_checkpoint` 对已采集事件和会话笔记做有限的规则提取，不读取完整宿主对话，也不执行完整对话的语义检查：
@@ -283,6 +305,7 @@ stateDiagram-v2
 ```
 
 - HTTP API `PATCH /v1/memories/{id}` 的 `status` 会经过状态转换校验，非法转换返回 409。允许的转换：`active → superseded / conflicted / deprecated`、`superseded → active`、`conflicted → active / superseded`、`deprecated → active`。
+- `GET /v1/memories/{id}/lifecycle` 返回按时间正序排列的最新 100 条事件；`event_count` 是该记忆的完整事件总数，不受时间线窗口截断影响。超过窗口时可据此识别仍有更早审计记录。
 - 状态枚举不包含 `archived`。删除是物理删除：`DELETE /v1/memories/{id}` 或 MCP `memory_forget` 会删除 DB 行（级联版本、关系、复习计划等）以及 Markdown、`index.db`、`vectors.npz`、`_meta` 资产，不可恢复。
 - 记忆间手动合并与自动整合已移除；重复或相近内容由 Agent 通过 `memory_search` 查重后使用 `memory_update` 更新既有记忆。候选审核中的 `merge` / `update` 动作仍然保留，用于把候选内容并入或替换已有记忆。
 - `deprecated`、`superseded` 和 `conflicted` 当前无自动触发逻辑，仅通过 HTTP PATCH API 手动设置。冲突本身记录在 `MemoryConflict`，创建 open 冲突不会自动改记忆状态，但会计入健康度。
@@ -379,8 +402,8 @@ value_score = 0.25 × reusability       # 可复用性
 已入库记忆根据实际使用情况计算：
 
 ```
-utility = 0.30 × retrieval_success   # 检索成功率（used / retrieved）
-        + 0.25 × agent_usage         # Agent 引用率（cited / retrieved）
+utility = 0.30 × retrieval_success   # 上下文采用启发信号（used / retrieved）
+        + 0.25 × agent_usage         # useful 反馈代理信号（cited / retrieved）
         + 0.20 × human_feedback      # 有用票占比，无反馈时 0.5
         + 0.15 × freshness           # 新鲜度
         + 0.10 × evidence_strength   # 证据强度（证据数 / 5，封顶 1）
@@ -388,7 +411,13 @@ utility = 0.30 × retrieval_success   # 检索成功率（used / retrieved）
 
 新鲜度：从未使用为 0.3；最近使用在 1 / 7 / 30 / 90 天内分别为 1.0 / 0.9 / 0.7 / 0.5，超过 90 天为 0.2。开启掌握度耦合衰减后，上述天数按 `1 + ln(max(ease_factor, 1.3))` 放大。
 
-**使用流水 stage 语义**：`/v1/search` 命中记 `retrieved`；`/v1/context`（curated 交付）记 `used`；`POST /v1/feedback` 且 `feedback_type=useful` 时补记 `cited`。`retrieval_success` 与 `agent_usage` 由此获得真实分母/分子。`evidence_strength` 统一取 `evidence` 表计数（与列表页、健康摘要同口径）。
+**使用流水 stage 语义**：`/v1/search` 命中以及 `/v1/context` 内部引擎检索候选记 `retrieved`（可能包含后续被交付筛选淘汰的候选）；`/v1/context`（curated 交付）仅对最终去重、Token 预算筛选后返回的 items 记 `used`，position 使用交付顺序，淘汰候选不计入；共享 assembler 统一执行入口过滤、冲突提示、出处标记、压缩和 CJK 感知的格式化预算；不先用原始正文长度淘汰可压缩的长记忆。context 文本、items（压缩后正文）、sources、citations、total 与 used 流水均对齐该最终交付选择。相同请求在缓存 TTL 内复用响应不重复记流水（因此统计是非缓存交付观测，不是全部 HTTP 请求数）；`POST /v1/feedback` 且 `feedback_type=useful` 时补记 `cited`。共享效用聚合分别统计三个阶段，不再将全部流水当检索次数，也不再将 `cited` 固定为 0。`retrieval_success` 与 `agent_usage` 是这些独立计数的启发式比值（由评分函数封顶），不是已关联到同次任务的成功转化率。`evidence_strength` 统一取 `evidence` 表计数（与列表页、健康摘要同口径）。
+
+### 周报复用观测
+
+`GET /v1/review/weekly` 的 `most_used` 仅列出最近 7 天有 `used` 或 `cited` 流水的 active 记忆，按两者合计降序取前 5 条；只有 `retrieved` 的记忆不进入高频复用榜。保留字段 `uses` 表示 `context_uses + citations`，新增 `retrievals`（仅 retrieved）、`context_uses`（仅 used）、`citations`（仅 cited）独立计数。统计同时约束记忆与流水的 workspace，排除窗口外和未来流水。
+
+这些是**观测次数，不是独立任务数或成功转化率**：同一次任务可能分别留下多个阶段的流水，且 context 可直接调用而没有 search。`cited` 当前也是 useful 反馈产生的代理信号，不代表从最终回答中解析出的真实引用。因此不提供 `success_rate`，也不能把 `uses` 当作已证实的任务成功数。待整理笔记统计排除已丢弃记录，与 capture 漏斗口径一致。
 
 ### 健康状态
 

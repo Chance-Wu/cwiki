@@ -87,7 +87,7 @@ async def test_aggregate_matches_manual_compute(agg_env):
     result = await aggregate_utility_scores(env.db, [env.a, env.b])
 
     expected = compute_utility_score(
-        retrieval_count=5,
+        retrieval_count=3,
         used_count=2,
         cited_count=0,
         useful_votes=2,
@@ -97,6 +97,23 @@ async def test_aggregate_matches_manual_compute(agg_env):
     )
     assert result[env.a_id] == round(expected.utility, 4)
     assert result[env.a_id] > 0
+
+
+async def test_aggregate_uses_real_citation_stage(agg_env):
+    env = agg_env
+    env.db.add(MemoryUsage(workspace_id=env.a.workspace_id, memory_id=env.a.id, stage="cited"))
+    await env.db.commit()
+    result = await aggregate_utility_scores(env.db, [env.a])
+    expected = compute_utility_score(
+        retrieval_count=3,
+        used_count=2,
+        cited_count=1,
+        useful_votes=2,
+        not_useful_votes=1,
+        last_used_at=env.a_last_used,
+        evidence_count=2,
+    )
+    assert result[env.a_id] == round(expected.utility, 4)
 
 
 async def test_aggregate_memory_without_signals_gets_floor(agg_env):
@@ -164,7 +181,7 @@ async def test_aggregate_counts_outdated_and_wrong_as_negative(agg_env):
 
     result = await aggregate_utility_scores(env.db, [env.a])
     expected = compute_utility_score(
-        retrieval_count=5,
+        retrieval_count=3,
         used_count=2,
         cited_count=0,
         useful_votes=2,

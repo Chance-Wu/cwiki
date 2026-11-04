@@ -205,11 +205,35 @@ async def capture_stats(
 
     cutoff = datetime.now(UTC) - timedelta(days=7)
     notes_last_7d = (await db.execute(note_count(SessionNote.created_at >= cutoff))).scalar() or 0
-    pending_notes = (await db.execute(note_count(SessionNote.formalized.is_(False)))).scalar() or 0
+    pending_notes = (
+        await db.execute(
+            note_count(SessionNote.formalized.is_(False), SessionNote.discarded_at.is_(None))
+        )
+    ).scalar() or 0
     notes_formalized = (
         await db.execute(note_count(SessionNote.formalized.is_(True)))
     ).scalar() or 0
+    notes_with_candidate = (
+        await db.execute(note_count(SessionNote.candidate_id.is_not(None)))
+    ).scalar() or 0
+    notes_discarded = (
+        await db.execute(note_count(SessionNote.discarded_at.is_not(None)))
+    ).scalar() or 0
+    oldest_pending_at = (
+        await db.execute(
+            select(func.min(SessionNote.created_at))
+            .select_from(SessionNote)
+            .join(AgentSession, SessionNote.session_id == AgentSession.id)
+            .where(*note_conditions, SessionNote.formalized.is_(False), SessionNote.discarded_at.is_(None))
+        )
+    ).scalar()
     formalization_rate = round(notes_formalized / notes_total, 4) if notes_total else 0.0
+    now = datetime.now(UTC)
+    oldest_pending_age_days = (
+        round(max(0.0, (now - oldest_pending_at.replace(tzinfo=UTC) if oldest_pending_at.tzinfo is None else now - oldest_pending_at).total_seconds() / 86400), 2)
+        if oldest_pending_at
+        else None
+    )
     last_capture_at = (
         await db.execute(
             select(func.max(SessionNote.created_at))
@@ -237,6 +261,10 @@ async def capture_stats(
         pending_notes=pending_notes,
         notes_formalized=notes_formalized,
         formalization_rate=formalization_rate,
+        notes_with_candidate=notes_with_candidate,
+        notes_discarded=notes_discarded,
+        oldest_pending_at=oldest_pending_at,
+        oldest_pending_age_days=oldest_pending_age_days,
         last_capture_at=last_capture_at,
         by_kind={signal: count for signal, count in kind_rows},
     )

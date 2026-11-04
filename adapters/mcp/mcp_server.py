@@ -62,7 +62,7 @@ try:
 except ImportError:
     parasitic_evolution_config = None  # type: ignore[assignment]
 
-from adapters.hooks.profiles import clean_workspace_name
+from adapters.hooks.profiles import capability_report, clean_workspace_name
 from adapters.mcp.checkpoint_manager import CHECKPOINT_FETCH_LIMIT, CheckpointManager
 from adapters.mcp.client import CwikiClient, MemoryUpdateUncertainError
 from adapters.mcp.local_index import STRONG_COVERAGE, build_local_context, search_local
@@ -199,6 +199,35 @@ def _dynamic_workspace() -> str | None:
             continue
         return name
     return None
+
+
+def workspace_resolution_for(server: MCPServer) -> dict[str, str]:
+    """Explain the effective workspace and its best-known source."""
+    dynamic_workspace = _dynamic_workspace()
+    if dynamic_workspace:
+        return {"workspace": dynamic_workspace, "source": "hook_dynamic"}
+    if server.roots_workspace:
+        return {"workspace": server.roots_workspace, "source": "mcp_roots"}
+    explicit = os.environ.get("CWIKI_WORKSPACE")
+    if explicit and _VALID_WORKSPACE_RE.fullmatch(explicit):
+        return {"workspace": explicit, "source": "explicit_config"}
+    for env_name in _PROJECT_DIR_ENV:
+        candidate = os.environ.get(env_name)
+        if candidate:
+            name = clean_workspace_name(candidate)
+            if name:
+                return {"workspace": name, "source": f"{env_name.lower()}"}
+    try:
+        cwd = Path.cwd()
+        if cwd != Path(__file__).resolve().parents[2] and cwd != Path.home():
+            name = clean_workspace_name(str(cwd))
+            if name:
+                return {"workspace": name, "source": "cwd"}
+    except OSError:
+        pass
+    if SESSION_WORKSPACE != DEFAULT_WORKSPACE:
+        return {"workspace": SESSION_WORKSPACE, "source": "static_derived"}
+    return {"workspace": DEFAULT_WORKSPACE, "source": "default_fallback"}
 
 
 def current_workspace() -> str:
@@ -361,6 +390,32 @@ def _security_error(content: str) -> dict[str, Any] | None:
             "security_flag": "suspicious_content",
         }
     return None
+
+
+def _write_receipt(
+    *,
+    client_write_id: str | None = None,
+    candidate_id: str | None = None,
+    delivery_status: str,
+    candidate_status: str | None = None,
+    publication_status: str = "not_published",
+    replayed: bool = False,
+    outbox_status: str | None = None,
+) -> dict[str, Any]:
+    """Build the additive memory_save receipt shared by all result paths."""
+    receipt: dict[str, Any] = {
+        "delivery_status": delivery_status,
+        "candidate_status": candidate_status,
+        "publication_status": publication_status,
+        "replayed": replayed,
+    }
+    if client_write_id is not None:
+        receipt["client_write_id"] = client_write_id
+    if candidate_id is not None:
+        receipt["candidate_id"] = candidate_id
+    if outbox_status is not None:
+        receipt["outbox_status"] = outbox_status
+    return receipt
 
 
 def _make_write_id(
@@ -1013,12 +1068,19 @@ class MCPServer:
     async def _handle_memory_save(self, arguments: dict[str, Any]) -> dict[str, Any]:
         title, content = arguments.get("title"), arguments.get("content")
         if not isinstance(content, str):
-            return {"error": "content 为必填字符串"}
+            return {
+                "receipt": _write_receipt(delivery_status="rejected"),
+                "error": "content 为必填字符串",
+            }
         if not isinstance(title, str) or not title.strip():
-            return {"error": "title 为必填参数"}
+            return {
+                "receipt": _write_receipt(delivery_status="rejected"),
+                "error": "title 为必填参数",
+            }
         content_bytes = len(content.encode("utf-8"))
         if content_bytes > SAVE_CONTENT_MAX_BYTES:
             return {
+                "receipt": _write_receipt(delivery_status="rejected"),
                 "error": (
                     f"content 为 {content_bytes / 1024:.0f}KB，超过单条上限 "
                     f"{SAVE_CONTENT_MAX_BYTES // 1024}KB。请拆分多条记忆或精简正文。"
@@ -1029,10 +1091,16 @@ class MCPServer:
             {"title": validate_memory_title, "content": validate_memory_content},
         )
         if validation_error:
-            return validation_error
+            return {
+                "receipt": _write_receipt(delivery_status="rejected"),
+                **validation_error,
+            }
         security_error = _security_error(content)
         if security_error:
-            return security_error
+            return {
+                "receipt": _write_receipt(delivery_status="rejected"),
+                **security_error,
+            }
         specified_type = arguments.get("type")
         # 非法 type 不拒绝而是回落推断：宿主模型常受"记忆类型"概念影响传
         # project/note 等（Qoder 实测高频踩坑），拒绝只会白白丢失一次捕获；
@@ -1049,7 +1117,10 @@ class MCPServer:
             memory_type = "fact"
         explicit_workspace = arguments.get("workspace_name") or arguments.get("workspace_id")
         if explicit_workspace is not None and not isinstance(explicit_workspace, str):
-            return {"error": "workspace_id 必须是字符串"}
+            return {
+                "receipt": _write_receipt(delivery_status="rejected"),
+                "error": "workspace_id 必须是字符串",
+            }
         workspace = self._resolved_workspace(arguments)
         # 自动补齐缺失的 #memory/ 标签；type 与 workspace 的校验相互独立
         missing_tags = [
@@ -1081,6 +1152,11 @@ class MCPServer:
             rejected = _is_client_rejection(exc)
             decision_payload = _write_decision_payload(exc)
             result = {
+                "receipt": _write_receipt(
+                    client_write_id=write_id,
+                    delivery_status="rejected" if rejected else "queued" if entry else "unconfirmed",
+                    outbox_status=("rejected" if rejected else "pending") if entry else None,
+                ),
                 "error": _safe_error(exc),
                 "cached": entry is not None,
                 "delivery": "rejected" if rejected else "unconfirmed",
@@ -1105,7 +1181,16 @@ class MCPServer:
         created = bool(response.get("created", True))
         similar_items = response.get("similar_items", [])
         candidate_payload = response.get("candidate", {})
+        candidate_status = candidate_payload.get("status") or "pending_review"
         result = {
+            "receipt": _write_receipt(
+                client_write_id=write_id,
+                candidate_id=candidate_payload.get("id"),
+                delivery_status="confirmed",
+                candidate_status=candidate_status,
+                publication_status="published" if candidate_status == "approved" else "not_published",
+                replayed=not created,
+            ),
             "status": "created",
             "created": created,
             "candidate_id": candidate_payload.get("id"),
@@ -1170,6 +1255,20 @@ class MCPServer:
         except Exception as exc:
             result = {"error": _safe_error(exc)}
         result.update(self._outbox_summary(status_tool=True))
+        resolution = workspace_resolution_for(self)
+        if arguments.get("workspace_name") or arguments.get("workspace_id"):
+            resolution["workspace"] = workspace
+            resolution["source"] = "tool_argument"
+        result["agent"] = {
+            "host": HOST_ID,
+            "capabilities": capability_report(HOST_ID),
+            "workspace": resolution,
+            "workspace_warning": (
+                "工作区回落到 default；写入前请确认归属。"
+                if resolution["source"] == "default_fallback"
+                else None
+            ),
+        }
         result["effective_config"] = {
             "title_max_length": settings.memory_title_max_length,
             "config_file": str(domain_config.CONFIG_PATH.resolve()),
@@ -1283,6 +1382,7 @@ class MCPServer:
                 reason=arguments.get("reason"),
                 is_permanent=arguments.get("is_permanent"),
                 permanent_reason=arguments.get("permanent_reason"),
+                change_summary=arguments.get("change_summary"),
                 expected_version=version_kwargs.get("expected_version"),
             )
         except MemoryUpdateUncertainError:
@@ -1291,6 +1391,16 @@ class MCPServer:
                 "delivery": "unconfirmed",
                 "hint": "请先回读当前记忆正文和版本，核对结果后再决定是否重试。",
             }
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 409:
+                return {
+                    "error": "记忆版本已变化，更新未应用。",
+                    "code": "memory_version_conflict",
+                    "hint": "请重新读取当前记忆与 version，基于最新内容重新编辑，并将该 version 作为 expected_version。",
+                }
+            return {"error": _safe_error(exc)}
+        except httpx.RequestError as exc:
+            return {"error": _safe_error(exc), "delivery": "unconfirmed"}
 
     async def _handle_memory_feedback(self, arguments: dict[str, Any]) -> dict[str, Any]:
         memory_id = arguments.get("memory_id")

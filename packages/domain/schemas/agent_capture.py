@@ -67,5 +67,9 @@ class AgentCaptureStats(BaseModel):
     pending_notes: int
     notes_formalized: int = 0
     formalization_rate: float = 0.0
+    notes_with_candidate: int = 0
+    notes_discarded: int = 0
+    oldest_pending_at: datetime | None = None
+    oldest_pending_age_days: float | None = None
     last_capture_at: datetime | None
     by_kind: dict[str, int] = Field(default_factory=dict)

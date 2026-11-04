@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import UTC, datetime
 from typing import Annotated, Any
@@ -15,7 +16,13 @@ from sqlalchemy.orm import defer
 from apps.api.auth import AgentIdentity
 from apps.api.deps import get_current_agent, get_db, get_or_404, require_scope, resolve_workspace
 from packages.domain.config import API_V1_PREFIX
-from packages.domain.models import Memory, MemoryConflict, MemoryFeedback, MemoryUsage
+from packages.domain.models import (
+    Memory,
+    MemoryConflict,
+    MemoryFeedback,
+    MemoryLifecycleEvent,
+    MemoryUsage,
+)
 from packages.domain.schemas import (
     MemoryConflictRead,
     MemoryFeedbackCreate,
@@ -140,6 +147,21 @@ async def resolve_conflict(
     conflict.status = "resolved"
     conflict.resolution = body.resolution
     conflict.resolved_at = datetime.now(UTC)
+    db.add(
+        MemoryLifecycleEvent(
+            id=uuid.uuid4(),
+            memory_id=conflict.memory_id,
+            event_type="conflict_resolved",
+            metadata_json=json.dumps(
+                {
+                    "conflict_id": str(conflict.id),
+                    "resolution": body.resolution,
+                    "actor_type": "agent",
+                    "actor_id": getattr(_identity, "agent_id", None),
+                }
+            ),
+        )
+    )
     await db.commit()
     await db.refresh(conflict)
     return MemoryConflictRead.model_validate(conflict)

@@ -85,6 +85,16 @@ def load_gold_dataset(path: Path) -> list[QueryJudgment]:
                 continue
             record = json.loads(line)
             qid = record["query_id"]
+            grade = record["relevance"]
+            if type(grade) is not int or not 0 <= grade <= 3:
+                raise ValueError(f"{qid}: relevance must be an integer from 0 to 3")
+            if qid in judgments:
+                existing = judgments[qid]
+                if existing.query != record["query"]:
+                    raise ValueError(f"{qid}: inconsistent query text")
+                mid = record["memory_id"]
+                if mid in existing.judgments and existing.judgments[mid] != grade:
+                    raise ValueError(f"{qid}: conflicting relevance for {mid}")
             if qid not in judgments:
                 judgments[qid] = QueryJudgment(
                     query_id=qid,
@@ -288,9 +298,25 @@ async def run_benchmark(
     workspace_id: uuid.UUID,
     session_maker: async_sessionmaker[AsyncSession] | None = None,
 ) -> BenchmarkReport:
+    if pipeline not in PIPELINES:
+        raise ValueError(f"Unknown retrieval pipeline: {pipeline}")
+    if not judgments:
+        raise ValueError("Retrieval gold dataset is empty")
     sm = session_maker or async_session_maker
     async with sm() as db:
         memories = await _load_memories(db, workspace_id)
+        available_ids = {str(m.id) for m in memories}
+        for judgment in judgments:
+            missing = sorted(
+                mid
+                for mid, grade in judgment.judgments.items()
+                if grade >= 2 and mid not in available_ids
+            )
+            if missing:
+                raise ValueError(
+                    f"{judgment.query_id}: relevant memories absent from active workspace corpus: "
+                    + ", ".join(missing)
+                )
 
         bm25_index = BM25Index()
         for m in memories:
@@ -343,6 +369,9 @@ def save_report(report: BenchmarkReport, output_dir: Path, prefix: str = "") -> 
         "per_query": [
             {
                 "query_id": qm.query_id,
+                "query": qm.query,
+                "ranked_memory_ids": qm.ranked_memory_ids,
+                "ranked_relevance": qm.ranked_relevance,
                 "recall_at_10": qm.recall_at_10,
                 "precision_at_10": qm.precision_at_10,
                 "mrr": qm.rr,

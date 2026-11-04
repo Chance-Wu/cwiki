@@ -314,13 +314,30 @@ async def update_memory(
             id=uuid.uuid4(),
             memory_id=memory_id,
             event_type="status_changed",
-            metadata_json=json.dumps({"old_status": old_status, "new_status": body.status}),
+            metadata_json=json.dumps(
+                {
+                    "old_status": old_status,
+                    "new_status": body.status,
+                    "version": memory.version,
+                    "reason": body.change_summary or body.reason,
+                    "actor_type": "agent",
+                    "actor_id": getattr(_identity, "agent_id", None),
+                }
+            ),
         )
     else:
         lifecycle_event = MemoryLifecycleEvent(
             id=uuid.uuid4(),
             memory_id=memory_id,
             event_type="updated",
+            metadata_json=json.dumps(
+                {
+                    "version": memory.version,
+                    "reason": body.change_summary or body.reason,
+                    "actor_type": "agent",
+                    "actor_id": getattr(_identity, "agent_id", None),
+                }
+            ),
         )
     db.add(lifecycle_event)
 
@@ -438,7 +455,15 @@ async def batch_update_memories(
                     id=uuid.uuid4(),
                     memory_id=memory_id,
                     event_type="updated",
-                    metadata_json=json.dumps({"source": "batch_update"}),
+                    metadata_json=json.dumps(
+                        {
+                            "source": "batch_update",
+                            "version": memory.version,
+                            "reason": "batch update",
+                            "actor_type": "agent",
+                            "actor_id": getattr(_identity, "agent_id", None),
+                        }
+                    ),
                 )
             )
             await db.commit()
@@ -536,14 +561,21 @@ async def get_memory_lifecycle(
         }
 
     # 尽力而为：生命周期时间线属补充信息，失败不阻断响应
+    event_count = 0
     try:
+        event_count = await db.scalar(
+            select(func.count(MemoryLifecycleEvent.id)).where(
+                MemoryLifecycleEvent.memory_id == uid
+            )
+        )
         result = await db.execute(
             select(MemoryLifecycleEvent)
             .where(MemoryLifecycleEvent.memory_id == uid)
-            .order_by(MemoryLifecycleEvent.created_at.asc())
+            .order_by(MemoryLifecycleEvent.created_at.desc(), MemoryLifecycleEvent.id.desc())
             .limit(100)
         )
-        events = result.scalars().all()
+        # Return the newest bounded window, rendered chronologically for timeline consumers.
+        events = list(reversed(result.scalars().all()))
     except Exception:
         logger.warning("Failed to load lifecycle events for memory %s", uid, exc_info=True)
         events = []
@@ -577,5 +609,5 @@ async def get_memory_lifecycle(
         "current_status": current_status,
         "timeline": timeline,
         "age_days": age_days,
-        "event_count": len(events),
+        "event_count": event_count or 0,
     }

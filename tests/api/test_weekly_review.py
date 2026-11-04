@@ -65,7 +65,7 @@ async def test_weekly_review_aggregates_learning_signals(client, db_session):
             id=uuid.uuid4(),
             workspace_id=uuid.UUID(ws_id),
             memory_id=memory_id,
-            stage="retrieved",
+            stage="used",
             created_at=now,
         )
     )
@@ -130,6 +130,10 @@ async def test_weekly_review_aggregates_learning_signals(client, db_session):
     assert data["pending_notes"] == 1
     assert data["most_used"][0]["memory_id"] == str(memory_id)
     assert data["most_used"][0]["uses"] == 1
+    assert data["most_used"][0]["retrievals"] == 0
+    assert data["most_used"][0]["context_uses"] == 1
+    assert data["most_used"][0]["citations"] == 0
+    assert "success_rate" not in data["most_used"][0]
     # 行动项：未决冲突、过期记忆、知识缺口（无果检索只计一次）
     actions = data["actions"]
     assert len(actions["conflicts"]) == 1
@@ -137,3 +141,73 @@ async def test_weekly_review_aggregates_learning_signals(client, db_session):
     assert len(actions["stale_memories"]) == 1
     assert actions["stale_memories"][0]["memory_id"] == str(stale_id)
     assert actions["knowledge_gaps"] == [{"query": "部署步骤", "attempts": 1}]
+
+
+async def test_weekly_reuse_counts_independent_stages_and_excludes_ineligible_rows(
+    client, db_session
+):
+    ws_id = uuid.UUID((await client.post("/v1/workspaces", json={"name": "reuse"})).json()["id"])
+    other_ws = uuid.UUID((await client.post("/v1/workspaces", json={"name": "other"})).json()["id"])
+    now = datetime.now(UTC).replace(tzinfo=None)
+    ids = {name: uuid.uuid4() for name in ("reuse", "retrieved_only", "inactive", "other")}
+    for name, mid in ids.items():
+        db_session.add(
+            Memory(
+                id=mid,
+                workspace_id=other_ws if name == "other" else ws_id,
+                title=name,
+                content="完整记忆正文",
+                type="fact",
+                status="deprecated" if name == "inactive" else "active",
+            )
+        )
+    await db_session.flush()
+
+    def usage(name, stage, *, days=0, workspace=ws_id):
+        db_session.add(
+            MemoryUsage(
+                id=uuid.uuid4(),
+                workspace_id=workspace,
+                memory_id=ids[name],
+                stage=stage,
+                created_at=now + timedelta(days=days),
+            )
+        )
+
+    for stage in ("retrieved", "retrieved", "used", "cited"):
+        usage("reuse", stage)
+    usage("reuse", "used", days=-8)
+    usage("reuse", "used", days=1)
+    usage("reuse", "used", workspace=other_ws)
+    for _ in range(10):
+        usage("retrieved_only", "retrieved")
+    usage("inactive", "used")
+    usage("other", "used", workspace=other_ws)
+    session_id = uuid.uuid4()
+    db_session.add(AgentSession(id=session_id, workspace_id=ws_id, agent="qoder"))
+    await db_session.flush()
+    db_session.add(
+        SessionNote(
+            id=uuid.uuid4(),
+            session_id=session_id,
+            workspace_id=ws_id,
+            content="已丢弃笔记",
+            signal_type="issue",
+            discarded_at=now,
+        )
+    )
+    await db_session.flush()
+    response = await client.get("/v1/review/weekly", params={"workspace_id": str(ws_id)})
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["pending_notes"] == 0
+    assert data["most_used"] == [
+        {
+            "memory_id": str(ids["reuse"]),
+            "title": "reuse",
+            "uses": 2,
+            "retrievals": 2,
+            "context_uses": 1,
+            "citations": 1,
+        }
+    ]

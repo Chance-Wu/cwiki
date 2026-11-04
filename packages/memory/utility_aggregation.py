@@ -32,7 +32,7 @@ async def aggregate_utility_scores(
     *memories* 只要求具备 ``.id``（UUID）与 ``.last_used_at``（datetime
     或 None）两个属性——ORM Memory 与引擎内部 mem_map 条目均满足。
     用三条 GROUP BY 批量 SQL 一次取回全部信号，避免逐条记忆各发一条
-    查询的 N+1 开销。cited_count 目前无写入方恒传 0；ease_factor 用
+    查询的 N+1 开销。retrieved / used / cited 分别计数；ease_factor 用
     默认 2.5（批量场景不逐条查 ReviewSchedule）。
 
     任何查询异常时返回空映射（调用方按"未计算"处理），不让辅助信号
@@ -45,17 +45,18 @@ async def aggregate_utility_scores(
             return utility_map
         uuid_ids = [uuid.UUID(mid) for mid in id_to_mem]
 
-        # 使用流水：总检索次数 + 实际被采用（used/cited）次数
+        # 独立阶段计数；不能把所有流水当作检索分母或将 cited 混入 used。
         usage_result = await db.execute(
             select(
                 MemoryUsage.memory_id,
-                func.count(MemoryUsage.id),
-                func.count(case((MemoryUsage.stage.in_(["used", "cited"]), MemoryUsage.id))),
+                func.count(case((MemoryUsage.stage == "retrieved", MemoryUsage.id))),
+                func.count(case((MemoryUsage.stage == "used", MemoryUsage.id))),
+                func.count(case((MemoryUsage.stage == "cited", MemoryUsage.id))),
             )
             .where(MemoryUsage.memory_id.in_(uuid_ids))
             .group_by(MemoryUsage.memory_id)
         )
-        usage_map = {str(row[0]): (row[1], row[2]) for row in usage_result.all()}
+        usage_map = {str(row[0]): (row[1], row[2], row[3]) for row in usage_result.all()}
 
         # 反馈计数：useful 计正票；not_useful/outdated/wrong 一律视为负票
         # （outdated/wrong 是更强的负信号，单独存在时也压制排序）。
@@ -81,13 +82,13 @@ async def aggregate_utility_scores(
         evidence_map = {str(row[0]): row[1] for row in evidence_result.all()}
 
         for mem_id, mem in id_to_mem.items():
-            retrieval_count, used_count = usage_map.get(mem_id, (0, 0))
+            retrieval_count, used_count, cited_count = usage_map.get(mem_id, (0, 0, 0))
             votes = feedback_map.get(mem_id, {})
             negative_votes = sum(votes.get(kind, 0) for kind in ("not_useful", "outdated", "wrong"))
             utility = compute_utility_score(
                 retrieval_count=retrieval_count,
                 used_count=used_count,
-                cited_count=0,
+                cited_count=cited_count,
                 useful_votes=votes.get("useful", 0),
                 not_useful_votes=negative_votes,
                 last_used_at=mem.last_used_at,

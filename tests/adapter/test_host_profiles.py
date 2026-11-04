@@ -48,6 +48,21 @@ def test_cursor_uses_separate_context_shape_and_no_prompt_recall():
     }
 
 
+def test_capability_report_distinguishes_automatic_manual_and_unsupported():
+    qoder = profiles.capability_report("qoder")
+    assert qoder["prompt_recall"] == "automatic"
+    assert qoder["session_start"] == "automatic"
+    assert qoder["session_end_capture"] == "automatic"
+
+    dsh = profiles.capability_report("dsh")
+    assert dsh["prompt_recall"] == "unsupported"
+    assert dsh["session_start"] == "manual"
+    assert dsh["session_end_capture"] == "manual"
+    assert dsh["events"]["drain"] == "manual"
+
+    assert profiles.capability_report("codex")["session_start"] == "unsupported"
+
+
 def test_render_context_rejects_event_not_in_profile():
     assert profiles.render_context("qoder", "drain", "x") == {}
 

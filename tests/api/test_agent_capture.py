@@ -166,6 +166,10 @@ async def test_session_end_updates_session_without_note(client):
     assert stats.json()["notes_total"] == 1
     assert stats.json()["notes_formalized"] == 0
     assert stats.json()["formalization_rate"] == 0.0
+    assert stats.json()["notes_with_candidate"] == 0
+    assert stats.json()["notes_discarded"] == 0
+    assert stats.json()["oldest_pending_at"]
+    assert stats.json()["oldest_pending_age_days"] is not None
 
 
 async def test_formalize_links_candidate_and_keeps_full_content(client):
@@ -200,3 +204,6 @@ async def test_formalize_links_candidate_and_keeps_full_content(client):
     )
     assert stats.json()["notes_formalized"] == 1
     assert stats.json()["formalization_rate"] == 1.0
+    assert stats.json()["notes_with_candidate"] == 1
+    assert stats.json()["oldest_pending_at"] is None
+    assert stats.json()["oldest_pending_age_days"] is None

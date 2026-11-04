@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import uuid
 
 import httpx
+from sqlalchemy import select
+
+from packages.domain.models import MemoryLifecycleEvent
 
 
 async def _workspace(client: httpx.AsyncClient, name: str) -> str:
@@ -43,7 +47,7 @@ async def _approve_memory(client: httpx.AsyncClient, ws_id: str, title: str, key
     raise AssertionError(f"memory {title} not found")
 
 
-async def test_batch_update_applies_fields(client):
+async def test_batch_update_applies_fields(client, db_session):
     ws_id = await _workspace(client, "batch-update")
     first = await _approve_memory(client, ws_id, "批量更新甲", "batch-1")
     second = await _approve_memory(client, ws_id, "批量更新乙", "batch-2")
@@ -73,6 +77,22 @@ async def test_batch_update_applies_fields(client):
     assert abs(memory["confidence"] - 0.9) < 1e-6
     assert abs(memory["importance"] - 0.8) < 1e-6
     assert set(memory["tags"] or []) == {"batch", "test"}
+
+    events = (
+        await db_session.execute(
+            select(MemoryLifecycleEvent.event_type, MemoryLifecycleEvent.metadata_json).where(
+                MemoryLifecycleEvent.memory_id == uuid.UUID(first)
+            )
+        )
+    ).all()
+    updated_event = next(metadata for event_type, metadata in events if event_type == "updated")
+    assert json.loads(updated_event) == {
+        "source": "batch_update",
+        "version": memory["version"],
+        "reason": "batch update",
+        "actor_type": "agent",
+        "actor_id": "test-agent",
+    }
 
 
 async def test_batch_update_rejects_empty_patch(client):

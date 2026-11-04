@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.auth import AgentIdentity
@@ -71,16 +71,31 @@ async def weekly_review(
         )
     ).scalar() or 0
 
+    # Stages are independent observations, not linked funnel conversions.
+    retrieved_count = func.count(case((MemoryUsage.stage == "retrieved", MemoryUsage.id)))
+    used_count = func.count(case((MemoryUsage.stage == "used", MemoryUsage.id)))
+    cited_count = func.count(case((MemoryUsage.stage == "cited", MemoryUsage.id)))
+    reuse_count = func.count(case((MemoryUsage.stage.in_(("used", "cited")), MemoryUsage.id)))
     usage_rows = (
         await db.execute(
-            select(Memory.id, Memory.title, func.count(MemoryUsage.id).label("uses"))
+            select(
+                Memory.id,
+                Memory.title,
+                retrieved_count,
+                used_count,
+                cited_count,
+            )
             .join(MemoryUsage, MemoryUsage.memory_id == Memory.id)
             .where(
                 Memory.workspace_id == resolved_ws_id,
+                Memory.status == "active",
+                MemoryUsage.workspace_id == resolved_ws_id,
                 MemoryUsage.created_at >= cutoff,
+                MemoryUsage.created_at <= now,
             )
             .group_by(Memory.id, Memory.title)
-            .order_by(func.count(MemoryUsage.id).desc())
+            .having(reuse_count > 0)
+            .order_by(reuse_count.desc(), retrieved_count.desc(), Memory.id.asc())
             .limit(5)
         )
     ).all()
@@ -102,6 +117,7 @@ async def weekly_review(
             select(func.count(SessionNote.id)).where(
                 SessionNote.workspace_id == resolved_ws_id,
                 SessionNote.formalized.is_(False),
+                SessionNote.discarded_at.is_(None),
             )
         )
     ).scalar() or 0
@@ -160,7 +176,15 @@ async def weekly_review(
         "due_now": due_now,
         "pending_notes": pending_notes,
         "most_used": [
-            {"memory_id": str(mid), "title": title, "uses": uses} for mid, title, uses in usage_rows
+            {
+                "memory_id": str(mid),
+                "title": title,
+                "uses": used + cited,
+                "retrievals": retrieved,
+                "context_uses": used,
+                "citations": cited,
+            }
+            for mid, title, retrieved, used, cited in usage_rows
         ],
         "actions": {
             "conflicts": [

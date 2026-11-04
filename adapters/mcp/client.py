@@ -259,6 +259,7 @@ class CwikiClient:
         tags: list[str] | None = None,
         status: str | None = None,
         reason: str | None = None,
+        change_summary: str | None = None,
         is_permanent: bool | None = None,
         permanent_reason: str | None = None,
         expected_version: int | None = None,
@@ -271,6 +272,7 @@ class CwikiClient:
         _set_if_not_none(body, "tags", tags)
         _set_if_not_none(body, "status", status)
         _set_if_not_none(body, "reason", reason)
+        _set_if_not_none(body, "change_summary", change_summary)
         _set_if_not_none(body, "is_permanent", is_permanent)
         _set_if_not_none(body, "permanent_reason", permanent_reason)
         _set_if_not_none(body, "expected_version", expected_version)
