@@ -2,6 +2,7 @@
 
 import json
 import uuid
+from contextlib import AsyncExitStack
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -22,68 +23,72 @@ from packages.storage.indexer import MemoryIndexer
 @pytest.fixture
 async def semantic_env(tmp_path, monkeypatch):
     engine = create_async_engine(f"sqlite+aiosqlite:///{(tmp_path / 'db.sqlite').as_posix()}")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    sessions = async_sessionmaker(engine, expire_on_commit=False)
-    indexer = MemoryIndexer(
-        str(tmp_path / "index.sqlite"),
-        FileStore(tmp_path / "mirrors"),
-        vector_index_path=str(tmp_path / "vectors.npz"),
-        embedding_dimensions=2,
-    )
-    await indexer.init_db()
-    indexer._embedding_service = SimpleNamespace(
-        generate_embedding=AsyncMock(return_value=[1.0, 0.0])
-    )
-    monkeypatch.setattr(file_memories, "get_memory_indexer", lambda: indexer)
-    async with sessions() as db:
-        local, foreign = Workspace(name="local-name"), Workspace(name="foreign-name")
-        db.add_all([local, foreign])
-        await db.flush()
-        memories = [
-            Memory(workspace_id=local.id, title="Local", content="Current local body", type="fact"),
-            Memory(workspace_id=foreign.id, title="Foreign", content="Foreign body", type="fact"),
-            Memory(
-                workspace_id=local.id,
-                title="Superseded",
-                content="Superseded body",
-                type="fact",
-                status="superseded",
-            ),
-        ]
-        db.add_all(memories)
-        await db.commit()
-        workspace_id = str(local.id)
-        ids = [str(memory.id) for memory in memories]
-        for i, memory in enumerate(memories):
-            # 已取代 DB 行故意保留一份过期的 active 镜像/向量。
-            await indexer.index_memory(
-                MemoryFile(
-                    id=str(memory.id),
-                    title="Stale mirror",
-                    content="Old mirror body",
-                    workspace="foreign-name" if i == 1 else "local-name",
-                    status="active",
-                ),
-                embedding=[0.8, 0.2] if i == 0 else [1.0, 0.0],
-            )
-
-    async def test_db():
+    async with AsyncExitStack() as cleanup:
+        cleanup.push_async_callback(engine.dispose)
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        sessions = async_sessionmaker(engine, expire_on_commit=False)
+        indexer = MemoryIndexer(
+            str(tmp_path / "index.sqlite"),
+            FileStore(tmp_path / "mirrors"),
+            vector_index_path=str(tmp_path / "vectors.npz"),
+            embedding_dimensions=2,
+        )
+        cleanup.push_async_callback(indexer.close)
+        await indexer.init_db()
+        indexer._embedding_service = SimpleNamespace(
+            generate_embedding=AsyncMock(return_value=[1.0, 0.0])
+        )
+        monkeypatch.setattr(file_memories, "get_memory_indexer", lambda: indexer)
         async with sessions() as db:
-            yield db
+            local, foreign = Workspace(name="local-name"), Workspace(name="foreign-name")
+            db.add_all([local, foreign])
+            await db.flush()
+            memories = [
+                Memory(
+                    workspace_id=local.id, title="Local", content="Current local body", type="fact"
+                ),
+                Memory(
+                    workspace_id=foreign.id, title="Foreign", content="Foreign body", type="fact"
+                ),
+                Memory(
+                    workspace_id=local.id,
+                    title="Superseded",
+                    content="Superseded body",
+                    type="fact",
+                    status="superseded",
+                ),
+            ]
+            db.add_all(memories)
+            await db.commit()
+            workspace_id = str(local.id)
+            ids = [str(memory.id) for memory in memories]
+            for i, memory in enumerate(memories):
+                # 已取代 DB 行故意保留一份过期的 active 镜像/向量。
+                await indexer.index_memory(
+                    MemoryFile(
+                        id=str(memory.id),
+                        title="Stale mirror",
+                        content="Old mirror body",
+                        workspace="foreign-name" if i == 1 else "local-name",
+                        status="active",
+                    ),
+                    embedding=[0.8, 0.2] if i == 0 else [1.0, 0.0],
+                )
 
-    app = FastAPI()
-    app.include_router(file_memories.router)
-    app.dependency_overrides[get_db] = test_db
-    try:
+        async def test_db():
+            async with sessions() as db:
+                yield db
+
+        app = FastAPI()
+        app.include_router(file_memories.router)
+        app.dependency_overrides[get_db] = test_db
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app), base_url="http://test"
         ) as http:
             yield SimpleNamespace(
                 http=http, indexer=indexer, sessions=sessions, workspace=workspace_id, ids=ids
             )
-    finally:
-        await engine.dispose()
 
 
 async def search(env, **overrides):
@@ -139,7 +144,9 @@ async def test_superseded_files_and_orphan_vectors_do_not_consume_top_k(semantic
     env = semantic_env
     # 允许列表只包含本地 active 文件与一个得分更高的已取代镜像。
     await env.indexer.index_memory(
-        MemoryFile(id=env.ids[2], title="Superseded mirror", content="Superseded", status="superseded"),
+        MemoryFile(
+            id=env.ids[2], title="Superseded mirror", content="Superseded", status="superseded"
+        ),
         embedding=[1.0, 0.0],
     )
     env.indexer.vector_index.add("orphan-vector", [1.0, 0.0])

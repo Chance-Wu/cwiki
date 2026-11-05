@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import uuid
@@ -34,7 +33,6 @@ from apps.api.routes.memories._router import router
 from apps.api.routes.memories._shared import _MEMORY_NO_EMBED, _latest_usage_map
 from apps.api.routes.memory_status import invalidate_memory_status_caches
 from apps.api.routes.search import invalidate_search_cache
-from packages.domain.database import async_session_maker
 from packages.domain.models import (
     Evidence,
     Memory,
@@ -229,23 +227,19 @@ async def get_memory(
     """获取记忆及其版本与证据。"""
     memory = await get_or_404(db, Memory, memory_id, options=_MEMORY_NO_EMBED)
 
-    async def _fetch_evidence() -> list[Any]:
-        async with async_session_maker() as evidence_session:
-            result = await evidence_session.execute(
-                select(Evidence).where(Evidence.memory_id == memory_id).limit(100)
-            )
-            return list(result.scalars().all())
-
-    versions_result, evidence_list = await asyncio.gather(
-        db.execute(
-            select(MemoryVersion)
-            .where(MemoryVersion.memory_id == memory_id)
-            .order_by(MemoryVersion.version.desc())
-            .limit(50)
-        ),
-        _fetch_evidence(),
+    # Keep all detail queries in the injected transaction. A separate global
+    # session bypasses dependency overrides and can outlive the request's loop.
+    versions_result = await db.execute(
+        select(MemoryVersion)
+        .where(MemoryVersion.memory_id == memory_id)
+        .order_by(MemoryVersion.version.desc())
+        .limit(50)
     )
     versions = versions_result.scalars().all()
+    evidence_result = await db.execute(
+        select(Evidence).where(Evidence.memory_id == memory_id).limit(100)
+    )
+    evidence_list = evidence_result.scalars().all()
 
     return {
         "memory": MemoryRead.model_validate(memory),
@@ -570,9 +564,7 @@ async def get_memory_lifecycle(
     event_count = 0
     try:
         event_count = await db.scalar(
-            select(func.count(MemoryLifecycleEvent.id)).where(
-                MemoryLifecycleEvent.memory_id == uid
-            )
+            select(func.count(MemoryLifecycleEvent.id)).where(MemoryLifecycleEvent.memory_id == uid)
         )
         result = await db.execute(
             select(MemoryLifecycleEvent)

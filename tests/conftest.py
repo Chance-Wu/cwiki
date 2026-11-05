@@ -5,6 +5,7 @@ from collections.abc import AsyncGenerator
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import StaticPool
 
@@ -33,6 +34,16 @@ def _isolate_global_task_queue(tmp_path_factory):
     export_state_module._STATE_PATH = original_state_path
 
 
+def configure_sqlite_transactions(eng):
+    @event.listens_for(eng.sync_engine, "connect")
+    def disable_legacy_transactions(dbapi_connection, _connection_record):
+        dbapi_connection.isolation_level = None
+
+    @event.listens_for(eng.sync_engine, "begin")
+    def begin_transaction(conn):
+        conn.exec_driver_sql("BEGIN")
+
+
 @pytest_asyncio.fixture(scope="session", loop_scope="session")
 async def engine():
     eng = create_async_engine(
@@ -41,6 +52,7 @@ async def engine():
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
+    configure_sqlite_transactions(eng)
     async with eng.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield eng
@@ -53,7 +65,9 @@ async def engine():
 async def db_session(engine) -> AsyncGenerator[AsyncSession, None]:
     async with engine.connect() as conn:
         trans = await conn.begin()
-        session = AsyncSession(bind=conn, expire_on_commit=False)
+        session = AsyncSession(
+            bind=conn, expire_on_commit=False, join_transaction_mode="create_savepoint"
+        )
         try:
             yield session
         finally:

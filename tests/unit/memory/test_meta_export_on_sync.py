@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 
+import pytest_asyncio
+
 from apps.api.file_sync import sync_memory_to_file
 from packages.domain.models import Memory, Workspace
 from packages.storage.file_store import FileStore
@@ -22,7 +24,8 @@ _REQUIRED_KEYS = {
 }
 
 
-async def test_sync_memory_writes_meta_sidecar(db_session, tmp_path, monkeypatch):
+@pytest_asyncio.fixture
+async def indexer(tmp_path):
     store = FileStore(tmp_path / "mirrors")
     indexer = MemoryIndexer(
         str(tmp_path / "index.db"),
@@ -30,7 +33,15 @@ async def test_sync_memory_writes_meta_sidecar(db_session, tmp_path, monkeypatch
         vector_index_path=str(tmp_path / "vectors"),
         embedding_dimensions=3,
     )
-    await indexer.init_db()
+    try:
+        await indexer.init_db()
+        yield indexer
+    finally:
+        await indexer.close()
+
+
+async def test_sync_memory_writes_meta_sidecar(db_session, indexer, monkeypatch):
+    store = indexer.file_store
     monkeypatch.setattr("apps.api.file_sync.get_file_store", lambda: store)
     monkeypatch.setattr("apps.api.file_sync.get_memory_indexer", lambda: indexer)
 

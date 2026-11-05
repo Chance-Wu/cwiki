@@ -368,10 +368,13 @@ async def file_components(tmp_path, monkeypatch):
         vector_index_path=str(tmp_path / "vectors"),
         embedding_dimensions=3,
     )
-    await indexer.init_db()
-    monkeypatch.setattr("apps.api.file_sync.get_file_store", lambda: store)
-    monkeypatch.setattr("apps.api.file_sync.get_memory_indexer", lambda: indexer)
-    return store, indexer
+    try:
+        await indexer.init_db()
+        monkeypatch.setattr("apps.api.file_sync.get_file_store", lambda: store)
+        monkeypatch.setattr("apps.api.file_sync.get_memory_indexer", lambda: indexer)
+        yield store, indexer
+    finally:
+        await indexer.close()
 
 
 @pytest.mark.parametrize("field,value", [("title", "Renamed"), ("content", CONTENT + " Patch.")])

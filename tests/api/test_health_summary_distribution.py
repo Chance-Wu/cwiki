@@ -9,11 +9,44 @@ from sqlalchemy import select
 
 from apps.api.routes.memory_status import invalidate_memory_status_caches
 from packages.domain.models import (
+    Evidence,
     Memory,
     MemoryConflict,
     MemoryLifecycleEvent,
     Workspace,
 )
+
+
+async def test_memory_detail_reads_evidence_from_injected_transaction(
+    client, db_session, monkeypatch
+):
+    from sqlalchemy import event
+
+    from packages.domain.database import engine as global_engine
+
+    ws = Workspace(name="detail-evidence-isolation")
+    db_session.add(ws)
+    await db_session.flush()
+    memory = Memory(workspace_id=ws.id, title="隔离证据", content="测试正文", type="fact")
+    db_session.add(memory)
+    await db_session.flush()
+    evidence = Evidence(memory_id=memory.id, source_type="manual", content="事务内证据")
+    db_session.add(evidence)
+    await db_session.flush()
+
+    def reject_global_connection(*args, **kwargs):
+        raise AssertionError("memory detail must not access the global database")
+
+    # Guard even pool checkout: no connection to a configured personal DB is allowed.
+    event.listen(global_engine.sync_engine, "engine_connect", reject_global_connection)
+    monkeypatch.setattr(global_engine.sync_engine.pool, "connect", reject_global_connection)
+    try:
+        response = await client.get(f"/v1/memories/{memory.id}")
+    finally:
+        event.remove(global_engine.sync_engine, "engine_connect", reject_global_connection)
+    assert response.status_code == 200, response.text
+    assert [item["id"] for item in response.json()["evidence"]] == [str(evidence.id)]
+    assert response.json()["evidence"][0]["content"] == "事务内证据"
 
 
 async def test_health_summary_distribution_closes_with_conflicted(client, db_session):

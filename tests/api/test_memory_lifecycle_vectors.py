@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from contextlib import AsyncExitStack
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -26,38 +27,40 @@ DIMS = 3
 @pytest.fixture
 async def env(tmp_path, monkeypatch):
     engine = create_async_engine(f"sqlite+aiosqlite:///{(tmp_path / 'db.sqlite').as_posix()}")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    async with AsyncExitStack() as cleanup:
+        cleanup.push_async_callback(engine.dispose)
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        sessions = async_sessionmaker(engine, expire_on_commit=False)
 
-    file_store = FileStore(tmp_path / "mirrors")
-    indexer = MemoryIndexer(
-        str(tmp_path / "index.sqlite"),
-        file_store,
-        vector_index_path=str(tmp_path / "vectors.npz"),
-        embedding_dimensions=DIMS,
-    )
-    await indexer.init_db()
-    indexer._embedding_service = SimpleNamespace(
-        generate_embedding=AsyncMock(return_value=[0.5] * DIMS)
-    )
+        file_store = FileStore(tmp_path / "mirrors")
+        indexer = MemoryIndexer(
+            str(tmp_path / "index.sqlite"),
+            file_store,
+            vector_index_path=str(tmp_path / "vectors.npz"),
+            embedding_dimensions=DIMS,
+        )
+        cleanup.push_async_callback(indexer.close)
+        await indexer.init_db()
+        indexer._embedding_service = SimpleNamespace(
+            generate_embedding=AsyncMock(return_value=[0.5] * DIMS)
+        )
 
-    monkeypatch.setattr(file_sync, "get_file_store", lambda: file_store)
-    monkeypatch.setattr(file_sync, "get_memory_indexer", lambda: indexer)
-    monkeypatch.setattr(file_memories, "get_file_store", lambda: file_store)
-    monkeypatch.setattr(file_memories, "get_memory_indexer", lambda: indexer)
-    enqueue = AsyncMock()
-    monkeypatch.setattr(memories.task_queue, "enqueue", enqueue)
+        monkeypatch.setattr(file_sync, "get_file_store", lambda: file_store)
+        monkeypatch.setattr(file_sync, "get_memory_indexer", lambda: indexer)
+        monkeypatch.setattr(file_memories, "get_file_store", lambda: file_store)
+        monkeypatch.setattr(file_memories, "get_memory_indexer", lambda: indexer)
+        enqueue = AsyncMock()
+        monkeypatch.setattr(memories.task_queue, "enqueue", enqueue)
 
-    async def test_db():
-        async with sessions() as db:
-            yield db
+        async def test_db():
+            async with sessions() as db:
+                yield db
 
-    app = FastAPI()
-    app.include_router(memories.router)
-    app.include_router(file_memories.router)
-    app.dependency_overrides[get_db] = test_db
-    try:
+        app = FastAPI()
+        app.include_router(memories.router)
+        app.include_router(file_memories.router)
+        app.dependency_overrides[get_db] = test_db
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app), base_url="http://test"
         ) as http:
@@ -68,9 +71,6 @@ async def env(tmp_path, monkeypatch):
                 sessions=sessions,
                 enqueue=enqueue,
             )
-    finally:
-        await indexer.close()
-        await engine.dispose()
 
 
 async def seed(env, *, status="active", embedding=None, vector=None):
@@ -211,9 +211,7 @@ async def test_delete_invalid_uuid_returns_422(env):
 async def test_delete_rejects_overlong_reason_without_deleting(env):
     mid, _ = await seed(env)
 
-    resp = await env.http.delete(
-        f"/v1/memories/{mid}", params={"reason": "x" * 501}
-    )
+    resp = await env.http.delete(f"/v1/memories/{mid}", params={"reason": "x" * 501})
 
     assert resp.status_code == 422, resp.text
     async with env.sessions() as db:

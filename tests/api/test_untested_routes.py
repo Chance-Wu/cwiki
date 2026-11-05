@@ -646,18 +646,21 @@ class TestImportDualWrite:
             vector_index_path=str(tmp_path / "vectors"),
             embedding_dimensions=3,
         )
-        await indexer.init_db()
-        # 与 test_memory_lifecycle_vectors 同一策略：替换 embedding 服务，
-        # 避免网络不可用时 TextEmbedding() 构造永久卡在 huggingface 下载上
-        from types import SimpleNamespace
-        from unittest.mock import AsyncMock
+        try:
+            await indexer.init_db()
+            # 与 test_memory_lifecycle_vectors 同一策略：替换 embedding 服务，
+            # 避免网络不可用时 TextEmbedding() 构造永久卡在 huggingface 下载上
+            from types import SimpleNamespace
+            from unittest.mock import AsyncMock
 
-        indexer._embedding_service = SimpleNamespace(
-            generate_embedding=AsyncMock(return_value=[0.5, 0.5, 0.5])
-        )
-        monkeypatch.setattr("apps.api.file_sync.get_file_store", lambda: store)
-        monkeypatch.setattr("apps.api.file_sync.get_memory_indexer", lambda: indexer)
-        return store, indexer
+            indexer._embedding_service = SimpleNamespace(
+                generate_embedding=AsyncMock(return_value=[0.5, 0.5, 0.5])
+            )
+            monkeypatch.setattr("apps.api.file_sync.get_file_store", lambda: store)
+            monkeypatch.setattr("apps.api.file_sync.get_memory_indexer", lambda: indexer)
+            yield store, indexer
+        finally:
+            await indexer.close()
 
     async def test_imported_memory_visible_in_consistency(
         self, client, db_session, file_components

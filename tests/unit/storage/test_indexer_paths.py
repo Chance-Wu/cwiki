@@ -27,8 +27,8 @@ async def indexer(tmp_path, monkeypatch):
         vector_index_path=str(tmp_path / "vectors.npz"),
         embedding_dimensions=3,
     )
-    await instance.init_db()
     try:
+        await instance.init_db()
         yield instance
     finally:
         # 不关闭的话 aiosqlite 工作线程会在事件循环关闭后报 "Event loop is closed"
@@ -353,7 +353,10 @@ async def test_sync_repairs_legacy_paths_and_commits_orphan_cleanup(
 async def test_sync_never_keeps_vectors_for_superseded_files(indexer, memory, rewrite):
     """已取代文件保留 SQLite 行，但其向量会被剪除且不再回加。"""
     superseded = MemoryFile(
-        id="superseded-one", title="Superseded memory", content="Superseded body.", status="superseded"
+        id="superseded-one",
+        title="Superseded memory",
+        content="Superseded body.",
+        status="superseded",
     )
     active_path = save_as(indexer, memory, "Active.MD")
     superseded_path = save_as(indexer, superseded, "Superseded.MD")
