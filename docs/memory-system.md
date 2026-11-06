@@ -262,7 +262,7 @@ graph LR
 
 每条候选的审核决策（含系统自动决策）都留 `Review` 记录。批准后会同步 Markdown、入队生成向量、创建初始复习计划，并尝试自动检测关系与写时冲突；写时冲突会登记 `candidate_id`，使自动生效的 open 冲突守卫真正生效。正式记忆的编辑、合并会保留修改前快照，重建数据库时随 `_meta` 完整恢复。
 
-**库内查重**：`GET /v1/memories/duplicates` 对 active 记忆两两比较，复用写入时的四路融合（标题/正文/关键词/embedding），阈值默认 `memory.duplicate_possible_threshold`（0.6），返回按相似度降序的记忆对与各分项分数。它只给建议，不自动合并——确认后走候选 merge 或手工编辑。质量页的「库内重复记忆」卡片直接展示前 10 对，周报则取最近更新的 200 条里的前 3 对。active 记忆超过 500 条时返回 400，请用 `workspace_id` 收窄；缺向量的记忆该路按 0 计，分数会偏低。
+**库内查重**：`GET /v1/memories/duplicates` 对 active 记忆两两比较，复用写入时的四路融合（标题/正文/关键词/embedding），阈值默认 `memory.duplicate_possible_threshold`（0.6），返回按相似度降序的记忆对与各分项分数。它只给建议，不自动合并——确认后调用 `POST /v1/memories/merge`（`{source_id,target_id,merge_content}`）：标签取并集、关系边与证据改挂到保留方、被并方标为 `superseded` 并留下 `supersedes` 边，历史与审计完整保留；`merge_content=true` 会把被并方正文追加成「## 合并自《标题》」段（默认不改写保留方正文，避免系统擅自覆盖人工内容）。跨工作区或非 active 的合并直接拒绝。质量页的「库内重复记忆」卡片直接展示前 10 对，周报则取最近更新的 200 条里的前 3 对。active 记忆超过 500 条时返回 400，请用 `workspace_id` 收窄；缺向量的记忆该路按 0 计，分数会偏低。
 
 **正文双链**：正文里写 `[[另一条记忆的标题]]` 会落成 `created_by=wikilink` 的 `related` 边，支持 `[[标题#小节]]`、`[[标题|别名]]` 写法（锚点与别名只用于展示，匹配只看标题）。同步点：候选批准建记忆、候选替换记忆正文、`PATCH /v1/memories/{id}` 改正文、整库重建；每次都按当前正文重建该记忆的 wikilink 出边，链接删掉边也删掉。匹配范围限同一工作区的 active 记忆，标题大小写不敏感；同名记忆会连到全部匹配项，自引用与已存在的其它来源边（manual/auto/review…）跳过，避免重复边。单条记忆最多解析 50 个目标（`packages/memory/wikilink.py` 的 `MAX_LINKS_PER_MEMORY`）。
 

@@ -129,6 +129,27 @@ export const getMemoryDuplicates = (workspaceId?: string, minSimilarity = 0.6) =
   }>(`/memories/duplicates?${params.toString()}`)
 }
 
+/** 合并两条记忆：source 标为 superseded，标签/关系/证据并入 target */
+export const mergeMemories = (sourceId: string, targetId: string, mergeContent = false) =>
+  request<{
+    merged: boolean
+    source_id: string
+    target_id: string
+    content_merged: boolean
+    tags_changed: boolean
+    relations_moved: number
+    relations_dropped: number
+    evidences_moved: number
+    needs_reembedding: boolean
+  }>('/memories/merge', {
+    method: 'POST',
+    body: JSON.stringify({
+      source_id: sourceId,
+      target_id: targetId,
+      merge_content: mergeContent,
+    }),
+  })
+
 // --- Quality Distribution ---
 
 export const getQualityDistribution = (workspaceId?: string) => {

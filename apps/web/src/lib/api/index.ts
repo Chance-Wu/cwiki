@@ -163,6 +163,7 @@ import {
   getKnowledgeGraph,
   getQualityDistribution,
   getMemoryDuplicates,
+  mergeMemories,
 } from './health'
 import { exportData, exportMarkdown, importData } from './data'
 
@@ -265,4 +266,5 @@ export const api = {
   getKnowledgeGraph,
   getQualityDistribution,
   getMemoryDuplicates,
+  mergeMemories,
 }

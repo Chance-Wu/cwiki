@@ -1332,6 +1332,10 @@ const zh: TranslationKeys = {
     },
   },
   quality: {
+    duplicatesMerge: '合并到上一条',
+    duplicatesMergeConfirm: '把「{source}」合并进「{target}」？被并方会标为已取代并保留历史。',
+    duplicatesMerged: '已合并',
+    duplicatesMergeFailed: '合并失败',
     duplicatesTitle: '库内重复记忆',
     duplicatesDesc: '相似度 ≥ {threshold} 的建议合并；只作提示，不会自动改动。',
     duplicatesEmpty: '未发现达到阈值的重复记忆。',

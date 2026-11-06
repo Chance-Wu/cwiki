@@ -1382,6 +1382,11 @@ const en = {
     },
   },
   quality: {
+    duplicatesMerge: 'Merge into first',
+    duplicatesMergeConfirm:
+      'Merge "{source}" into "{target}"? The merged one is marked superseded and kept in history.',
+    duplicatesMerged: 'Merged',
+    duplicatesMergeFailed: 'Merge failed',
     duplicatesTitle: 'Duplicate memories',
     duplicatesDesc: 'Pairs at or above {threshold} similarity worth merging; advisory only.',
     duplicatesEmpty: 'No duplicates above the threshold.',
