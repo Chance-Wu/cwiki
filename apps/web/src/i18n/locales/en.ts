@@ -1382,6 +1382,12 @@ const en = {
     },
   },
   quality: {
+    duplicatesTitle: 'Duplicate memories',
+    duplicatesDesc: 'Pairs at or above {threshold} similarity worth merging; advisory only.',
+    duplicatesEmpty: 'No duplicates above the threshold.',
+    duplicatesFailed: 'Duplicate check failed',
+    duplicatesTruncated:
+      'Too many active memories; only the newest were scanned. Pick a workspace for full coverage.',
     title: 'Quality Distribution',
     loadFailed: 'Failed to load quality distribution',
     reviewCandidates: 'Review Pending Candidates',

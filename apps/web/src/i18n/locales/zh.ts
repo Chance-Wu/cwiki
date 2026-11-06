@@ -1332,6 +1332,11 @@ const zh: TranslationKeys = {
     },
   },
   quality: {
+    duplicatesTitle: '库内重复记忆',
+    duplicatesDesc: '相似度 ≥ {threshold} 的建议合并；只作提示，不会自动改动。',
+    duplicatesEmpty: '未发现达到阈值的重复记忆。',
+    duplicatesFailed: '查重失败',
+    duplicatesTruncated: 'active 记忆过多，仅扫描最新部分；选择具体工作区可查全。',
     title: '质量分布',
     loadFailed: '加载质量分布失败',
     reviewCandidates: '审核待处理候选',

@@ -13,6 +13,7 @@ import PageTitle from '../components/PageTitle'
 import ErrorAlert from '../components/ErrorAlert'
 import LoadingWrapper from '../components/LoadingWrapper'
 import { CardSkeleton } from '../components/Skeleton'
+import DuplicatePairsCard from '../components/quality/DuplicatePairsCard'
 
 function BarChart({
   data,
@@ -168,11 +169,7 @@ export default function QualityPage() {
       }
     >
       {isError ? (
-        <ErrorAlert
-          message={q.loadFailed}
-          onRetry={() => refetch()}
-          retryLabel={t.common.retry}
-        />
+        <ErrorAlert message={q.loadFailed} onRetry={() => refetch()} retryLabel={t.common.retry} />
       ) : (
         <LoadingWrapper loading={isLoading} skeleton={<CardSkeleton cols={2} />}>
           {data && stats && (
@@ -184,6 +181,10 @@ export default function QualityPage() {
                 <StatCard label={q.avgImportance} value={stats.avgImportance} />
                 <StatCard label={q.avgUsage} value={stats.avgUsage} />
               </div>
+
+              <DuplicatePairsCard
+                workspaceId={workspaceFilter === 'all' ? undefined : workspaceFilter}
+              />
 
               {data.truncated && (
                 <div className="rounded-lg border border-[var(--border-default)] bg-[var(--surface-subtle)] px-3 py-2 text-xs text-[var(--text-secondary)]">

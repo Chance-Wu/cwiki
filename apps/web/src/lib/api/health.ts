@@ -105,6 +105,30 @@ export const getKnowledgeGraph = (workspaceId?: string, limit = 200) => {
   }>(`/graph?${params.toString()}`)
 }
 
+// --- Duplicate Detection ---
+
+export interface DuplicatePair {
+  left: { id: string; title: string; type: string }
+  right: { id: string; title: string; type: string }
+  similarity: number
+  classification: string
+  title_similarity: number
+  content_similarity: number
+  embedding_similarity: number
+}
+
+export const getMemoryDuplicates = (workspaceId?: string, minSimilarity = 0.6) => {
+  const params = new URLSearchParams({ min_similarity: String(minSimilarity), limit: '10' })
+  if (workspaceId) params.set('workspace_id', workspaceId)
+  return request<{
+    scanned: number
+    truncated: boolean
+    threshold: number
+    total: number
+    pairs: DuplicatePair[]
+  }>(`/memories/duplicates?${params.toString()}`)
+}
+
 // --- Quality Distribution ---
 
 export const getQualityDistribution = (workspaceId?: string) => {
