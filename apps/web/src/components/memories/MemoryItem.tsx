@@ -259,7 +259,7 @@ const MemoryItem = memo(function MemoryItem({
               </Badge>
             )}
           </div>
-          {/* 第二行：工作区 + 时间 */}
+          {/* 第二行：工作区 + 时间 + 使用统计 */}
           <div className="flex items-center gap-2 mt-1.5 text-[10px] text-[var(--text-tertiary)]">
             {m.workspace && (
               <span className="truncate max-w-[100px]" title={m.workspace}>
@@ -280,7 +280,42 @@ const MemoryItem = memo(function MemoryItem({
                 )}
               </span>
             )}
-            {m.usage_count != null && m.usage_count > 0 && <span>已用 {m.usage_count} 次</span>}
+            {m.usage_count != null && m.usage_count > 0 && (
+              <span title={t.memories.usageCount}>
+                {t.memories.usedTimes.replace('{n}', String(m.usage_count))}
+              </span>
+            )}
+            {m.last_used_at && (
+              <span
+                className="flex items-center gap-0.5"
+                title={new Date(ensureUtc(m.last_used_at)).toLocaleString('zh-CN')}
+              >
+                <svg
+                  width="10"
+                  height="10"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <circle cx="12" cy="12" r="10" />
+                  <polyline points="12 6 12 12 16 14" />
+                </svg>
+                {formatRelativeTime(
+                  m.last_used_at,
+                  {
+                    justNow: t.common.justNow,
+                    minutesAgo: t.common.minutesAgo,
+                    hoursAgo: t.common.hoursAgo,
+                    daysAgo: t.common.daysAgo,
+                  },
+                  'zh',
+                )}
+              </span>
+            )}
           </div>
         </div>
       </div>

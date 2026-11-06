@@ -1,5 +1,5 @@
 import { useState, useCallback, lazy, Suspense } from 'react'
-import { Loader2 } from 'lucide-react'
+import { Loader2, Copy, Link, Download } from 'lucide-react'
 import { useTranslation } from '../../i18n/I18nProvider'
 import { api, type FileMemory } from '../../lib/api'
 import {
@@ -139,6 +139,46 @@ export default function MemoryDetailModal({
     }
   }, [memory, toast, t.memories.deleteSuccess, t.memories.deleteFailed, onClose, onMemoryUpdated])
 
+  const handleCopyId = useCallback(async () => {
+    if (!memory) return
+    try {
+      await navigator.clipboard.writeText(memory.id)
+      toast(t.memories.idCopied, 'success')
+    } catch {
+      toast(t.memories.saveFailed, 'error')
+    }
+  }, [memory, toast, t.memories.idCopied, t.memories.saveFailed])
+
+  const handleCopyLink = useCallback(async () => {
+    if (!memory) return
+    try {
+      const url = `${window.location.origin}${window.location.pathname}?memoryId=${memory.id}`
+      await navigator.clipboard.writeText(url)
+      toast(t.memories.linkCopied, 'success')
+    } catch {
+      toast(t.memories.saveFailed, 'error')
+    }
+  }, [memory, toast, t.memories.linkCopied, t.memories.saveFailed])
+
+  const handleExportMarkdown = useCallback(async () => {
+    if (!memory) return
+    try {
+      const content = `# ${memory.title}\n\n${memory.content}\n\n---\n\n- ID: ${memory.id}\n- Type: ${memory.type}\n- Workspace: ${memory.workspace || 'default'}\n- Tags: ${(memory.tags || []).join(', ')}\n- Created: ${memory.created}\n- Updated: ${memory.updated}\n`
+      const blob = new Blob([content], { type: 'text/markdown' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${memory.title.replace(/[^a-z0-9\u4e00-\u9fa5]/gi, '_')}.md`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+      toast(t.memories.exportSuccess, 'success')
+    } catch {
+      toast(t.memories.exportFailed, 'error')
+    }
+  }, [memory, toast, t.memories.exportSuccess, t.memories.exportFailed])
+
   const handleClose = useCallback(() => {
     onClose()
     setEditing(false)
@@ -225,6 +265,35 @@ export default function MemoryDetailModal({
               </>
             ) : (
               <>
+                <div className="flex gap-1">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleCopyId}
+                    title={t.memories.copyId}
+                    aria-label={t.memories.copyId}
+                  >
+                    <Copy size={14} />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleCopyLink}
+                    title={t.memories.copyLink}
+                    aria-label={t.memories.copyLink}
+                  >
+                    <Link size={14} />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleExportMarkdown}
+                    title={t.memories.exportMarkdown}
+                    aria-label={t.memories.exportMarkdown}
+                  >
+                    <Download size={14} />
+                  </Button>
+                </div>
                 <Button variant="ghost" onClick={() => setConfirmDelete(true)}>
                   {t.common.delete}
                 </Button>

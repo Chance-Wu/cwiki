@@ -33,12 +33,12 @@ interface Props {
   onOrganized: () => void
 }
 
-function defaultTitle(content: string): string {
+function defaultTitle(content: string, fallback: string = '未命名笔记'): string {
   const first = content
     .split('\n')
     .map((line) => line.replace(/^#+\s*/, '').trim())
     .find(Boolean)
-  return (first || '未命名笔记').slice(0, 80)
+  return (first || fallback).slice(0, 80)
 }
 
 export default function NoteDetailModal({ note, open, onOpenChange, onOrganized }: Props) {
@@ -67,7 +67,7 @@ export default function NoteDetailModal({ note, open, onOpenChange, onOrganized 
       .then((data) => {
         if (cancelled) return
         setDetail(data)
-        setTitle(defaultTitle(data.content ?? data.content_preview))
+        setTitle(defaultTitle(data.content ?? data.content_preview, t.notes.untitled))
         setContent(data.content ?? data.content_preview)
         setType(data.signal_type === 'issue' ? 'issue' : 'fact')
       })

@@ -1,5 +1,5 @@
 import { Component, type ReactNode, type ErrorInfo } from 'react'
-import { AlertTriangle } from 'lucide-react'
+import { AlertTriangle, WifiOff, ShieldAlert, FileQuestion, Server } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { I18nContext } from '../i18n/I18nProvider'
 import type { TranslationKeys } from '../i18n/locales/en'
@@ -14,6 +14,17 @@ interface Props {
 interface State {
   hasError: boolean
   error: Error | null
+}
+
+/** 根据错误信息推断错误类型并返回对应图标 */
+function getErrorIcon(error: Error | null) {
+  if (!error) return AlertTriangle
+  const msg = error.message.toLowerCase()
+  if (msg.includes('网络') || msg.includes('network') || msg.includes('fetch')) return WifiOff
+  if (msg.includes('鉴权') || msg.includes('auth') || msg.includes('token')) return ShieldAlert
+  if (msg.includes('不存在') || msg.includes('not found') || msg.includes('404')) return FileQuestion
+  if (msg.includes('服务器') || msg.includes('server') || msg.includes('500')) return Server
+  return AlertTriangle
 }
 
 export class ErrorBoundary extends Component<Props, State> {
@@ -46,6 +57,9 @@ export class ErrorBoundary extends Component<Props, State> {
       const unknownError = eb?.unknownError ?? 'An unknown error occurred while rendering'
       const retry = eb?.retry ?? 'Retry'
 
+      const ErrorIcon = getErrorIcon(this.state.error)
+      const errorMessage = this.state.error?.message || unknownError
+
       return (
         <motion.div
           initial={{ opacity: 0, scale: 0.96 }}
@@ -59,15 +73,23 @@ export class ErrorBoundary extends Component<Props, State> {
             transition={{ ...spring.snappy, delay: 0.05 }}
             className="w-14 h-14 rounded-xl bg-surface-inset ring-1 ring-brand-border border border-brand-200/25 shadow-warm-xs flex items-center justify-center mb-3"
           >
-            <AlertTriangle size={24} className="text-warning-fg" aria-hidden="true" />
+            <ErrorIcon size={24} className="text-warning-fg" aria-hidden="true" />
           </motion.div>
           <h3 className="text-sm font-medium text-[var(--text-secondary)] mb-1">{title}</h3>
-          <p className="text-xs text-[var(--text-tertiary)] mb-4 max-w-md">
-            {this.state.error?.message || unknownError}
+          <p className="text-xs text-[var(--text-tertiary)] mb-4 max-w-md break-words">
+            {errorMessage}
           </p>
-          <Button variant="secondary" onClick={this.handleReset}>
-            {retry}
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="secondary" onClick={this.handleReset}>
+              {retry}
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => window.location.reload()}
+            >
+              {this.context?.t?.common?.refreshPage ?? 'Reload Page'}
+            </Button>
+          </div>
         </motion.div>
       )
     }

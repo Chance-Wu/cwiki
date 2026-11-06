@@ -51,7 +51,7 @@ export default function TagManagePanel({
       onTagsChanged()
       resetForm()
     } catch {
-      toast('重命名失败', 'error')
+      toast(t.memories.tagRenameFailed, 'error')
     } finally {
       setLoading(false)
     }
@@ -66,7 +66,7 @@ export default function TagManagePanel({
       onTagsChanged()
       resetForm()
     } catch {
-      toast('合并失败', 'error')
+      toast(t.memories.tagMergeFailed, 'error')
     } finally {
       setLoading(false)
     }
@@ -81,7 +81,7 @@ export default function TagManagePanel({
       onTagsChanged()
       resetForm()
     } catch {
-      toast('删除失败', 'error')
+      toast(t.memories.tagDeleteFailed, 'error')
     } finally {
       setLoading(false)
     }
@@ -96,7 +96,7 @@ export default function TagManagePanel({
       toast(t.memories.tagMerged + ` (${res.updated_count})`, 'success')
       onTagsChanged()
     } catch {
-      toast('合并失败', 'error')
+      toast(t.memories.tagMergeFailed, 'error')
     } finally {
       setLoading(false)
     }

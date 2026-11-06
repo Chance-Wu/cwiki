@@ -168,7 +168,11 @@ export default function QualityPage() {
       }
     >
       {isError ? (
-        <ErrorAlert message={q.loadFailed} onRetry={() => refetch()} />
+        <ErrorAlert
+          message={q.loadFailed}
+          onRetry={() => refetch()}
+          retryLabel={t.common.retry}
+        />
       ) : (
         <LoadingWrapper loading={isLoading} skeleton={<CardSkeleton cols={2} />}>
           {data && stats && (

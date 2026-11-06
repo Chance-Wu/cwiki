@@ -953,7 +953,11 @@ export default function GraphPage() {
       }
     >
       {error ? (
-        <ErrorAlert message={g.loadFailed} onRetry={() => setRetryKey((key) => key + 1)} />
+        <ErrorAlert
+          message={g.loadFailed}
+          onRetry={() => setRetryKey((key) => key + 1)}
+          retryLabel={t.common.retry}
+        />
       ) : (
         <LoadingWrapper loading={loading} skeleton={<CardSkeleton cols={1} />}>
           <div className="space-y-4">

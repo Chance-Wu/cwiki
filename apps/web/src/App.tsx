@@ -8,6 +8,7 @@ import { Button } from './components/ui/Button'
 import CommandPalette from './components/CommandPalette'
 import { ToastProvider } from './components/Toast'
 import { ErrorBoundary } from './components/ErrorBoundary'
+import NetworkBanner from './components/NetworkBanner'
 import { ListSkeleton } from './components/Skeleton'
 import { supportsViewTransition } from './lib/history'
 
@@ -151,6 +152,7 @@ export default function App() {
       <I18nProvider>
         <ErrorBoundary>
           <ToastProvider>
+            <NetworkBanner />
             <Layout>
               <CommandPalette />
               <Suspense

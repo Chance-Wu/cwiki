@@ -524,6 +524,41 @@ def sync_plugin_cache(agent_key: str) -> None:
             shutil.copy2(source, target)
             mcp_refreshed += 1
 
+    # 注入绝对路径到插件缓存的 .mcp.json（模板只含相对路径）
+    # 已修补的缓存（command 已是绝对路径）保留原值，不覆盖
+    for rel in PLUGIN_SYNC_MCP:
+        target = cache / rel
+        if not target.is_file():
+            continue
+        try:
+            data = read_json(target)
+        except (OSError, UnicodeError, ValueError):
+            continue
+        changed = False
+        servers = data.get("mcpServers")
+        if isinstance(servers, dict):
+            for server in servers.values():
+                if not isinstance(server, dict):
+                    continue
+                # 只注入相对路径（如 "python"），保留已修补的绝对路径
+                cmd = server.get("command", "")
+                if cmd and not os.path.isabs(cmd) and cmd != sys.executable:
+                    server["command"] = sys.executable
+                    changed = True
+                if server.get("cwd") != str(PROJECT_ROOT):
+                    server["cwd"] = str(PROJECT_ROOT)
+                    changed = True
+                env = server.get("env")
+                if isinstance(env, dict):
+                    pp = env.get("PYTHONPATH", "")
+                    if pp and not os.path.isabs(pp) and pp != str(PROJECT_ROOT):
+                        env["PYTHONPATH"] = str(PROJECT_ROOT)
+                        changed = True
+                    env.setdefault("CWIKI_HOST", "qoder")
+        if changed:
+            write_json(target, data)
+            info(f"插件缓存 {rel} 已注入绝对路径 (python={sys.executable}, cwd={PROJECT_ROOT})")
+
     if synced or seeded or refreshed or mcp_refreshed or pruned:
         info(
             f"插件缓存内容已同步（更新 {synced} 个文件，补齐 {seeded} 项，"

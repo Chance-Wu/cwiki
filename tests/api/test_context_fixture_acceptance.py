@@ -27,6 +27,17 @@ async def test_real_context_endpoint_with_negative_fixture(client, db_session, m
     fixture = root / "benchmarks/fixtures/eval_fixture.db"
     if not fixture.is_file():
         pytest.skip("optional synthetic fixture database is not installed")
+
+    # 检查 fixture 数据库实际 schema（同步操作，在异步上下文外执行）
+    from datetime import datetime
+    from sqlalchemy import inspect as sa_inspect, text
+    from sqlalchemy.engine import create_engine
+
+    sync_engine = create_engine("sqlite:///" + fixture.as_posix())
+    insp = sa_inspect(sync_engine)
+    fixture_cols = {col["name"] for col in insp.get_columns("memory")}
+    sync_engine.dispose()
+
     source = create_async_engine(
         URL.create(
             "sqlite+aiosqlite",
@@ -38,16 +49,26 @@ async def test_real_context_endpoint_with_negative_fixture(client, db_session, m
         async with async_sessionmaker(source, expire_on_commit=False)() as src:
             ws_id = await src.scalar(select(Workspace.id).where(Workspace.name == WORKSPACE_NAME))
             assert ws_id is not None
-            memories = (await src.scalars(select(Memory).where(Memory.workspace_id == ws_id))).all()
+            # 用原始 SQL 避免 SQLAlchemy 模型查询不存在的列
+            col_list = ", ".join(f'"{c}"' for c in sorted(fixture_cols) if c != "workspace_id")
+            query = text(f"SELECT {col_list} FROM memory WHERE workspace_id = :ws_id")
+            rows = (await src.execute(query, {"ws_id": str(ws_id)})).fetchall()
             ws = Workspace(name="fixture-api-" + uuid.uuid4().hex)
             db_session.add(ws)
             await db_session.flush()
-            for memory in memories:
-                values = {
-                    column.key: getattr(memory, column.key) for column in Memory.__table__.columns
-                }
+            # 日期字段需要转换为 datetime 对象
+            date_fields = {"created_at", "updated_at", "last_used_at", "valid_from", "valid_to"}
+            for row in rows:
+                values = dict(row._mapping)
                 values["workspace_id"] = ws.id
                 values["project_id"] = None
+                # 转换日期字符串为 datetime 对象
+                for field in date_fields:
+                    if field in values and isinstance(values[field], str):
+                        values[field] = datetime.fromisoformat(values[field])
+                # 只传入目标表存在的列
+                target_cols = {c.key for c in Memory.__table__.columns}
+                values = {k: v for k, v in values.items() if k in target_cols}
                 db_session.add(Memory(**values))
             await db_session.flush()
     finally:

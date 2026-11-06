@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -29,6 +30,7 @@ def test_kills_only_target_pid_then_spawns_fallback(
 ) -> None:
     commands: list[list[str]] = []
     spawns: list[tuple[list[str], dict]] = []
+    killed_pids: list[int] = []
 
     def fake_run(cmd: list[str], **kwargs):
         commands.append(cmd)
@@ -37,15 +39,23 @@ def test_kills_only_target_pid_then_spawns_fallback(
         spawns.append((cmd, kwargs))
         return object()
 
+    def fake_os_kill(pid: int, sig: int):
+        killed_pids.append(pid)
+
     monkeypatch.setattr(restart_watcher.time, "sleep", lambda _seconds: None)
     monkeypatch.setattr(restart_watcher, "_wait_healthy", lambda _port, timeout=0: False)
     monkeypatch.setattr(restart_watcher.subprocess, "run", fake_run)
     monkeypatch.setattr(restart_watcher.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(os, "kill", fake_os_kill)
     monkeypatch.setattr(sys, "argv", ["restart_watcher.py", "123456", str(project_root)])
 
     restart_watcher.main()
 
-    assert commands == [["taskkill", "/PID", "123456", "/F"]]
+    # macOS/Linux 用 os.kill，Windows 用 taskkill
+    if os.name == "nt":
+        assert commands == [["taskkill", "/PID", "123456", "/F"]]
+    else:
+        assert killed_pids == [123456]
     assert len(spawns) == 1
     cmd, kwargs = spawns[0]
     assert cmd[1].endswith("tasks.py")

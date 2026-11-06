@@ -49,6 +49,7 @@ export default function RelationGraph({ memoryId, onNavigateToMemory }: Props) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
   const [viewMode, setViewMode] = useState<'graph' | 'list'>('graph')
+  const [filterType, setFilterType] = useState<string>('all')
   const svgRef = useRef<SVGSVGElement>(null)
   const animationRef = useRef<number>(0)
   const nodesRef = useRef<GraphNode[]>([])
@@ -287,10 +288,25 @@ export default function RelationGraph({ memoryId, onNavigateToMemory }: Props) {
       </div>
     )
 
+  // 按类型过滤关联
+  const filteredRelations =
+    filterType === 'all' ? relations : relations.filter((r) => r.relation_type === filterType)
+  const filteredEdges =
+    filterType === 'all' ? edges : edges.filter((e) => e.relationType === filterType)
+
+  // 统计各类型关联数量
+  const relationTypeCounts = relations.reduce(
+    (acc, r) => {
+      acc[r.relation_type] = (acc[r.relation_type] || 0) + 1
+      return acc
+    },
+    {} as Record<string, number>,
+  )
+
   return (
     <div className="space-y-4">
-      {/* 视图切换 + 添加按钮 */}
-      <div className="flex items-center gap-2">
+      {/* 视图切换 + 类型过滤 + 添加按钮 */}
+      <div className="flex items-center gap-2 flex-wrap">
         <button
           onClick={() => setViewMode('graph')}
           className={`px-3 py-1 text-sm rounded-lg transition-colors ${
@@ -311,6 +327,25 @@ export default function RelationGraph({ memoryId, onNavigateToMemory }: Props) {
         >
           {t.memories.listView}
         </button>
+
+        {/* 类型过滤下拉 */}
+        {relations.length > 0 && (
+          <select
+            value={filterType}
+            onChange={(e) => setFilterType(e.target.value)}
+            className="px-2 py-1 text-sm bg-surface-inset border border-[var(--border-default)] rounded-lg text-[var(--text-primary)]"
+          >
+            <option value="all">全部类型 ({relations.length})</option>
+            {RELATION_TYPES.map((type) =>
+              relationTypeCounts[type] ? (
+                <option key={type} value={type}>
+                  {type} ({relationTypeCounts[type]})
+                </option>
+              ) : null,
+            )}
+          </select>
+        )}
+
         <div className="flex-1" />
         {!showAddForm && (
           <button
@@ -394,7 +429,7 @@ export default function RelationGraph({ memoryId, onNavigateToMemory }: Props) {
         </div>
       )}
 
-      {viewMode === 'graph' && relations.length > 0 ? (
+      {viewMode === 'graph' && filteredRelations.length > 0 ? (
         <div className="relative bg-surface-inset rounded-xl border border-[var(--border-default)] overflow-hidden">
           <svg
             ref={svgRef}
@@ -421,7 +456,7 @@ export default function RelationGraph({ memoryId, onNavigateToMemory }: Props) {
             </defs>
 
             {/* 边（带箭头） */}
-            {edges.map((edge, i) => {
+            {filteredEdges.map((edge, i) => {
               const source = nodes.find((n) => n.id === edge.source)
               const target = nodes.find((n) => n.id === edge.target)
               if (!source || !target) return null
@@ -580,7 +615,7 @@ export default function RelationGraph({ memoryId, onNavigateToMemory }: Props) {
                 {t.memories.relationType}
               </h4>
               <div className="space-y-3">
-                {relations.map((r) => {
+                {filteredRelations.map((r) => {
                   const isSource = r.source_memory_id === memoryId
                   const otherId = isSource ? r.target_memory_id : r.source_memory_id
                   const other = relatedMemories.find((m) => m.id === otherId)

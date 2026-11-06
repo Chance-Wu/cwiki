@@ -306,7 +306,7 @@ def test_sync_plugin_cache_updates_stale_content_and_seeds_missing_configs(
                         "type": "stdio",
                         "args": ["-m", "adapters.qoder.mcp_server"],
                         "env": {"CWIKI_HOST": "qoder", "PYTHONPATH": "/repo/root"},
-                        "command": "patched-python",
+                        "command": "/patched/python",
                         "cwd": "/repo/root",
                     }
                 }
@@ -324,7 +324,7 @@ def test_sync_plugin_cache_updates_stale_content_and_seeds_missing_configs(
         setup.PLUGIN_SOURCE_DIR / ".qoder-plugin" / "plugin.json"
     ).read_bytes()
     # 结构一致的已修补 .mcp.json 不被模板覆盖（绝对路径注入保持有效）
-    assert "patched-python" in (cache / ".mcp.json").read_text(encoding="utf-8")
+    assert "/patched/python" in (cache / ".mcp.json").read_text(encoding="utf-8")
     # 缺失的 hooks 目录从模板补齐
     assert (cache / "hooks" / "hooks.json").read_text(encoding="utf-8") == '{"hooks": {}}'
     out = capsys.readouterr().out
