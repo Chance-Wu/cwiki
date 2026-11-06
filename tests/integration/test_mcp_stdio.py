@@ -224,7 +224,7 @@ def test_mcp_subprocess_utf8_roundtrip_and_eof():
     assert [item["id"] for item in responses] == [1, 2, 3, 4, 5, 6, 7]
     assert responses[0]["result"]["serverInfo"]["name"] == "cwiki"
     tools = responses[1]["result"]["tools"]
-    assert len(tools) == 23  # 新增 health / review_manage
+    assert len(tools) == 24  # 新增 health / review_manage
     assert "memory_save" in {tool["name"] for tool in tools}
     assert responses[2]["result"] == {}
     assert "不存在的方法" in responses[3]["error"]["message"]
@@ -373,7 +373,7 @@ async def test_initialize_reports_plugin_json_version(memory_server):
 async def test_tool_inventory_and_merged_schemas(memory_server):
     response = await memory_server.handle_message({"id": 1, "method": "tools/list"})
     tools = {tool["name"]: tool for tool in response["result"]["tools"]}
-    assert len(response["result"]["tools"]) == 23  # 新增 health / review_manage
+    assert len(response["result"]["tools"]) == 24  # 新增 health / review_manage / review_quiz
     assert set(tools) == {
         "memory_search",
         "memory_save",
@@ -398,6 +398,7 @@ async def test_tool_inventory_and_merged_schemas(memory_server):
         "memory_conflict_resolve",
         "memory_health",
         "memory_review_manage",
+        "memory_review_quiz",
     }
     search = tools["memory_search"]["inputSchema"]
     assert search["anyOf"] == [{"required": ["keyword"]}, {"required": ["query"]}]

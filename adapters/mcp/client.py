@@ -611,6 +611,23 @@ class CwikiClient:
             params=params,
         )
 
+    async def get_review_quiz(self, memory_id: str, workspace_id: str) -> dict[str, Any]:
+        """取一条记忆的填空复习题（题干 + 空格数，不含答案）。"""
+        params: dict[str, Any] = {"workspace_id": workspace_id}
+        return await self._request("GET", f"{API_V1_PREFIX}/review/quiz/{memory_id}", params=params)
+
+    async def submit_review_quiz(
+        self, memory_id: str, answers: list[str], workspace_id: str
+    ) -> dict[str, Any]:
+        """提交填空答案：服务端重新出题判分，并按得分换算 SM-2 quality。"""
+        params: dict[str, Any] = {"workspace_id": workspace_id}
+        return await self._request(
+            "POST",
+            f"{API_V1_PREFIX}/review/quiz/{memory_id}",
+            json_body={"answers": answers},
+            params=params,
+        )
+
     async def get_review_stats(self, workspace_id: str) -> dict[str, Any]:
         """获取工作区的复习统计。"""
         params: dict[str, Any] = {"workspace_id": workspace_id}

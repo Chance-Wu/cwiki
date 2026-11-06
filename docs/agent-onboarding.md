@@ -12,7 +12,7 @@
 |---|---|---|
 | 适用场景 | Qoder 等 MCP 宿主 | 任意能发 HTTP 请求的程序 / 自研 Agent |
 | 适配层 | `adapters/qoder/`（stdio，`python -m adapters.qoder.mcp_server`） | 无，直接调 API |
-| 能力 | 23 个 `memory_*` 工具 + cwiki-save skill + 3 个斜杠命令 | 全部 REST 端点（见 [API 参考](api-reference.md)） |
+| 能力 | 24 个 `memory_*` 工具 + cwiki-save skill + 3 个斜杠命令 | 全部 REST 端点（见 [API 参考](api-reference.md)） |
 | 可靠写入 | 客户端本地暂存（`cached: true`），恢复后 `memory_retry_failed` 重试 | 幂等键 `client_write_id`（候选）/ `sequence`（事件） |
 | 行为契约 | AGENTS.md 受管区块 + hook 静态提醒 | 由调用方自行约定 |
 
@@ -56,7 +56,7 @@ MCP 服务器以 stdio 方式运行 `python -m adapters.qoder.mcp_server`。最�
 
 Qoder 用户的推荐做法仍是 `python scripts/setup.py`：它把 cwiki 写入全局 `~/.qoder/settings.json`（Qoder App 实际加载的全局配置），并维护全局 `~/.qoder/mcp.json` 作为 CLI 兜底；插件只提供 hooks/skills，不再声明 MCP。配置改动后需**完全重启宿主**——MCP 服务器列表只在宿主启动时读取。
 
-23 个工具的完整契约（参数、默认值、严格 schema）见 [MCP 工具参考](../adapters/qoder/README.md#mcp-tools)；写入契约（语义原样保存、类型仅分类）见[记忆系统](memory-system.md#写入契约)。
+24 个工具的完整契约（参数、默认值、严格 schema）见 [MCP 工具参考](../adapters/qoder/README.md#mcp-tools)；写入契约（语义原样保存、类型仅分类）见[记忆系统](memory-system.md#写入契约)。
 
 ---
 
@@ -228,7 +228,7 @@ curl -X POST http://127.0.0.1:5172/v1/events \
 接入后按序验证，全部通过才算接入成功：
 
 1. **后端健康**：`curl http://127.0.0.1:5172/v1/health` 返回 `{"status": "healthy", "database": "ok"}`
-2. **MCP 工具注册**（仅 MCP 接入）：宿主中 `tools/list` 返回 23 个 `memory_*` 工具（`memory_search`、`memory_save`、`memory_status`、`memory_types`、`memory_history`、`memory_relations`、`memory_relation_create`、`memory_relation_delete`、`memory_update`、`memory_feedback`、`memory_forget`、`memory_retry_failed`、`memory_checkpoint`、`memory_export`、`memory_import`、`memory_review_due`、`memory_review_submit`、`memory_review_stats`、`memory_tags`、`memory_conflicts`、`memory_conflict_resolve`、`memory_health`、`memory_review_manage`）
+2. **MCP 工具注册**（仅 MCP 接入）：宿主中 `tools/list` 返回 24 个 `memory_*` 工具（`memory_search`、`memory_save`、`memory_status`、`memory_types`、`memory_history`、`memory_relations`、`memory_relation_create`、`memory_relation_delete`、`memory_update`、`memory_feedback`、`memory_forget`、`memory_retry_failed`、`memory_checkpoint`、`memory_export`、`memory_import`、`memory_review_due`、`memory_review_quiz`、`memory_review_submit`、`memory_review_stats`、`memory_tags`、`memory_conflicts`、`memory_conflict_resolve`、`memory_health`、`memory_review_manage`）
 3. **工作区连通**：调用 `memory_status`，应返回工作区统计与 outbox 积压信息
 4. **写入链路**：用 `memory_save`（或 `POST /v1/candidates`）提交一条标注「接入测试」的记忆，然后到 Web 控制台 `http://localhost:5173` 的**待审**页确认候选已出现，审核通过后到**记忆库**页确认可见
 
@@ -313,7 +313,7 @@ curl -X POST http://127.0.0.1:5172/v1/task-queue/retry \
 
 ## 相关文档
 
-- [MCP 工具参考（adapters/qoder）](../adapters/qoder/README.md) — 23 个工具的完整参数契约
+- [MCP 工具参考（adapters/qoder）](../adapters/qoder/README.md) — 24 个工具的完整参数契约
 - [开发指南 · Agent 接入配置](development.md#agent-接入配置) — setup.py 全流程、更新与内容保护、重载与验证
 - [API 参考](api-reference.md) — 20 个路由模块全量端点
 - [记忆系统 · 写入契约](memory-system.md#写入契约) — memory_save / memory_checkpoint 的行为约定

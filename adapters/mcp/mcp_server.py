@@ -574,6 +574,7 @@ class MCPServer:
             "memory_export",
             "memory_import",
             "memory_review_due",
+            "memory_review_quiz",
             "memory_review_submit",
             "memory_review_stats",
             "memory_review_manage",
@@ -601,6 +602,7 @@ class MCPServer:
         "memory_export": "_handle_memory_export",
         "memory_import": "_handle_memory_import",
         "memory_review_due": "_handle_memory_review_due",
+        "memory_review_quiz": "_handle_memory_review_quiz",
         "memory_review_submit": "_handle_memory_review_submit",
         "memory_review_stats": "_handle_memory_review_stats",
         "memory_conflicts": "_handle_memory_conflicts",
@@ -1742,14 +1744,42 @@ class MCPServer:
             "items": items,
         }
 
-    async def _handle_memory_review_submit(self, arguments: dict[str, Any]) -> dict[str, Any]:
+    async def _handle_memory_review_quiz(self, arguments: dict[str, Any]) -> dict[str, Any]:
         memory_id = arguments.get("memory_id")
-        quality = arguments.get("quality")
         if not isinstance(memory_id, str):
             return {"error": "memory_id 必须是字符串"}
-        if type(quality) is not int or not 0 <= quality <= 5:
-            return {"error": "quality 必须是 0–5 的整数"}
         workspace_id = arguments.get("workspace_name") or current_workspace_for(self)
+        quiz = await self.client.get_review_quiz(memory_id, workspace_id)
+        return {
+            "status": "ok",
+            "memory_id": memory_id,
+            "quiz": quiz,
+            "hint": "按空格顺序给出 answers（fill-in 判分），用 memory_review_submit 提交",
+        }
+
+    async def _handle_memory_review_submit(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        memory_id = arguments.get("memory_id")
+        if not isinstance(memory_id, str):
+            return {"error": "memory_id 必须是字符串"}
+        workspace_id = arguments.get("workspace_name") or current_workspace_for(self)
+        answers = arguments.get("answers")
+        if answers is not None:
+            if not isinstance(answers, list) or not all(isinstance(a, str) for a in answers):
+                return {"error": "answers 必须是字符串数组"}
+            if not answers:
+                return {"error": "answers 不能为空"}
+            result = await self.client.submit_review_quiz(memory_id, answers, workspace_id)
+            return {
+                "status": "ok",
+                "memory_id": memory_id,
+                "quality": result.get("quality"),
+                "correct": result.get("correct"),
+                "total": result.get("total"),
+                **result,
+            }
+        quality = arguments.get("quality")
+        if type(quality) is not int or not 0 <= quality <= 5:
+            return {"error": "quality 必须是 0–5 的整数（或改用 answers 填空判分）"}
         result = await self.client.submit_review(
             memory_id=memory_id, quality=quality, workspace_id=workspace_id
         )

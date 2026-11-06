@@ -1,4 +1,4 @@
-"""cwiki 全部 23 个记忆工具的 MCP JSON Schema 定义。
+"""cwiki 全部 24 个记忆工具的 MCP JSON Schema 定义。
 
 纯数据集合——不依赖 MCPServer、CwikiClient 或传输层。
 工具名与 description 是对宿主（Agent）可见的协议契约，保持原样不动。
@@ -549,8 +549,34 @@ def build_tool_definitions() -> list[dict[str, Any]]:
             },
         },
         {
+            "name": "memory_review_quiz",
+            "description": (
+                "取一条记忆的填空复习题：返回挖空后的题干与空格数，不含答案。"
+                "自己填好后用 memory_review_submit（answers）提交，由服务端判分并换算质量评分。"
+            ),
+            "inputSchema": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "memory_id": {
+                        "type": "string",
+                        "description": "记忆 ID",
+                    },
+                    "workspace_name": {
+                        "type": "string",
+                        "description": "工作区名称或 UUID",
+                    },
+                },
+                "required": ["memory_id"],
+            },
+        },
+        {
             "name": "memory_review_submit",
-            "description": "提交复习评分(0-5)：5完美/4犹豫后正确/3困难正确/2错误但记住/1错误易识别/0完全忘记。",
+            "description": (
+                "提交复习结果。给 answers（按空格顺序的字符串数组）走填空判分，"
+                "quality 由服务端按得分换算；或直接给 quality 0-5 自评："
+                "5完美/4犹豫后正确/3困难正确/2错误但记住/1错误易识别/0完全忘记。"
+            ),
             "inputSchema": {
                 "type": "object",
                 "additionalProperties": False,
@@ -561,16 +587,21 @@ def build_tool_definitions() -> list[dict[str, Any]]:
                     },
                     "quality": {
                         "type": "integer",
-                        "description": "质量评分",
+                        "description": "质量评分（与 answers 二选一）",
                         "minimum": 0,
                         "maximum": 5,
+                    },
+                    "answers": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "填空答案，顺序对应题干中的空格；给出后按判分结果自动定 quality",
                     },
                     "workspace_name": {
                         "type": "string",
                         "description": "工作区名称或 UUID",
                     },
                 },
-                "required": ["memory_id", "quality"],
+                "required": ["memory_id"],
             },
         },
         {

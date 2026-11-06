@@ -124,3 +124,44 @@ async def test_health_and_review_manage_route_to_client(server):
     assert "error" in await srv._handle_tool(
         "memory_review_manage", {"memory_id": "m1", "action": "postpone", "days": 0}
     )
+
+
+async def test_review_quiz_and_answer_submission_route_to_client(server):
+    """memory_review_quiz 取题；memory_review_submit 有 answers 时走判分。"""
+    srv, client = server
+    client.get_review_quiz = AsyncMock(
+        return_value={
+            "memory_id": "m1",
+            "kind": "cloze",
+            "prompt": "WAL 需要 [[1]]",
+            "blank_count": 1,
+        }
+    )
+    client.submit_review_quiz = AsyncMock(
+        return_value={"quality": 4, "correct": 1, "total": 1, "next_review_at": None}
+    )
+    client.submit_review = AsyncMock(return_value={"quality": 2, "next_review_at": None})
+
+    quiz = await srv._handle_tool("memory_review_quiz", {"memory_id": "m1"})
+    assert quiz["quiz"]["blank_count"] == 1
+    client.get_review_quiz.assert_awaited_once_with("m1", "ws")
+
+    graded = await srv._handle_tool(
+        "memory_review_submit", {"memory_id": "m1", "answers": ["checkpoint"]}
+    )
+    assert graded["quality"] == 4
+    client.submit_review_quiz.assert_awaited_once_with("m1", ["checkpoint"], "ws")
+    client.submit_review.assert_not_awaited()
+
+    rated = await srv._handle_tool("memory_review_submit", {"memory_id": "m1", "quality": 2})
+    assert rated["quality"] == 2
+    client.submit_review.assert_awaited_once_with(memory_id="m1", quality=2, workspace_id="ws")
+
+    assert "error" in await srv._handle_tool("memory_review_quiz", {})
+    assert "error" in await srv._handle_tool(
+        "memory_review_submit", {"memory_id": "m1", "answers": []}
+    )
+    assert "error" in await srv._handle_tool(
+        "memory_review_submit", {"memory_id": "m1", "answers": ["a", 1]}
+    )
+    assert "error" in await srv._handle_tool("memory_review_submit", {"memory_id": "m1"})

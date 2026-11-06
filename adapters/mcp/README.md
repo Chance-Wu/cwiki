@@ -1,6 +1,6 @@
 # adapters/mcp — 宿主无关 MCP server
 
-以 stdio 传输提供 cwiki 的 23 个记忆工具。任何 MCP 宿主统一用 `python -m adapters.mcp` 启动；宿主标识由 `CWIKI_HOST` 声明（`qoder` / `claude` / `cursor` / `codex` …），未声明记为 `generic`。
+以 stdio 传输提供 cwiki 的 24 个记忆工具。任何 MCP 宿主统一用 `python -m adapters.mcp` 启动；宿主标识由 `CWIKI_HOST` 声明（`qoder` / `claude` / `cursor` / `codex` …），未声明记为 `generic`。
 
 ## 读写策略
 
@@ -13,7 +13,7 @@
 | 模块 | 职责 |
 |------|------|
 | `mcp_server.py` | MCP 服务器主体：工具分发、workspace 解析、参数校验 |
-| `tool_definitions.py` | 23 个工具的 JSON Schema（严格模式，未知参数拒绝） |
+| `tool_definitions.py` | 24 个工具的 JSON Schema（严格模式，未知参数拒绝） |
 | `transport.py` | stdio 传输与 git 信息辅助 |
 | `client.py` | cwiki REST API 的异步 HTTP 客户端 |
 | `local_index.py` | 只读 SQLite + 进程内 BM25 的本地检索 |

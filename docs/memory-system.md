@@ -339,7 +339,7 @@ graph TD
 
 | 任务 | 触发方式 | 动作 |
 |------|----------|------|
-| 复习提醒 | 周期调度（`review_reminders_enabled` 开启时，默认每 24 小时） | 扫描到期的 `ReviewSchedule`，按工作区把提醒摘要写入状态文件；同一开关还让 hook 在 SessionStart 注入一行「到期 N 条」提示（只读本地 DB、按工作区每日最多一次，到期数变化时重新提示），Agent 据此用 `memory_review_due` / `memory_review_submit` 组织复习 |
+| 复习提醒 | 周期调度（`review_reminders_enabled` 开启时，默认每 24 小时） | 扫描到期的 `ReviewSchedule`，按工作区把提醒摘要写入状态文件；同一开关还让 hook 在 SessionStart 注入一行「到期 N 条」提示（只读本地 DB、按工作区每日最多一次，到期数变化时重新提示），Agent 据此用 `memory_review_due` 取队列、`memory_review_quiz` 出填空题、`memory_review_submit` 提交（给 `answers` 由服务端判分，或给 `quality` 自评） |
 | 定期 `_meta` 导出 | 写入时增量导出 + 周期全量（`meta_export_interval_hours`，默认 12 小时，启动按上次导出时间追赶）+ 每日系统计划任务 | 导出 `_meta` JSON，供 Git 同步与数据库重建 |
 | 间隔重复 | 复习提交时同步更新 | SM-2 算法更新复习间隔与掌握度等级（`python tasks.py recompute` 可重放 review_history 重建调度） |
 | 去重检测 | 新候选入库时自动触发 | Embedding 余弦相似度比对（列级 select 避免加载无关列） |

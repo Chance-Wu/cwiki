@@ -1,4 +1,4 @@
-# cwiki 工具契约（23 个）
+# cwiki 工具契约（24 个）
 
 **所有工具 schema 均为 `additionalProperties: false`，传入未列出的键会被直接拒绝。**
 工作区默认自动绑定 Agent 当前项目（宿主 hook 实时同步）；`workspace_name` 仅在明确要跨项目操作时才传。`memory_forget` 按全局唯一 `memory_id` 删除，`workspace_name` 仅作兼容字段。
@@ -10,7 +10,7 @@
 - 状态：`memory_status` / `memory_types` / `memory_tags`
 - 检查点与恢复：`memory_checkpoint` / `memory_retry_failed`
 - 关系与历史：`memory_relations` / `memory_relation_create` / `memory_relation_delete` / `memory_history`
-- 复习：`memory_review_due` / `memory_review_submit` / `memory_review_stats` / `memory_review_manage`
+- 复习：`memory_review_due` / `memory_review_quiz` / `memory_review_submit` / `memory_review_stats` / `memory_review_manage`
 - 健康：`memory_health`（单条或聚合）
 - 运维：`memory_export` / `memory_import`
 
@@ -33,7 +33,8 @@
 | `memory_tags` | — | `tags`(过滤，AND)、`limit`(1–100，默认 20) | ✓ |
 | `memory_retry_failed` | —（无任何参数） | — | ✗ |
 | `memory_review_due` | — | `limit`(1-100，默认 20) | ✓ |
-| `memory_review_submit` | `memory_id`、`quality`(0-5) | — | ✓ |
+| `memory_review_quiz` | `memory_id` | — | ✓ |
+| `memory_review_submit` | `memory_id` | `answers`(字符串数组，按空格顺序)、`quality`(0-5，与 answers 二选一) | ✓ |
 | `memory_review_stats` | — | — | ✓ |
 | `memory_conflicts` | — | `status`(open/resolved/all)、`limit`(1–200，默认 20) | ✗ |
 | `memory_conflict_resolve` | `conflict_id`、`resolution`(≥10 字符) | — | ✗ |
