@@ -576,6 +576,7 @@ class MCPServer:
             "memory_review_due",
             "memory_review_submit",
             "memory_review_stats",
+            "memory_review_manage",
             "memory_feedback",
             "memory_forget",
         }
@@ -604,6 +605,8 @@ class MCPServer:
         "memory_review_stats": "_handle_memory_review_stats",
         "memory_conflicts": "_handle_memory_conflicts",
         "memory_conflict_resolve": "_handle_memory_conflict_resolve",
+        "memory_health": "_handle_memory_health",
+        "memory_review_manage": "_handle_memory_review_manage",
     }
 
     def __init__(self, client: CwikiClient):
@@ -1794,6 +1797,48 @@ class MCPServer:
             return {"error": "resolution 至少 10 个字符：说明保留哪一方、依据与已做的内容修正"}
         result = await self.client.resolve_conflict(str(conflict_id), resolution)
         return {"status": "ok", "conflict": result}
+
+    async def _handle_memory_health(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        memory_id = arguments.get("memory_id")
+        if memory_id is not None and not isinstance(memory_id, str):
+            return {"error": "memory_id 必须是字符串"}
+        if memory_id:
+            # 端点返回 {memory_id, utility, health}；原样摊平，避免再套一层
+            return {**(await self.client.get_memory_health(memory_id)), "status": "ok"}
+        # 聚合默认看全局：单工作区记忆量小时，限定范围反而看不出问题
+        workspace_id = arguments.get("workspace_name")
+        summary = await self.client.get_health_summary(workspace_id=workspace_id)
+        return {
+            "status": "ok",
+            "workspace_id": workspace_id or "all",
+            **summary,
+            "hint": (
+                "conflicted > suspicious > needs_review 逐级恶化：先关未解决冲突，"
+                "再看 reasons 里的扣分信号（负向反馈、效用低、长期未用、置信度低）。"
+            ),
+        }
+
+    async def _handle_memory_review_manage(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        memory_id = arguments.get("memory_id")
+        if not isinstance(memory_id, str):
+            return {"error": "memory_id 必须是字符串"}
+        action = arguments.get("action")
+        if action not in {"suspend", "resume", "undo", "postpone"}:
+            return {"error": "action 必须是 suspend/resume/undo/postpone"}
+        days = arguments.get("days", 3)
+        if type(days) is not int or not 1 <= days <= 365:
+            return {"error": "days 必须是 1–365 的整数"}
+        workspace_id = arguments.get("workspace_name") or current_workspace_for(self)
+        result = await self.client.manage_review(
+            memory_id=memory_id, action=action, workspace_id=workspace_id, days=days
+        )
+        return {
+            "status": "ok",
+            "memory_id": memory_id,
+            "action": action,
+            **({"days": days} if action == "postpone" else {}),
+            "review": result,
+        }
 
     async def _handle_tool(
         self, name: str, arguments: dict[str, Any]

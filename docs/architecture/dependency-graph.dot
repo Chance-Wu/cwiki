@@ -16,7 +16,7 @@ digraph cwiki_dependencies {
         style=dashed
         color="#B8D4E3"
 
-        mcp_server [label="mcp/mcp_server.py\nMCPServer (21 tools)", fillcolor="#B8D4E3"]
+        mcp_server [label="mcp/mcp_server.py\nMCPServer (23 tools)", fillcolor="#B8D4E3"]
         mcp_client [label="mcp/client.py\nCwikiClient (HTTP)", fillcolor="#B8D4E3"]
         mcp_outbox [label="mcp/outbox.py\nWriteAheadOutbox", fillcolor="#B8D4E3"]
         mcp_signal [label="mcp/signal_engine.py\n事件分析/提取", fillcolor="#B8D4E3"]

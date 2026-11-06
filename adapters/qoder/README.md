@@ -97,7 +97,7 @@ agent_policy:
 
 ## MCP 工具
 
-共 21 个工具：
+共 23 个工具：
 
 | 工具 | 说明 |
 |---|---|
@@ -122,11 +122,13 @@ agent_policy:
 | `memory_review_stats` | 获取复习统计与趋势 |
 | `memory_conflicts` | 列出记忆冲突（open/resolved/all） |
 | `memory_conflict_resolve` | 记录冲突裁决并关闭冲突（不改正文） |
+| `memory_health` | 查看单条记忆健康度，或缺省时的工作区/全局聚合分布 |
+| `memory_review_manage` | 暂停/恢复/撤销/推迟某条记忆的复习 |
 
 - `memory_search` 默认 `curated=false`；仅该模式使用 `mode`（默认 `hybrid`，或 `semantic`）与 `filters`（`type` 指定记忆类型，`min_confidence` 指定最低置信度 0.0–1.0）。`limit` 默认 10（1–100）；普通搜索沿用后端上限范围。省略 `workspace_name` 时跨全部 workspace 搜索；传入则限定单个 workspace。
 - `curated=true` 时返回原始 `get_context` 结果，包含 `context`、`items` 与可选的 `_hints`。`limit` 取代 `max_items`，取值 1–50；`max_tokens` 为 100–20000（默认 5000），可选的 `project` 上下文过滤器保留。`max_tokens` 与 `project` 仅作用于 curated 上下文。Curated 上下文始终按 workspace 组装：省略 `workspace_name` 时回落到默认 workspace。
 - `memory_history` 默认 `view="lifecycle"`；`view="content"` 返回已存储的内容版本历史，而非当前记忆正文。其 `limit` 为 1–50（默认 10），仅作用于 content 视图。
-- 工具 schema 严格（`additionalProperties: false`）：未知参数名会被拒绝。workspace 参数为 `workspace_name`（名称或 UUID），由 `memory_search`、`memory_save`、`memory_checkpoint`、`memory_status`、`memory_tags`、`memory_export`、`memory_import`、`memory_review_due`、`memory_review_submit` 与 `memory_review_stats` 支持；`memory_update`、`memory_types`、`memory_relations`、`memory_relation_create`、`memory_relation_delete`、`memory_history` 与 `memory_retry_failed` 不接受 workspace 参数；`memory_conflicts` 与 `memory_conflict_resolve` 为全局工具、不接受 workspace 参数；`memory_feedback` 接受 `workspace_name` 限定范围；`memory_forget` 按全局唯一 `memory_id` 删除，`workspace_name` 仅作兼容字段。
+- 工具 schema 严格（`additionalProperties: false`）：未知参数名会被拒绝。workspace 参数为 `workspace_name`（名称或 UUID），由 `memory_search`、`memory_save`、`memory_checkpoint`、`memory_status`、`memory_tags`、`memory_export`、`memory_import`、`memory_review_due`、`memory_review_submit` 与 `memory_review_stats` 支持；`memory_update`、`memory_types`、`memory_relations`、`memory_relation_create`、`memory_relation_delete`、`memory_history` 与 `memory_retry_failed` 不接受 workspace 参数；`memory_conflicts` 与 `memory_conflict_resolve` 为全局工具、不接受 workspace 参数；`memory_health`（聚合时）与 `memory_review_manage` 接受 `workspace_name`；`memory_feedback` 接受 `workspace_name` 限定范围；`memory_forget` 按全局唯一 `memory_id` 删除，`workspace_name` 仅作兼容字段。
 
 后端 API 仍然可用。提取策略仍由 `cwiki-save` 负责；提醒类 hooks 不提供检查点事件/笔记。
 

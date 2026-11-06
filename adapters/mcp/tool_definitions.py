@@ -1,4 +1,4 @@
-"""cwiki 全部 21 个记忆工具的 MCP JSON Schema 定义。
+"""cwiki 全部 23 个记忆工具的 MCP JSON Schema 定义。
 
 纯数据集合——不依赖 MCPServer、CwikiClient 或传输层。
 工具名与 description 是对宿主（Agent）可见的协议契约，保持原样不动。
@@ -637,6 +637,63 @@ def build_tool_definitions() -> list[dict[str, Any]]:
                     },
                 },
                 "required": ["conflict_id", "resolution"],
+            },
+        },
+        {
+            "name": "memory_health",
+            "description": (
+                "查看记忆健康度。给 memory_id 返回单条的状态（healthy/needs_review/"
+                "suspicious/conflicted）、分数与扣分原因；省略则返回工作区 active 记忆的"
+                "聚合分布。用于决定哪些记忆该复习、修正或关闭冲突。"
+            ),
+            "inputSchema": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "memory_id": {
+                        "type": "string",
+                        "description": "记忆 ID；省略则返回聚合统计",
+                    },
+                    "workspace_name": {
+                        "type": "string",
+                        "description": "工作区名称或 UUID（聚合时生效）",
+                    },
+                },
+                "required": [],
+            },
+        },
+        {
+            "name": "memory_review_manage",
+            "description": (
+                "调整某条记忆的复习状态：suspend 移出到期队列、resume 恢复并立即排期、"
+                "undo 撤销最近一次复习、postpone 推迟 N 天。不影响记忆正文。"
+            ),
+            "inputSchema": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "memory_id": {
+                        "type": "string",
+                        "description": "记忆 ID",
+                    },
+                    "action": {
+                        "type": "string",
+                        "enum": ["suspend", "resume", "undo", "postpone"],
+                        "description": "复习状态操作",
+                    },
+                    "days": {
+                        "type": "integer",
+                        "default": 3,
+                        "minimum": 1,
+                        "maximum": 365,
+                        "description": "推迟天数，仅 postpone 使用",
+                    },
+                    "workspace_name": {
+                        "type": "string",
+                        "description": "工作区名称或 UUID",
+                    },
+                },
+                "required": ["memory_id", "action"],
             },
         },
     ]

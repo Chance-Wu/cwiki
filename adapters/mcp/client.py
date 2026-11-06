@@ -622,6 +622,32 @@ class CwikiClient:
         result = await self._request("GET", f"{API_V1_PREFIX}/conflicts/all", params=params)
         return result if isinstance(result, list) else []
 
+    async def get_memory_health(self, memory_id: str) -> dict[str, Any]:
+        """获取单条记忆的健康度：状态、分数与扣分原因。"""
+        return await self._request("GET", f"{API_V1_PREFIX}/memory-health/{memory_id}")
+
+    async def get_health_summary(self, workspace_id: str | None = None) -> dict[str, Any]:
+        """获取 active 记忆的聚合健康统计；不给 workspace 时统计全部工作区。"""
+        params: dict[str, Any] = {}
+        if workspace_id:
+            params["workspace_id"] = workspace_id
+        return await self._request("GET", f"{API_V1_PREFIX}/health-summary", params=params)
+
+    async def manage_review(
+        self, memory_id: str, action: str, workspace_id: str, days: int = 3
+    ) -> dict[str, Any]:
+        """调整某条记忆的复习状态：suspend/resume/undo/postpone。"""
+        path = {
+            "suspend": "/review/suspend",
+            "resume": "/review/resume",
+            "undo": "/review/undo",
+            "postpone": "/review/postpone",
+        }[action]
+        params: dict[str, Any] = {"workspace_id": workspace_id}
+        if action == "postpone":
+            params["days"] = days
+        return await self._request("POST", f"{API_V1_PREFIX}{path}/{memory_id}", params=params)
+
     async def resolve_conflict(self, conflict_id: str, resolution: str) -> dict[str, Any]:
         """记录冲突裁决并关闭冲突；不自动改写正文或记忆状态。"""
         return await self._request(

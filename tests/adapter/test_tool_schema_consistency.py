@@ -78,3 +78,49 @@ async def test_conflicts_tools_route_to_client(server, monkeypatch):
     assert "error" in await srv._handle_tool(
         "memory_conflict_resolve", {"resolution": "足够长的裁决说明"}
     )
+
+
+async def test_health_and_review_manage_route_to_client(server):
+    """memory_health / memory_review_manage 接通端点、区分聚合与单条并校验入参。"""
+    srv, client = server
+    client.get_health_summary = AsyncMock(
+        return_value={"total": 3, "avg_score": 0.8, "distribution": {"healthy": 3}, "reasons": []}
+    )
+    client.get_memory_health = AsyncMock(
+        return_value={
+            "memory_id": "m1",
+            "utility": {"utility": 0.6},
+            "health": {"status": "healthy", "score": 0.9},
+        }
+    )
+    client.manage_review = AsyncMock(return_value={"memory_id": "m1", "next_review_at": None})
+
+    summary = await srv._handle_tool("memory_health", {})
+    assert summary["total"] == 3
+    # 聚合默认全局：workspace_id 缺省时不带过滤，避免小工作区恒为 0
+    assert summary["workspace_id"] == "all"
+    client.get_health_summary.assert_awaited_once_with(workspace_id=None)
+    await srv._handle_tool("memory_health", {"workspace_name": "cwiki"})
+    assert client.get_health_summary.await_args.kwargs["workspace_id"] == "cwiki"
+
+    single = await srv._handle_tool("memory_health", {"memory_id": "m1"})
+    assert single["health"]["status"] == "healthy"
+    assert single["memory_id"] == "m1"
+    client.get_memory_health.assert_awaited_once_with("m1")
+
+    managed = await srv._handle_tool(
+        "memory_review_manage", {"memory_id": "m1", "action": "postpone", "days": 7}
+    )
+    assert managed["days"] == 7
+    client.manage_review.assert_awaited_once_with(
+        memory_id="m1", action="postpone", workspace_id="ws", days=7
+    )
+
+    assert "error" in await srv._handle_tool("memory_health", {"memory_id": 1})
+    assert "error" in await srv._handle_tool("memory_review_manage", {"memory_id": "m1"})
+    assert "error" in await srv._handle_tool(
+        "memory_review_manage", {"memory_id": "m1", "action": "erase"}
+    )
+    assert "error" in await srv._handle_tool(
+        "memory_review_manage", {"memory_id": "m1", "action": "postpone", "days": 0}
+    )
