@@ -92,15 +92,16 @@ provenance 证据。
 
 ---
 
-## 反馈与冲突
+## 反馈、冲突与使用信号
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | `POST` | `/v1/feedback` | 提交记忆反馈（Agent 可用 `memory_feedback`） |
-| `GET` | `/v1/feedback/{memory_id}` | 查看记忆反馈 |
-| `POST` | `/v1/conflicts` | 创建冲突记录 |
-| `GET` | `/v1/conflicts` | 冲突列表 |
-| `POST` | `/v1/conflicts/{id}/resolve` | 解决冲突 |
+| `GET` | `/v1/feedback/summary/{memory_id}` | 按类型汇总某条记忆的反馈 |
+| `GET` | `/v1/conflicts/all` | 冲突列表（`status=open/resolved/all`；Agent 可用 `memory_conflicts`） |
+| `POST` | `/v1/conflicts/{id}/resolve` | 记录裁决并关闭冲突，不改正文（Agent 可用 `memory_conflict_resolve`） |
+| `POST` | `/v1/usage/batch` | 上报交付/引用信号（hook 召回注入补投；`record_id` 幂等） |
+| `GET` | `/v1/usage/gaps` | 列出检索命中多但零交付的记忆（召回质量缺口） |
 
 ---
 

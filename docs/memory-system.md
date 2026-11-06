@@ -456,7 +456,7 @@ utility = 0.30 × retrieval_success   # 上下文采用启发信号（used / ret
 | `memory.submit_dedup_scan_limit` / `submit_dedup_cross_workspace` | 1000 / false | 提交时查重的扫描范围与是否跨工作区 |
 | `mcp.max_retries` / `mcp.retry_backoff_seconds` | 2 / 1.0 | MCP 适配器调用后端时的重试次数与退避基数 |
 | `memory.similarity_strategy` / `similarity_hybrid_weights` | hybrid + 0.20/0.35/0.15/0.30 | 查重融合的通道选择与权重（`_build_verdict` 读取；API 进程配置在启动时加载，改后需重启生效） |
-| `parasitic_evolution.relation_auto_edge_ttl_days` | 0（关闭） | auto 边超过 N 天且从未强化、低置信时由巡检任务清理 |
+| `parasitic_evolution.relation_auto_edge_ttl_days` | 代码 0（关闭）/ 仓库 90 | auto 边超过 N 天且从未强化、低置信时由巡检任务清理；关掉会让自动关系图只增不减 |
 | `scheduler.relation_ttl_check_interval_hours` | 24 | 关系老化巡检间隔 |
 
 相关能力：
