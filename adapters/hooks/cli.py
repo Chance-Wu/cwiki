@@ -17,7 +17,7 @@ import os
 import sys
 from typing import NoReturn
 
-from . import capture, decisions, profiles, recall, workspace_inject
+from . import capture, decisions, profiles, recall, review_hint, usage, workspace_inject
 from .workspace_registry import refresh
 
 MAX_INPUT_BYTES = 1024 * 1024
@@ -113,6 +113,7 @@ def _dispatch() -> int:
 
     if event == "drain":
         capture.drain(host)
+        usage.drain(host)
         return 0
 
     payload = _read_payload()
@@ -157,16 +158,31 @@ def _dispatch() -> int:
         head = recall.build_session_head(normalized.workspace)
         if head:
             parts.append(head)
+        if review_hint.enabled():
+            due = review_hint.due_hint(normalized.workspace, host)
+            if due:
+                parts.append(due)
         _write_json(profiles.render_context(host, event, "\n\n".join(parts)))
         # 先输出再补投：补投含 HTTP，API 慢时不能挤掉本次会话注入
         capture.drain(host, max_batches=1)
+        usage.drain(host)
         return 0
 
     if event == "user-prompt-submit":
         decisions.note_prompt(host, normalized.session_id, normalized.workspace, normalized.prompt)
         if profiles.recall_mode(host) != "per_prompt" or not normalized.prompt:
             return 0
-        text = recall.build_context(normalized.prompt, normalized.workspace)
+        text = recall.build_context(
+            normalized.prompt,
+            normalized.workspace,
+            on_deliver=lambda ids: usage.store(
+                host=host,
+                session_id=normalized.session_id,
+                workspace=normalized.workspace,
+                prompt=normalized.prompt,
+                memory_ids=ids,
+            ),
+        )
         _write_json(profiles.render_context(host, event, text))
         return 0
 
@@ -178,6 +194,7 @@ def _dispatch() -> int:
         capture.store(normalized)
         decisions.audit(normalized)
         capture.drain(host, max_batches=1)
+        usage.drain(host)
         return 0
 
     return 0

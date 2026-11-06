@@ -1,5 +1,7 @@
 """packages.memory.duplicate_detection 测试（spec 8.4 节）。"""
 
+from typing import ClassVar
+
 from packages.memory.duplicate_detection import (
     batch_detect_duplicates,
     detect_duplicate,
@@ -120,3 +122,71 @@ class TestBatchDetectDuplicate:
         )
         assert verdicts[0].classification == "exact_duplicate"
         assert verdicts[1].classification == "distinct"
+
+
+class TestConfiguredStrategyAndWeights:
+    """memory.similarity_strategy / similarity_hybrid_weights 在生产判定路径生效。
+
+    回归背景：_build_verdict 此前从不读取配置，两个配置项只在文档里存在，
+    生产查重始终用模块常量权重。
+    """
+
+    _A: ClassVar[dict[str, str]] = {
+        "title": "Redis 连接池",
+        "content": "使用 connection pooling 避免句柄耗尽",
+    }
+    _B: ClassVar[dict[str, str]] = {
+        "title": "Redis 连接池",
+        "content": "使用 connection pool 避免耗尽句柄",
+    }
+
+    def test_embedding_strategy_ignores_lexical_overlap(self, monkeypatch) -> None:
+        from packages.domain.config import settings
+
+        monkeypatch.setattr(settings, "similarity_strategy", "embedding", raising=False)
+        monkeypatch.setattr(settings, "similarity_hybrid_weights", {}, raising=False)
+
+        no_vec = detect_duplicate(self._A, self._B, embedding_similarity=0.0)
+        assert no_vec.combined_score == 0.0
+
+        with_vec = detect_duplicate(self._A, self._B, embedding_similarity=0.9)
+        assert with_vec.combined_score == 0.9
+
+    def test_jaccard_strategy_drops_embedding_channel(self, monkeypatch) -> None:
+        from packages.domain.config import settings
+
+        monkeypatch.setattr(settings, "similarity_strategy", "jaccard", raising=False)
+
+        low = detect_duplicate(self._A, self._B, embedding_similarity=0.0)
+        high = detect_duplicate(self._A, self._B, embedding_similarity=1.0)
+        assert low.combined_score == high.combined_score
+        assert high.combined_score > 0.0
+
+    def test_hybrid_weights_are_normalized_and_applied(self, monkeypatch) -> None:
+        from packages.domain.config import settings
+
+        monkeypatch.setattr(settings, "similarity_strategy", "hybrid", raising=False)
+        monkeypatch.setattr(
+            settings,
+            "similarity_hybrid_weights",
+            {"title": 0.0, "content": 0.0, "keyword": 0.0, "embedding": 5.0},
+            raising=False,
+        )
+
+        # 权重全部落在 embedding 通道：词面分被完全忽略
+        verdict = detect_duplicate(self._A, self._B, embedding_similarity=0.42)
+        assert verdict.combined_score == 0.42
+
+    def test_unknown_strategy_falls_back_to_hybrid(self, monkeypatch) -> None:
+        from packages.domain.config import settings
+
+        monkeypatch.setattr(settings, "similarity_strategy", "nonsense", raising=False)
+        monkeypatch.setattr(
+            settings,
+            "similarity_hybrid_weights",
+            {"title": 0.2, "content": 0.35, "keyword": 0.15, "embedding": 0.3},
+            raising=False,
+        )
+
+        verdict = detect_duplicate(self._A, self._B, embedding_similarity=0.5)
+        assert 0.0 < verdict.combined_score < 1.0

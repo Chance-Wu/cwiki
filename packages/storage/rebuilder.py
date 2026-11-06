@@ -83,6 +83,8 @@ class RebuildResult:
     capture_session_count: int = 0
     capture_note_count: int = 0
     elapsed_seconds: float = 0.0
+    # DB/MD 中不存在、因此未导入关联行的 _meta 快照 id
+    orphan_meta_ids: list[str] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -337,6 +339,12 @@ class DatabaseRebuilder:
                     "Imported relations: %s",
                     {k: v for k, v in result.relation_counts.items() if v > 0},
                 )
+                if result.orphan_meta_ids:
+                    logger.warning(
+                        "Skipped %d orphan _meta snapshots (no memory row): %s",
+                        len(result.orphan_meta_ids),
+                        result.orphan_meta_ids[:10],
+                    )
 
                 # 5. 提交事务。
                 await session.commit()
@@ -943,7 +951,15 @@ class DatabaseRebuilder:
         seen_relation_ids: set[str] = set()
         seen_relation_keys: set[tuple[str, str, str]] = set()
 
+        # 关联行只在记忆本体存在时导入：导入期间外键是关闭的，孤儿 _meta
+        # （DB 已删但快照残留）若继续导入会变成悬空行，永久留在关联表里。
+        existing_ids = {str(row[0]) for row in await session.execute(select(Memory.id))}
+        skipped_orphans: list[str] = []
+
         for memory_id_str in memory_ids:
+            if memory_id_str not in existing_ids:
+                skipped_orphans.append(memory_id_str)
+                continue
             meta = await asyncio.to_thread(self.meta_store.import_memory, memory_id_str)
             if meta is None:
                 continue
@@ -986,6 +1002,7 @@ class DatabaseRebuilder:
         await session.flush()
 
         result.relation_counts = counts
+        result.orphan_meta_ids = skipped_orphans
 
     def _process_feedback(
         self, meta: dict[str, Any], memory_id_str: str, batch: list[Any], counts: dict[str, int]

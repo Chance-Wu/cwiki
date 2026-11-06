@@ -22,8 +22,15 @@ def state_root() -> Path:
     return root
 
 
-def host_dir(host: str) -> Path:
-    path = state_root() / host
+def host_dir(host: str, namespace: str | None = None) -> Path:
+    """宿主会话 spool 目录；*namespace* 用于隔离不同投递目标。
+
+    同一 host 目录下 ``iterdir`` 不递归，所以带 namespace 的子目录不会被
+    默认（capture）投递误读——usage 事件与捕获记录各自投递到自己的端点。
+    """
+    path = state_root() / _SAFE_SESSION.sub("-", host).strip("-")
+    if namespace:
+        path = path / _SAFE_SESSION.sub("-", namespace).strip("-")
     path.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -64,8 +71,10 @@ def _unlock(fh: Any) -> None:
         pass
 
 
-def append(host: str, session_id: str, record: dict[str, Any]) -> Path:
-    path = host_dir(host) / f"{_safe_session(session_id)}.jsonl"
+def append(
+    host: str, session_id: str, record: dict[str, Any], *, namespace: str | None = None
+) -> Path:
+    path = host_dir(host, namespace) / f"{_safe_session(session_id)}.jsonl"
     if path.exists() and path.stat().st_size >= MAX_FILE_BYTES:
         rotated = path.with_suffix(".1.jsonl")
         if rotated.exists():
@@ -82,15 +91,17 @@ def append(host: str, session_id: str, record: dict[str, Any]) -> Path:
     return path
 
 
-def iter_files(host: str) -> list[Path]:
-    directory = host_dir(host)
+def iter_files(host: str, *, namespace: str | None = None) -> list[Path]:
+    directory = host_dir(host, namespace)
     return sorted(p for p in directory.iterdir() if p.suffix == ".jsonl" and p.is_file())
 
 
-def load(host: str, limit: int = 200) -> list[tuple[Path, dict[str, Any]]]:
+def load(
+    host: str, limit: int = 200, *, namespace: str | None = None
+) -> list[tuple[Path, dict[str, Any]]]:
     """读取待投递记录；坏行跳过，不阻塞后续行。"""
     items: list[tuple[Path, dict[str, Any]]] = []
-    for path in iter_files(host):
+    for path in iter_files(host, namespace=namespace):
         try:
             lines = path.read_text(encoding="utf-8").splitlines()
         except (OSError, ValueError):
@@ -107,7 +118,7 @@ def load(host: str, limit: int = 200) -> list[tuple[Path, dict[str, Any]]]:
     return items
 
 
-def remove_delivered(host: str, delivered_ids: set[str]) -> None:
+def remove_delivered(host: str, delivered_ids: set[str], *, namespace: str | None = None) -> None:
     """从 spool 中删除已成功投递的 record_id；保留未投递/坏行。
 
     加锁后原地重写，避免与并发 append（SessionEnd 的 session-end 与 drain
@@ -115,7 +126,7 @@ def remove_delivered(host: str, delivered_ids: set[str]) -> None:
     """
     if not delivered_ids:
         return
-    for path in iter_files(host):
+    for path in iter_files(host, namespace=namespace):
         kept: list[str] | None = None
         try:
             with open(path, "r+", encoding="utf-8") as fh:

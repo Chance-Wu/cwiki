@@ -73,7 +73,7 @@ def detect_memory_gap(query: str, items: list[dict[str, Any]]) -> dict[str, Any]
                 "type": "memory_gap",
                 "message": f"检测到记忆缺口：'{query}' 无匹配记忆",
                 "technical_terms": technical_terms,
-                "suggestion": "如掌握相关知识，请调用 memory_remember 补充",
+                "suggestion": "如掌握相关知识，请调用 memory_save 补充",
             }
 
     # 情况 3：无结果且查询是疑问句
@@ -81,7 +81,7 @@ def detect_memory_gap(query: str, items: list[dict[str, Any]]) -> dict[str, Any]
         return {
             "type": "question_gap",
             "message": f"问题 '{query}' 无匹配记忆",
-            "suggestion": "解答后可调用 memory_remember 记录答案",
+            "suggestion": "解答后可调用 memory_save 记录答案",
         }
 
     return None

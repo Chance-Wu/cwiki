@@ -154,3 +154,21 @@ async def test_fix_drift_syncs_markdown_into_db(tmp_path: Path) -> None:
     report = check_integrity.collect(db_path, memory_dir, check_port=False)
     kinds = {issue["kind"] for issue in report["issues"]}
     assert "content_drift" not in kinds
+
+
+async def test_fix_drift_writes_meta_inside_layout(tmp_path: Path) -> None:
+    """--fix-drift 的 _meta 导出只落在传入的 memory_dir 内。
+
+    回归背景：sync_memory_from_markdown 不传 meta_dir 时回落到配置里的真实
+    数据目录，测试与生产巡检都会把快照写进用户的 cwiki-data/_meta，
+    产生 DB 无对应行的 orphan_meta。
+    """
+    db_path, memory_dir, memory_id = await _make_layout(tmp_path)
+    db_url = f"sqlite+aiosqlite:///{db_path.as_posix()}"
+
+    assert await check_integrity._fix_drift(db_url, memory_dir) == [str(memory_id)]
+
+    exported = {p.stem for p in (memory_dir / "_meta").glob("*.json") if not p.name.startswith("_")}
+    assert exported == {str(memory_id)}
+    meta = json.loads((memory_dir / "_meta" / f"{memory_id}.json").read_text(encoding="utf-8"))
+    assert [v["version"] for v in meta["versions"]] == [1]

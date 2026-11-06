@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import asdict, dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -24,6 +25,8 @@ from packages.retrieval.vector_utils import batch_cosine_similarities
 
 if TYPE_CHECKING:
     from packages.memory.similarity import HybridWeights
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -149,19 +152,37 @@ def _build_verdict(
             keyword_sim = matched_weight / total_weight if total_weight > 0 else 0.0
 
     if weights is None:
-        w_title, w_content, w_keyword, w_embedding = (
-            WEIGHT_TITLE,
-            WEIGHT_CONTENT,
-            WEIGHT_KEYWORD,
-            WEIGHT_EMBEDDING,
-        )
+        weights_map: dict[str, float] = dict(settings.similarity_hybrid_weights)
     else:
-        total_weight = weights.title + weights.content + weights.keyword + weights.embedding
+        weights_map = {
+            "title": weights.title,
+            "content": weights.content,
+            "keyword": weights.keyword,
+            "embedding": weights.embedding,
+        }
+
+    strategy = settings.similarity_strategy.lower()
+    if strategy == "jaccard":
+        # 纯词面策略：语义通道让位给标题/正文词面分
+        w_title = w_content = 0.5
+        w_keyword = w_embedding = 0.0
+    elif strategy == "embedding":
+        w_title = w_content = w_keyword = 0.0
+        w_embedding = 1.0
+    else:
+        if strategy != "hybrid":
+            logger.warning("Unknown similarity_strategy %r, using hybrid", strategy)
+        channels = (
+            ("title", WEIGHT_TITLE),
+            ("content", WEIGHT_CONTENT),
+            ("keyword", WEIGHT_KEYWORD),
+            ("embedding", WEIGHT_EMBEDDING),
+        )
+        total_weight = sum(float(weights_map.get(key, default)) for key, default in channels)
         if total_weight > 0:
-            w_title = weights.title / total_weight
-            w_content = weights.content / total_weight
-            w_keyword = weights.keyword / total_weight
-            w_embedding = weights.embedding / total_weight
+            w_title, w_content, w_keyword, w_embedding = (
+                float(weights_map.get(key, default)) / total_weight for key, default in channels
+            )
         else:
             w_title, w_content, w_keyword, w_embedding = (
                 WEIGHT_TITLE,

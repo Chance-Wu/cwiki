@@ -6,8 +6,9 @@
     python scripts/check_integrity.py --json     # JSON 输出
     python scripts/check_integrity.py --fix      # 仅做安全修复：补齐 _workspaces.json 缺失工作区
     python scripts/check_integrity.py --fix-meta # 从 DB 正向补导出缺失的 _meta 快照
+    python scripts/check_integrity.py --prune-meta # 删除 DB 已无对应行的孤儿 _meta 快照
 
-不删除任何用户数据；不一致项只报告并给出建议命令。
+除 --prune-meta 外不删除任何用户数据；不一致项只报告并给出建议命令。
 """
 
 from __future__ import annotations
@@ -261,7 +262,7 @@ def collect(
     _flag(
         "orphan_meta",
         meta - db_ids,
-        " _meta 快照存在但数据库无对应行；确认后可手工归档（脚本不自动删除）",
+        " _meta 快照存在但数据库无对应行；重建时会跳过它们，可用 check_integrity.py --prune-meta 清理",
     )
     _flag(
         "missing_meta",
@@ -393,6 +394,26 @@ def collect(
     return report
 
 
+def _delete_orphan_meta(db_path: Path, memory_dir: Path, *, dry_run: bool) -> list[str]:
+    """删除 DB 中已无对应记忆行的 _meta 快照。
+
+    正常删除路径会同步清掉快照；残留只可能来自 DB 行被外部删除或历史泄漏。
+    这类文件在重建时会被跳过（不导入关联行），留着只会被 git 同步传播，
+    并在每次巡检里报成 orphan_meta。
+    """
+    meta_dir = memory_dir / "_meta"
+    if not meta_dir.is_dir():
+        return []
+    known = set(_db_state(db_path)["ids"])
+    orphans = sorted(
+        p for p in meta_dir.glob("*.json") if not p.name.startswith("_") and p.stem not in known
+    )
+    if not dry_run:
+        for p in orphans:
+            p.unlink(missing_ok=True)
+    return [p.stem for p in orphans]
+
+
 def _fix_workspaces_meta(db_path: Path, memory_dir: Path) -> list[str]:
     """把数据库中的工作区补齐进 _workspaces.json（只增不删）。"""
     db = _db_state(db_path)
@@ -497,7 +518,11 @@ async def _fix_drift(db_url: str, memory_dir: Path) -> list[str]:
                 continue
             async with session_factory() as session:
                 try:
-                    result = await sync_memory_from_markdown(session, memory_file)
+                    # 必须显式传 meta_dir：不传时 sync_memory_from_markdown 会落到
+                    # 配置里的真实数据目录，把巡检记忆写进用户库（污染 _meta）。
+                    result = await sync_memory_from_markdown(
+                        session, memory_file, meta_dir=memory_dir / "_meta"
+                    )
                     if result.status == "updated":
                         await session.commit()
                         fixed.append(memory_id)
@@ -549,6 +574,11 @@ def main() -> int:
         action="store_true",
         help="以 Markdown 为准，把内容漂移的单条记忆同步回数据库",
     )
+    parser.add_argument(
+        "--prune-meta",
+        action="store_true",
+        help="删除 DB 中已无对应记忆行的孤儿 _meta 快照",
+    )
     parser.add_argument("--skip-port", action="store_true", help="跳过 API 端口诊断")
     args = parser.parse_args()
 
@@ -583,6 +613,13 @@ def main() -> int:
         fixed = asyncio.run(_fix_drift(settings.database_url, memory_dir))
         print(
             f"已按 MD 修复内容漂移：{len(fixed)} 条" + (f"（{', '.join(fixed)}）" if fixed else "")
+        )
+
+    if args.prune_meta:
+        removed = _delete_orphan_meta(db_path, memory_dir, dry_run=False)
+        print(
+            f"已删除孤儿 _meta 快照：{len(removed)} 个"
+            + (f"（{', '.join(removed)}）" if removed else "")
         )
 
     report = collect(

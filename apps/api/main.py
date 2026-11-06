@@ -193,6 +193,7 @@ def create_app() -> FastAPI:
     from apps.api.routes.memories import tags_router
     from apps.api.routes.memory_quality import router as memory_quality_router
     from apps.api.routes.memory_status import router as memory_status_router
+    from apps.api.routes.memory_usage import router as memory_usage_router
     from apps.api.routes.notes import router as notes_router
     from apps.api.routes.reviews import router as reviews_router
     from apps.api.routes.search import router as search_router
@@ -216,6 +217,7 @@ def create_app() -> FastAPI:
     app.include_router(search_router)
     app.include_router(memory_quality_router)
     app.include_router(memory_status_router)
+    app.include_router(memory_usage_router)
     app.include_router(agent_sessions_router)
     app.include_router(agent_capture_router)
     app.include_router(file_memories_router)
