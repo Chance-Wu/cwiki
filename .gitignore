@@ -22,6 +22,8 @@ cwiki-data/
 
 # Local config overrides
 config.local.yaml
+# DSH 桥的 hooks.json：由 scripts/setup_dsh.py --hooks 生成，含本机绝对路径
+cwiki-hooks.json
 
 # Temporary files
 *.tmp

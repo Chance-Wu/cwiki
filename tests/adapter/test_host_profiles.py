@@ -54,11 +54,20 @@ def test_capability_report_distinguishes_automatic_manual_and_unsupported():
     assert qoder["session_start"] == "automatic"
     assert qoder["session_end_capture"] == "automatic"
 
+    # dsh：官方 CC 桥只执行 SessionStart/UserPromptSubmit/PreToolUse 子集，
+    # 召回与注入自动生效；捕获事件桥不支持，保留手动。
     dsh = profiles.capability_report("dsh")
-    assert dsh["prompt_recall"] == "unsupported"
-    assert dsh["session_start"] == "manual"
+    assert dsh["prompt_recall"] == "automatic"
+    assert dsh["session_start"] == "automatic"
     assert dsh["session_end_capture"] == "manual"
     assert dsh["events"]["drain"] == "manual"
+    assert set(dsh["events"]) == {
+        "session-start",
+        "user-prompt-submit",
+        "pre-tool-use",
+        "session-end",
+        "drain",
+    }
 
     assert profiles.capability_report("codex")["session_start"] == "unsupported"
 

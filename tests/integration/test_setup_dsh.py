@@ -6,6 +6,7 @@ MCP；本测试锁住三件实测得来的契约：写入位置、`- insert:` �
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -127,6 +128,62 @@ def test_install_skill_targets_dsh_discovered_path(tmp_path):
     # 幂等：重复安装不报错、不套娃
     sd.install_skill(project, dry_run=False)
     assert (sd.install_skill(project, dry_run=False) / "SKILL.md").exists()
+
+
+def test_patch_hooks_entry_inserts_bridge_and_hooks_file(tmp_path):
+    home = tmp_path / "dsh"
+    profile = _fake_profile(home, "web", patch="- id: a\n")
+    project = tmp_path / "proj"
+    project.mkdir()
+    patch_file = profile / "cordis.patch.yml"
+
+    sd.patch_cordis(
+        patch_file, sd.build_block("proj", project, hooks=True), dry_run=False, hooks=True
+    )
+    loaded = yaml.safe_load(patch_file.read_text(encoding="utf-8"))
+    rows = [r for item in loaded if isinstance(item, dict) for r in (item.get("insert") or [])]
+    bridge = next(r for r in rows if r.get("id") == sd.HOOKS_ENTRY_ID)
+    assert bridge["name"] == "@deepseek-ai/dsh-hooks-claude-code"
+    assert bridge["config"]["configPath"] == str(sd.ROOT / sd.HOOKS_FILE)
+    # 两个条目在同一个 `- insert:` 组下
+    text = patch_file.read_text(encoding="utf-8")
+    assert text.count("- insert:") == 1
+
+    # 幂等：重复写入不翻倍
+    sd.patch_cordis(
+        patch_file, sd.build_block("proj", project, hooks=True), dry_run=False, hooks=True
+    )
+    assert patch_file.read_text(encoding="utf-8").count("- insert:") == 1
+
+
+def test_build_hooks_json_covers_bridge_subset_with_inlined_env():
+    # 桥解析器丢弃 env 字段（实测），变量必须内联进 command；且只含桥支持的事件
+    text = sd.build_hooks_json()
+    config = json.loads(text)
+    assert set(config["hooks"]) == {"SessionStart", "UserPromptSubmit", "PreToolUse"}
+    for groups in config["hooks"].values():
+        for group in groups:
+            for hook in group["hooks"]:
+                assert "env" not in hook
+                assert hook["command"].startswith(f'PYTHONPATH="{sd.ROOT}" CWIKI_HOST=dsh ')
+                assert " adapters.hooks dsh " in hook["command"]
+
+
+def test_patch_removes_stale_bare_entries_outside_block(tmp_path):
+    # 旧安装手写的裸条目（无 insert 包裹）会被 DSH 静默丢弃；重跑安装必须清掉
+    home = tmp_path / "dsh"
+    stale = f"- id: {sd.ENTRY_ID}\n  name: '@x/y'\n  config:\n    transport: stdio\n- id: keep\n"
+    profile = _fake_profile(home, "web", patch=stale)
+    project = tmp_path / "proj"
+    project.mkdir()
+    patch_file = profile / "cordis.patch.yml"
+    sd.patch_cordis(patch_file, sd.build_block("proj", project), dry_run=False)
+
+    text = patch_file.read_text(encoding="utf-8")
+    assert "- id: keep" in text
+    loaded = yaml.safe_load(text)
+    top_ids = [i.get("id") for i in loaded if isinstance(i, dict) and "insert" not in i]
+    assert sd.ENTRY_ID not in top_ids  # 裸条目已移除，只剩受管区块内的一份
 
 
 def test_dsh_home_defaults_to_env(tmp_path, monkeypatch):

@@ -38,4 +38,14 @@ python -m adapters.hooks <host> <command>
 
 默认不读取对话记录；prompt 仅用于本地检索，不写入日志或检索追踪。
 
-测试：`tests/adapter/`（fail-open、捕获落盘、workspace 注入、host profile）与 `tests/integration/test_memory_hooks.py`。
+## dsh（DeepSeek Harness）接入
+
+dsh 无原生 hooks，但官方桥 `@deepseek-ai/dsh-hooks-claude-code` 按 Claude Code 方言执行 `hooks.json` 命令子集。`python scripts/setup_dsh.py --hooks` 会挂载桥并生成 `cwiki-hooks.json`（由 dsh HostProfile 渲染，只含桥支持的事件）。桥与主链路三点差异：
+
+- **桥丢弃每条 hook 的 `env` 字段**（实测），变量以 shell 前缀内联进 command（`PYTHONPATH=… CWIKI_HOST=dsh "python" -m adapters.hooks dsh …`）。
+- **桥不 honor `updatedInput`**（告警后忽略）：PreToolUse 的价值在副作用——刷新 per-host 工作区注册表（MCP 端每次工具调用读取该文件归属 workspace）与 memory_save 记账；MCP 配置的 env 提供静态兜底。
+- **桥不支持捕获事件**（`PostCompact`/`PostToolUseFailure`/`SessionEnd`）：捕获保留手动 `drain`，spool 积压由下次 SessionStart 补投。
+
+## 测试
+
+`tests/adapter/`（fail-open、捕获落盘、workspace 注入、host profile）与 `tests/integration/test_memory_hooks.py`。

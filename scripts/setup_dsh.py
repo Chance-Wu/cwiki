@@ -50,8 +50,11 @@ from adapters.hooks.profiles import clean_workspace_name
 BEGIN = "# cwiki:begin"
 END = "# cwiki:end"
 PLUGIN_NAME = "@deepseek-ai/dsh-mcp-client"
+HOOKS_PLUGIN_NAME = "@deepseek-ai/dsh-hooks-claude-code"
 SERVER_NAME = "cwiki"  # → 工具名 mcp__cwiki__<tool>；[A-Za-z0-9_-]{1,32}
 ENTRY_ID = "mcp-cwiki"
+HOOKS_ENTRY_ID = "cwiki-hooks"
+HOOKS_FILE = "cwiki-hooks.json"
 
 
 def workspace_for(project: Path) -> str | None:
@@ -89,32 +92,72 @@ def resolve_profile(home: Path, profile: str | None) -> tuple[str, Path]:
     return chosen, profiles_root / chosen
 
 
-def build_block(workspace: str, project: Path) -> str:
-    """生成受管区块的 YAML 文本（不含 marker）。"""
-    return "\n".join(
-        [
-            "- insert:",
-            f"    - id: {ENTRY_ID}",
-            f"      name: {_q(PLUGIN_NAME)}",
+def build_block(workspace: str, project: Path, hooks: bool = False) -> str:
+    """生成受管区块的 YAML 文本（不含 marker）。
+
+    ``hooks=True`` 时额外挂载官方 Claude Code 桥（dsh-hooks-claude-code），
+    指向本函数下方生成的 hooks.json。注意桥的解析器会丢弃每条 hook 的 ``env``
+    字段（实测），所以 PYTHONPATH 等只能以 shell 前缀内联进 command 字符串。
+    """
+    lines = [
+        "- insert:",
+        f"    - id: {ENTRY_ID}",
+        f"      name: {_q(PLUGIN_NAME)}",
+        "      config:",
+        f"        serverName: {_q(SERVER_NAME)}",
+        "        transport: stdio",
+        f"        command: {_q(sys.executable)}",
+        "        args: ['-m', 'adapters.mcp']",
+        f"        cwd: {_q(str(ROOT))}",
+        "        env:",
+        f"          PYTHONPATH: {_q(str(ROOT))}",
+        '          CWIKI_HOST: "dsh"',
+        f"          CWIKI_WORKSPACE: {_q(workspace)}",
+        f"          CWIKI_WORKSPACE_DIR: {_q(str(project))}",
+        '          CWIKI_API_URL: "http://127.0.0.1:5172"',
+    ]
+    if hooks:
+        lines += [
+            f"    - id: {HOOKS_ENTRY_ID}",
+            f"      name: {_q(HOOKS_PLUGIN_NAME)}",
             "      config:",
-            f"        serverName: {_q(SERVER_NAME)}",
-            "        transport: stdio",
-            f"        command: {_q(sys.executable)}",
-            "        args: ['-m', 'adapters.mcp']",
-            f"        cwd: {_q(str(ROOT))}",
-            "        env:",
-            f"          PYTHONPATH: {_q(str(ROOT))}",
-            '          CWIKI_HOST: "dsh"',
-            f"          CWIKI_WORKSPACE: {_q(workspace)}",
-            f"          CWIKI_WORKSPACE_DIR: {_q(str(project))}",
-            '          CWIKI_API_URL: "http://127.0.0.1:5172"',
+            f"        configPath: {_q(str(ROOT / HOOKS_FILE))}",
+            "        defaultTimeoutMs: 15000",
         ]
+    return "\n".join(lines)
+
+
+def build_hooks_json() -> str:
+    """由 dsh HostProfile 生成桥可用的 hooks.json（env 内联，桥不读 env 字段）。"""
+    from adapters.hooks.profiles import render_hooks_config
+
+    inline_env = f'PYTHONPATH="{ROOT}" CWIKI_HOST=dsh '
+    config = render_hooks_config(
+        "dsh", command_prefix=f'{inline_env}"{sys.executable}" -m adapters.hooks'
     )
+    return json.dumps(config, indent=2, ensure_ascii=False) + "\n"
 
 
-def patch_cordis(patch_file: Path, block: str, dry_run: bool) -> None:
-    """在 cordis.patch.yml 里幂等维护受管区块（保留用户其余行与注释）。"""
+def write_hooks_file(dry_run: bool) -> Path:
+    target = ROOT / HOOKS_FILE
+    text = build_hooks_json()
+    if dry_run:
+        print(f"[dry-run] write {target}")
+        print(text)
+        return target
+    target.write_text(text, encoding="utf-8")
+    return target
+
+
+def patch_cordis(patch_file: Path, block: str, dry_run: bool, hooks: bool = False) -> None:
+    """在 cordis.patch.yml 里幂等维护受管区块（保留用户其余行与注释）。
+
+    区块外的同名裸条目（旧安装手写、无 ``- insert:`` 包装的形态）会被清理：
+    它本就会被 DSH 当成"按 id 覆盖"而静默丢弃，留着只会造成双份混乱。
+    """
     existing = patch_file.read_text(encoding="utf-8") if patch_file.exists() else ""
+    if BEGIN not in existing and END not in existing:
+        existing = _remove_stale_entries(existing)
     if BEGIN in existing or END in existing:
         if existing.count(BEGIN) != 1 or existing.count(END) != 1:
             raise SystemExit(f"{patch_file} 里的 cwiki 标记不配对，请手工修正")
@@ -125,7 +168,7 @@ def patch_cordis(patch_file: Path, block: str, dry_run: bool) -> None:
         head = existing.rstrip()
         updated = f"{head + chr(10) + chr(10) if head else ''}{BEGIN}\n{block}\n{END}\n"
     # 校验：区块必须能被 DSH 的 YAML 解析，且条目在 insert 之下
-    _assert_patch_valid(updated, patch_file)
+    _assert_patch_valid(updated, patch_file, hooks=hooks)
     if dry_run:
         print(f"[dry-run] write {patch_file}")
         print(f"{BEGIN}\n{block}\n{END}")
@@ -134,7 +177,37 @@ def patch_cordis(patch_file: Path, block: str, dry_run: bool) -> None:
     patch_file.write_text(updated, encoding="utf-8")
 
 
-def _assert_patch_valid(text: str, patch_file: Path) -> None:
+def _hooks_bridge_installed(profile_dir: Path) -> bool:
+    """沿祖先目录逐级找 `@deepseek-ai/dsh-hooks-claude-code`（pnpm 会 hoist 到上层）。"""
+    current = profile_dir
+    while True:
+        if (current / "node_modules" / "@deepseek-ai" / "dsh-hooks-claude-code").exists():
+            return True
+        parent = current.parent
+        if parent == current:
+            return False
+        current = parent
+
+
+def _remove_stale_entries(text: str) -> str:
+    """移除受管区块外的裸 cwiki 条目（旧版手写遗留）。"""
+    stale = {ENTRY_ID, HOOKS_ENTRY_ID}
+    out: list[str] = []
+    in_stale = False  # 正在跳过一个裸条目的块（- id: 行 + 其后缩进行）
+    for line in text.splitlines(keepends=True):
+        if line.startswith("- "):
+            # 新的顶层列表项：仅当它是待清理的裸 id 条目时进入跳过状态
+            in_stale = line.startswith("- id:") and (
+                line.split(":", 1)[1].strip().strip("'\"") in stale
+            )
+            if in_stale:
+                continue
+        if not in_stale:
+            out.append(line)
+    return "".join(out)
+
+
+def _assert_patch_valid(text: str, patch_file: Path, hooks: bool = False) -> None:
     try:
         loaded = yaml.safe_load(text)
     except yaml.YAMLError as exc:  # 写坏不如不写
@@ -163,6 +236,13 @@ def _assert_patch_valid(text: str, patch_file: Path) -> None:
         raise SystemExit("自检失败：config.transport/serverName 不符合 DSH 契约")
     if cfg.get("cwd") != str(ROOT) or not cfg.get("command"):
         raise SystemExit("自检失败：config.cwd/command 缺失（stdio 子进程会找不到模块）")
+    if hooks:
+        hrow = grouped.get(HOOKS_ENTRY_ID)
+        if hrow is None:
+            raise SystemExit("自检失败：hooks 桥条目未被解析出来（应同在 `- insert:` 组下）")
+        hcfg = hrow.get("config", {})
+        if hcfg.get("configPath") != str(ROOT / HOOKS_FILE):
+            raise SystemExit("自检失败：hooks 桥 configPath 不正确")
 
 
 def install_skill(project: Path, dry_run: bool) -> Path:
@@ -296,6 +376,11 @@ def main() -> int:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--no-skill", action="store_true", help="不安装 cwiki-save skill")
     parser.add_argument(
+        "--hooks",
+        action="store_true",
+        help="挂载 Claude Code 桥（自动召回/注入；需 profile 已安装 dsh-hooks-claude-code）",
+    )
+    parser.add_argument(
         "--verify",
         action="store_true",
         help="挂载后起 stdio server 自检（不经模型）",
@@ -313,10 +398,18 @@ def main() -> int:
     home = dsh_home(args.home)
     profile, profile_dir = resolve_profile(home, args.profile)
     patch_file = profile_dir / "cordis.patch.yml"
-    block = build_block(workspace, project)
+
+    if args.hooks and not _hooks_bridge_installed(profile_dir):
+        print(
+            f"警告：profile {profile} 解析不到 {HOOKS_PLUGIN_NAME}；"
+            "hooks 配置照写，装好包（如 pnpm add -D 到 profile）并重启 dsh 后才会加载"
+        )
+    block = build_block(workspace, project, hooks=args.hooks)
 
     print(f"home={home} profile={profile} workspace={workspace} project={project}")
-    patch_cordis(patch_file, block, args.dry_run)
+    patch_cordis(patch_file, block, args.dry_run, hooks=args.hooks)
+    if args.hooks:
+        write_hooks_file(args.dry_run)
     if not args.no_skill:
         install_skill(project, args.dry_run)
 
@@ -324,6 +417,10 @@ def main() -> int:
         print(f"  已写入 {patch_file}")
         print(f"    entry id={ENTRY_ID} serverName={SERVER_NAME} transport=stdio")
         print(f"  工具将暴露为 mcp__{SERVER_NAME}__<tool>")
+        if args.hooks:
+            print(
+                f"  hooks 桥：{ROOT / HOOKS_FILE}（桥仅执行 SessionStart/UserPromptSubmit/PreToolUse 子集）"
+            )
         pkg = profile_dir / "package.json"
         reload_live = '"patchReload": "live"' in (pkg.read_text("utf-8") if pkg.exists() else "")
         print(f"  {'patchReload: live — 保存即热重载' if reload_live else '需重启 dsh 生效'}")

@@ -87,17 +87,32 @@ def _full_hook_commands() -> tuple[HookCommandSpec, ...]:
 
 
 PROFILES: dict[str, HostProfile] = {
-    # DeepSeek Harness（dsh）无原生 hooks 事件流；其 Agent 经 MCP 工具直连，
-    # 捕获由用户/宿主脚本经 capture API 提交。这里注册 session-start 供
-    # 手动/CI 场景调用（如 dsh 子任务启动脚本）。
+    # DeepSeek Harness（dsh）无原生 hooks 事件流，但官方桥
+    # @deepseek-ai/dsh-hooks-claude-code 能按 Claude Code 方言执行 hooks.json 的
+    # 命令子集（SessionStart/UserPromptSubmit/PreToolUse/PostToolUse/Stop/
+    # Subagent*）。这里只声明桥实际支持、且本适配器有意义的事件：
+    # - PostCompact/PostToolUseFailure/SessionEnd 桥不支持 → 自动捕获不可用，
+    #   session-end/drain 保留手动（spool 由下次 session-start 补投）；
+    # - 桥不 honor updatedInput（日志告警后忽略）→ pre-tool-use 的价值在
+    #   注册表 refresh 与 memory_save 记账副作用，不影响归属正确性（桥的
+    #   payload cwd 即会话目录）。
     "dsh": _profile(
         "dsh",
-        {"session-start": "SessionStart"},
-        # DSH 实测不导出项目目录 env（只有 DSH_HOME/DSH_PROFILE/DSH_SESSION_ID 等），
-        # dsh 的归属靠安装器写入的 CWIKI_WORKSPACE_DIR；无 hooks 时此表仅手动调用生效。
+        {
+            "session-start": "SessionStart",
+            "user-prompt-submit": "UserPromptSubmit",
+            "pre-tool-use": "PreToolUse",
+        },
+        # DSH 实测不导出项目目录 env（只有 DSH_HOME/DSH_PROFILE 等）；
+        # 桥 hook 的 payload cwd 就是会话目录，归属由它推导。
         project_env=("CWIKI_WORKSPACE_DIR", "CWIKI_PROJECT_DIR"),
-        hook_commands=(HookCommandSpec("session-start", 5),),
-        manual_events=frozenset({"session-start", "session-end", "drain"}),
+        recall_mode="per_prompt",
+        hook_commands=(
+            HookCommandSpec("session-start", 5),
+            HookCommandSpec("user-prompt-submit", 3),
+            HookCommandSpec("pre-tool-use", 3, matcher="mcp_call|mcp__.*"),
+        ),
+        manual_events=frozenset({"session-end", "drain"}),
     ),
     "qoder": _profile(
         "qoder",
