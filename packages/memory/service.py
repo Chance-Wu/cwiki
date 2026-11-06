@@ -789,6 +789,8 @@ async def merge_candidate(
         reason=f"Merged from candidate {candidate.id}",
     )
     target_memory.content = normalize_memory_content(merged_content)
+    # 候选标签并入而不是丢弃：合并后两端关键词都仍可被 tags 过滤检索到
+    target_memory.tags = union_tags(target_memory.tags, candidate.tags)
     # 候选的永久声明不能因合并而丢失
     if candidate.is_permanent:
         target_memory.is_permanent = True
@@ -826,6 +828,8 @@ async def update_candidate_into(
     )
     target_memory.title = candidate.title
     target_memory.content = candidate.content
+    # 标签取并集：候选往往只带自动注入标签，整体替换会抹掉目标已有的人工标签
+    target_memory.tags = union_tags(target_memory.tags, candidate.tags)
 
     await attach_candidate_evidence(db, candidate, target_memory, change_type="update")
     await _maybe_extract_and_store_entities(

@@ -154,3 +154,55 @@ async def test_update_attaches_update_evidence(evidence_db: AsyncSession) -> Non
     assert len(rows) == 1
     assert rows[0].source_type == "candidate_update"
     assert rows[0].candidate_id == candidate.id
+
+
+async def test_merge_unions_candidate_tags_into_target(evidence_db: AsyncSession) -> None:
+    """合并时标签取并集：目标已有的人工标签不能被候选覆盖或抹掉。"""
+    ws, candidate = await _workspace_and_candidate(evidence_db)
+    candidate.tags = ["python", "asyncio"]
+    target = Memory(
+        id=uuid.uuid4(),
+        workspace_id=ws.id,
+        title="已有目标记忆",
+        content="## 知识\n目标记忆原始内容。",
+        type="fact",
+        source="memory_save",
+        status="active",
+        version=1,
+        tags=["pinned", "Python"],
+    )
+    evidence_db.add(target)
+    await evidence_db.commit()
+
+    memory = await merge_candidate(
+        evidence_db,
+        candidate,
+        target,
+        "## 知识\n目标记忆原始内容。\n\n## 补充\n来自候选的新事实。",
+    )
+    await evidence_db.commit()
+    # 规范化 + 首次出现顺序：目标标签在前，候选新标签在后，大小写去重
+    assert memory.tags == ["pinned", "python", "asyncio"]
+
+
+async def test_update_candidate_unions_tags_not_replaces(evidence_db: AsyncSession) -> None:
+    """候选整体替换正文时同样并集标签：候选常只带自动标签，直接替换会丢人工标签。"""
+    ws, candidate = await _workspace_and_candidate(evidence_db)
+    candidate.tags = ["new-tag"]
+    target = Memory(
+        id=uuid.uuid4(),
+        workspace_id=ws.id,
+        title="待更新记忆",
+        content="## 知识\n旧内容。",
+        type="fact",
+        source="memory_save",
+        status="active",
+        version=1,
+        tags=["pinned"],
+    )
+    evidence_db.add(target)
+    await evidence_db.commit()
+
+    memory = await update_candidate_into(evidence_db, candidate, target)
+    await evidence_db.commit()
+    assert memory.tags == ["pinned", "new-tag"]
