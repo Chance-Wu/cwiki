@@ -737,6 +737,11 @@ async def approve_candidate(
 
     await _maybe_extract_and_store_entities(db, memory, approved_title, approved_content)
 
+    # 转正的正文若引用了其它记忆（[[标题]]），补上对应的 related 边
+    from packages.memory.wikilink import sync_wikilink_relations
+
+    await sync_wikilink_relations(db, memory)
+
     created_event = MemoryLifecycleEvent(
         id=uuid.uuid4(),
         memory_id=memory.id,
@@ -835,5 +840,9 @@ async def update_candidate_into(
     await _maybe_extract_and_store_entities(
         db, target_memory, target_memory.title, target_memory.content
     )
+    # 正文被候选替换，正文里的 [[标题]] 引用要跟着重建
+    from packages.memory.wikilink import sync_wikilink_relations
+
+    await sync_wikilink_relations(db, target_memory)
 
     return await _finalize_merge(db, target_memory)

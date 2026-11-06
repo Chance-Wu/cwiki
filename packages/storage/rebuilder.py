@@ -346,7 +346,12 @@ class DatabaseRebuilder:
                         result.orphan_meta_ids[:10],
                     )
 
-                # 5. 提交事务。
+                # 5. 按正文重建 [[标题]] 引用边：它不落 _meta，只能从 MD 重算。
+                from packages.memory.wikilink import sync_all_wikilinks
+
+                result.relation_counts["wikilink"] = await sync_all_wikilinks(session)
+
+                # 6. 提交事务。
                 await session.commit()
                 logger.info("Rebuild committed successfully")
 

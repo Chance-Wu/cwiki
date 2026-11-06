@@ -341,6 +341,12 @@ async def update_memory(
         )
     db.add(lifecycle_event)
 
+    if body.content is not None and memory.status == "active":
+        # 正文变了就按新正文重建 [[标题]] 出边；链接删掉，边也删掉
+        from packages.memory.wikilink import sync_wikilink_relations
+
+        await sync_wikilink_relations(db, memory)
+
     await db.commit()
     await db.refresh(memory)
     response = MemoryRead.model_validate(memory)
