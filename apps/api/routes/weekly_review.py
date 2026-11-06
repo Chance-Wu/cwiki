@@ -176,6 +176,17 @@ async def weekly_review(
         )
     ).all()
 
+    # ---- 行动项 5：库内近似重复——写入累积出的重复条目，按需合并 ----
+    # 只扫最近更新的 200 条，周报是首页请求，不能让 O(n²) 拖慢首屏
+    from packages.memory.duplicate_scan import find_duplicate_pairs
+
+    duplicate_scan = await find_duplicate_pairs(
+        db,
+        workspace_id=resolved_ws_id,
+        limit=3,
+        max_scan=200,
+    )
+
     # ---- 行动项 3：知识缺口——近 7 天"无结果"检索的关键词 ----
     gap_rows = (
         await db.execute(
@@ -232,6 +243,7 @@ async def weekly_review(
             "knowledge_gaps": [
                 {"query": query, "attempts": attempts} for query, attempts in gap_rows
             ],
+            "duplicate_pairs": duplicate_scan["pairs"],
             "retrieval_gaps": [
                 {
                     "memory_id": str(mid),

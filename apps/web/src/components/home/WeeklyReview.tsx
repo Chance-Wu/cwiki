@@ -43,6 +43,11 @@ export default function WeeklyReview({ workspaceId }: Props) {
       ...data.actions.stale_memories.map(
         (m) => `  - [${m.title}](/memories?memoryId=${m.memory_id})`,
       ),
+      `- ${t.weekly.duplicatePairs}: ${data.actions.duplicate_pairs.length}`,
+      ...data.actions.duplicate_pairs.map(
+        (pair) =>
+          `  - ${pair.left.title} ↔ ${pair.right.title} (${pair.similarity.toFixed(2)})`,
+      ),
       `- ${t.weekly.retrievalGaps}: ${data.actions.retrieval_gaps.length}`,
       ...data.actions.retrieval_gaps.map(
         (m) => `  - [${m.title}](/memories?memoryId=${m.memory_id}) (${m.retrievals})`,
@@ -159,7 +164,8 @@ export default function WeeklyReview({ workspaceId }: Props) {
             {data.actions.conflicts.length === 0 &&
             data.actions.stale_memories.length === 0 &&
             data.actions.knowledge_gaps.length === 0 &&
-            data.actions.retrieval_gaps.length === 0 ? (
+            data.actions.retrieval_gaps.length === 0 &&
+            data.actions.duplicate_pairs.length === 0 ? (
               <p className="text-xs text-[var(--text-tertiary)]">{t.weekly.noActions}</p>
             ) : (
               <ul className="space-y-1 text-xs text-[var(--text-secondary)]">
@@ -184,6 +190,31 @@ export default function WeeklyReview({ workspaceId }: Props) {
                     >
                       {m.title}
                     </Link>
+                  </li>
+                ))}
+                {data.actions.duplicate_pairs.map((pair) => (
+                  <li
+                    key={`${pair.left.id}-${pair.right.id}`}
+                    className="flex items-center gap-2"
+                  >
+                    <span className="rounded bg-warning/15 px-1.5 py-0.5 text-warning-fg">
+                      {t.weekly.duplicatePairs}
+                    </span>
+                    <Link
+                      to={`/memories?memoryId=${pair.left.id}`}
+                      className="truncate hover:underline"
+                    >
+                      {pair.left.title}
+                    </Link>
+                    <Link
+                      to={`/memories?memoryId=${pair.right.id}`}
+                      className="truncate hover:underline"
+                    >
+                      {pair.right.title}
+                    </Link>
+                    <span className="ml-auto tabular-nums text-[var(--text-tertiary)]">
+                      {pair.similarity.toFixed(2)}
+                    </span>
                   </li>
                 ))}
                 {data.actions.retrieval_gaps.map((m) => (

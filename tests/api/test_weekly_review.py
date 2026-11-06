@@ -265,3 +265,40 @@ async def test_weekly_retrieval_gaps_flag_hits_with_zero_delivery(client, db_ses
             "deliveries": 0,
         }
     ]
+
+
+async def test_weekly_reports_duplicate_pairs_as_action(client, db_session):
+    """库内近似重复进入行动项，且每对只出现一次。"""
+    ws_id = uuid.UUID((await client.post("/v1/workspaces", json={"name": "dups"})).json()["id"])
+    shared = (
+        "SQLite 开启 WAL 模式后读写不再互相阻塞，但需要定期 checkpoint，"
+        "否则 -wal 文件会持续增长并影响提交延迟。"
+    )
+    ids = {name: uuid.uuid4() for name in ("a", "b")}
+    db_session.add_all(
+        [
+            Memory(
+                id=ids["a"],
+                workspace_id=ws_id,
+                title="SQLite WAL 实践",
+                content=shared,
+                type="fact",
+                status="active",
+            ),
+            Memory(
+                id=ids["b"],
+                workspace_id=ws_id,
+                title="SQLite WAL 实践注意",
+                content=shared,
+                type="fact",
+                status="active",
+            ),
+        ]
+    )
+    await db_session.flush()
+
+    response = await client.get("/v1/review/weekly", params={"workspace_id": str(ws_id)})
+    assert response.status_code == 200, response.text
+    pairs = response.json()["actions"]["duplicate_pairs"]
+    assert len(pairs) == 1
+    assert {pairs[0]["left"]["id"], pairs[0]["right"]["id"]} == {str(ids["a"]), str(ids["b"])}

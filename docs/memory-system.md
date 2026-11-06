@@ -422,6 +422,8 @@ utility = 0.30 × retrieval_success   # 上下文采用启发信号（used / ret
 
 ### 周报复用观测
 
+同一响应的 `actions.duplicate_pairs` 是库内查重的周报出口：扫描最近更新的 200 条 active 记忆，按四路融合找出相似度 ≥ 0.6 的记忆对（最多 3 对），直接给出「这两条可能是同一件事」的合并建议。门槛与 `GET /v1/memories/duplicates` 相同，只是范围受周报工作区与扫描上限约束。
+
 `GET /v1/review/weekly` 的 `most_used` 仅列出最近 7 天有 `used` 或 `cited` 流水的 active 记忆。同一响应的 `actions.retrieval_gaps` 是它的反面：近 7 天被 `retrieved` 至少 3 次、却一次 `used`/`cited` 都没有的 active 记忆（取前 5，按命中次数降序），用于发现「排进结果但内容没帮上忙」的条目；3 次门槛见 `apps/api/routes/weekly_review.py` 的 `RETRIEVAL_GAP_MIN_HITS`，避免单次误召回占用版面，按两者合计降序取前 5 条；只有 `retrieved` 的记忆不进入高频复用榜。保留字段 `uses` 表示 `context_uses + citations`，新增 `retrievals`（仅 retrieved）、`context_uses`（仅 used）、`citations`（仅 cited）独立计数。统计同时约束记忆与流水的 workspace，排除窗口外和未来流水。
 
 这些是**观测次数，不是独立任务数或成功转化率**：同一次任务可能分别留下多个阶段的流水，且 context 可直接调用而没有 search。`cited` 当前也是 useful 反馈产生的代理信号，不代表从最终回答中解析出的真实引用。因此不提供 `success_rate`，也不能把 `uses` 当作已证实的任务成功数。待整理笔记统计排除已丢弃记录，与 capture 漏斗口径一致。

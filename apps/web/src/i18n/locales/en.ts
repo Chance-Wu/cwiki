@@ -612,8 +612,9 @@ const en = {
     conflicts: 'Open conflicts',
     staleMemories: 'Stale memories',
     knowledgeGaps: 'Knowledge gaps (empty results)',
+    duplicatePairs: 'Duplicates (merge suggested)',
     retrievalGaps: 'Retrieval gaps (hit but unused)',
-    noActions: 'No conflicts, stale memories, gaps, or unused hits to handle',
+    noActions: 'No conflicts, stale memories, duplicates, gaps, or unused hits to handle',
     period: '{start} — {end}',
   },
   review: {
