@@ -191,6 +191,7 @@ def create_app() -> FastAPI:
     from apps.api.routes.markdown_export import router as markdown_export_router
     from apps.api.routes.memories import router as memories_router
     from apps.api.routes.memories import tags_router
+    from apps.api.routes.memory_duplicates import router as memory_duplicates_router
     from apps.api.routes.memory_quality import router as memory_quality_router
     from apps.api.routes.memory_status import router as memory_status_router
     from apps.api.routes.memory_usage import router as memory_usage_router
@@ -210,6 +211,8 @@ def create_app() -> FastAPI:
     app.include_router(agents_router)
     app.include_router(events_router)
     app.include_router(candidates_router)
+    # 必须在 memories_router 之前：/v1/memories/duplicates 不能被 /{memory_id} 抢先匹配
+    app.include_router(memory_duplicates_router)
     app.include_router(memories_router)
     app.include_router(tags_router)
     app.include_router(reviews_router)

@@ -46,6 +46,7 @@
 | `GET` | `/v1/graph` | 知识图谱节点/边；节点含 `mastery_level/next_review/lapse_streak/leech/suspended`，用于按掌握度着色与学习视图 |
 | `PATCH` | `/v1/memories/{id}` | 更新记忆；`status` 支持 `active / superseded / conflicted / deprecated`；支持 `tags` 字段更新 |
 | `DELETE` | `/v1/memories/{id}` | 物理删除记忆及其 Markdown、索引、向量与 `_meta` 资产（不可恢复）；响应含 `assets_removed` |
+| `GET` | `/v1/memories/duplicates` | 全库两两查重：`workspace_id` 收窄范围、`min_similarity` 默认 0.6、`limit` 默认 20；返回 `pairs`（left/right + 四路相似度），只作建议不自动合并；active 记忆超过 500 条返回 400 |
 | `GET` | `/v1/tags` | 标签列表（含计数）；`workspace_id` 限定工作区，`status` 限定状态（不传含全部状态） |
 | `PUT` | `/v1/tags/{tag}` | 重命名标签（覆盖全部状态；`workspace_id` 限定工作区） |
 | `POST` | `/v1/tags/merge` | 合并多个标签（覆盖全部状态；`workspace_id` 限定工作区） |
