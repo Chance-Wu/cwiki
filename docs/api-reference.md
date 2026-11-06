@@ -50,7 +50,7 @@
 | `PUT` | `/v1/tags/{tag}` | 重命名标签（覆盖全部状态；`workspace_id` 限定工作区） |
 | `POST` | `/v1/tags/merge` | 合并多个标签（覆盖全部状态；`workspace_id` 限定工作区） |
 | `DELETE` | `/v1/tags/{tag}` | 删除标签（覆盖全部状态；`workspace_id` 限定工作区） |
-| `GET` | `/v1/review/weekly` | 本周回顾：新增/复习/掌握提升/高频复用/待整理 |
+| `GET` | `/v1/review/weekly` | 本周回顾：新增/复习/掌握提升/高频复用/行动项（冲突/过时/无果检索/召回缺口） |
 | `POST` | `/v1/search` | 关键词检索 |
 | `POST` | `/v1/context` | 混合检索 + 上下文组装 |
 | `POST` | `/v1/integrations/agent/capture` | 任意 Agent 提交 compact summary / 工具失败 / 会话结束 |

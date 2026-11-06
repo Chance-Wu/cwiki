@@ -43,6 +43,10 @@ export default function WeeklyReview({ workspaceId }: Props) {
       ...data.actions.stale_memories.map(
         (m) => `  - [${m.title}](/memories?memoryId=${m.memory_id})`,
       ),
+      `- ${t.weekly.retrievalGaps}: ${data.actions.retrieval_gaps.length}`,
+      ...data.actions.retrieval_gaps.map(
+        (m) => `  - [${m.title}](/memories?memoryId=${m.memory_id}) (${m.retrievals})`,
+      ),
       `- ${t.weekly.knowledgeGaps}: ${data.actions.knowledge_gaps.length}`,
       ...data.actions.knowledge_gaps.map(
         (g) =>
@@ -154,7 +158,8 @@ export default function WeeklyReview({ workspaceId }: Props) {
             </div>
             {data.actions.conflicts.length === 0 &&
             data.actions.stale_memories.length === 0 &&
-            data.actions.knowledge_gaps.length === 0 ? (
+            data.actions.knowledge_gaps.length === 0 &&
+            data.actions.retrieval_gaps.length === 0 ? (
               <p className="text-xs text-[var(--text-tertiary)]">{t.weekly.noActions}</p>
             ) : (
               <ul className="space-y-1 text-xs text-[var(--text-secondary)]">
@@ -179,6 +184,22 @@ export default function WeeklyReview({ workspaceId }: Props) {
                     >
                       {m.title}
                     </Link>
+                  </li>
+                ))}
+                {data.actions.retrieval_gaps.map((m) => (
+                  <li key={m.memory_id} className="flex items-center gap-2">
+                    <span className="rounded bg-surface-elevated px-1.5 py-0.5 text-[var(--text-tertiary)]">
+                      {t.weekly.retrievalGaps}
+                    </span>
+                    <Link
+                      to={`/memories?memoryId=${m.memory_id}`}
+                      className="truncate hover:underline"
+                    >
+                      {m.title}
+                    </Link>
+                    <span className="ml-auto tabular-nums text-[var(--text-tertiary)]">
+                      {m.retrievals}
+                    </span>
                   </li>
                 ))}
                 {data.actions.knowledge_gaps.map((g) => (

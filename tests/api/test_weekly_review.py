@@ -211,3 +211,57 @@ async def test_weekly_reuse_counts_independent_stages_and_excludes_ineligible_ro
             "citations": 1,
         }
     ]
+
+
+async def test_weekly_retrieval_gaps_flag_hits_with_zero_delivery(client, db_session):
+    """命中多次却零交付的记忆进入召回缺口；命中不足门槛或已有交付的不进。"""
+    ws_id = uuid.UUID((await client.post("/v1/workspaces", json={"name": "gaps"})).json()["id"])
+    now = datetime.now(UTC).replace(tzinfo=None)
+    ids = {name: uuid.uuid4() for name in ("never_used", "used_once", "rare_hit")}
+    for name, mid in ids.items():
+        db_session.add(
+            Memory(
+                id=mid,
+                workspace_id=ws_id,
+                title=name,
+                content="完整记忆正文",
+                type="fact",
+                status="active",
+            )
+        )
+    await db_session.flush()
+
+    def usage(name, stage, *, days=0):
+        db_session.add(
+            MemoryUsage(
+                id=uuid.uuid4(),
+                workspace_id=ws_id,
+                memory_id=ids[name],
+                stage=stage,
+                created_at=now - timedelta(days=days),
+            )
+        )
+
+    for _ in range(5):
+        usage("never_used", "retrieved")
+    for _ in range(4):
+        usage("used_once", "retrieved")
+    usage("used_once", "used")
+    for _ in range(2):
+        usage("rare_hit", "retrieved")
+    # 窗口外的命中不计入
+    for _ in range(6):
+        usage("rare_hit", "retrieved", days=30)
+    await db_session.flush()
+
+    response = await client.get("/v1/review/weekly", params={"workspace_id": str(ws_id)})
+    assert response.status_code == 200, response.text
+    gaps = response.json()["actions"]["retrieval_gaps"]
+    assert gaps == [
+        {
+            "memory_id": str(ids["never_used"]),
+            "title": "never_used",
+            "retrievals": 5,
+            "deliveries": 0,
+        }
+    ]

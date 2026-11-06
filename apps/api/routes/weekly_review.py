@@ -25,6 +25,10 @@ from packages.domain.models import (
 
 router = APIRouter(prefix=API_V1_PREFIX, tags=["review-weekly"])
 
+# 召回缺口门槛：近 7 天被检索到这么多次、却一次也没被 used/cited，
+# 才认为「排进来了但没帮上忙」，而不是偶然误召回
+RETRIEVAL_GAP_MIN_HITS = 3
+
 
 @router.get("/review/weekly")
 async def weekly_review(
@@ -150,6 +154,28 @@ async def weekly_review(
         )
     ).all()
 
+    # ---- 行动项 4：召回缺口——命中多次却从未被用/引用的记忆 ----
+    # 命中说明检索把它排进来了，交付为 0 说明内容没帮上忙（可能已过时或描述与问题不符）
+    # 用一个高于偶然命中的门槛，避免单次误召回就占用周报版面
+    retrieval_gap_rows = (
+        await db.execute(
+            select(Memory.id, Memory.title, retrieved_count, reuse_count)
+            .join(MemoryUsage, MemoryUsage.memory_id == Memory.id)
+            .where(
+                Memory.workspace_id == resolved_ws_id,
+                Memory.status == "active",
+                MemoryUsage.workspace_id == resolved_ws_id,
+                MemoryUsage.created_at >= cutoff,
+                MemoryUsage.created_at <= now,
+            )
+            .group_by(Memory.id, Memory.title)
+            .having(retrieved_count >= RETRIEVAL_GAP_MIN_HITS)
+            .having(reuse_count == 0)
+            .order_by(retrieved_count.desc(), Memory.id.asc())
+            .limit(5)
+        )
+    ).all()
+
     # ---- 行动项 3：知识缺口——近 7 天"无结果"检索的关键词 ----
     gap_rows = (
         await db.execute(
@@ -205,6 +231,15 @@ async def weekly_review(
             ],
             "knowledge_gaps": [
                 {"query": query, "attempts": attempts} for query, attempts in gap_rows
+            ],
+            "retrieval_gaps": [
+                {
+                    "memory_id": str(mid),
+                    "title": title,
+                    "retrievals": retrieved,
+                    "deliveries": delivered,
+                }
+                for mid, title, retrieved, delivered in retrieval_gap_rows
             ],
         },
     }

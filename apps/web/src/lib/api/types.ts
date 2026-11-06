@@ -629,6 +629,12 @@ export interface WeeklyReview {
     conflicts: { id: string; description: string | null; created_at: string | null }[]
     stale_memories: { memory_id: string; title: string; valid_to: string | null }[]
     knowledge_gaps: { query: string; attempts: number }[]
+    retrieval_gaps: {
+      memory_id: string
+      title: string
+      retrievals: number
+      deliveries: number
+    }[]
   }
 }
 

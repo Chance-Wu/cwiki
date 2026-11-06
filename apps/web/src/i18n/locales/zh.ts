@@ -612,7 +612,8 @@ const zh: TranslationKeys = {
     conflicts: '未决冲突',
     staleMemories: '已过时记忆',
     knowledgeGaps: '知识缺口（无果检索）',
-    noActions: '没有待处理的冲突、过期记忆或缺口',
+    retrievalGaps: '召回缺口（命中未用）',
+    noActions: '没有待处理的冲突、过期记忆、缺口或空召回',
     period: '{start} — {end}',
   },
   review: {
