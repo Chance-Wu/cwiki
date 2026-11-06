@@ -65,6 +65,8 @@ class TestCandidateStatusTransitions:
             ("needs_enrichment", "rejected"),
             ("deferred", "pending_review"),
             ("rejected", "pending_review"),
+            # approved 虽是终态，但 revert-auto-approve 撤销后要回到待审
+            ("approved", "pending_review"),
         ],
     )
     def test_valid_transitions(self, current, target):
@@ -73,7 +75,6 @@ class TestCandidateStatusTransitions:
     @pytest.mark.parametrize(
         "current,target",
         [
-            ("approved", "pending_review"),
             ("merged", "pending_review"),
             ("pending_review", "active"),
         ],

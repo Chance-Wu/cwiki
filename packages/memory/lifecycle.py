@@ -33,7 +33,8 @@ CANDIDATE_STATUS_TRANSITIONS: dict[str, list[str]] = {
     "pending_review": ["approved", "rejected", "merged", "deferred", "needs_enrichment", "discarded"],
     "needs_enrichment": ["pending_review", "rejected"],
     "deferred": ["pending_review", "rejected"],
-    "approved": [],  # 终态
+    # 终态，但 /revert-auto-approve 撤销自动生效时回退待审（已删除生成的记忆）
+    "approved": ["pending_review"],
     "rejected": ["pending_review"],  # 允许重新审核
     "merged": [],  # 终态
     "quarantined": ["pending_review", "rejected"],  # 历史兼容

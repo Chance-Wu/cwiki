@@ -207,6 +207,11 @@ async def restore_candidate(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Candidate in '{candidate.status}' status cannot be restored",
         )
+    from packages.memory.lifecycle import validate_candidate_status_transition
+
+    if candidate.status != "pending_review":
+        # 同状态写回是幂等的恢复，不算状态转换
+        validate_candidate_status_transition(candidate.status, "pending_review")
     candidate.status = "pending_review"
     await db.commit()
     await db.refresh(candidate)
@@ -317,6 +322,11 @@ async def revert_auto_approve(
         )
     )
     # 候选回到待审，允许重新编辑/批准；否则 approved 是终态，撤销后无法再次生成
+    from packages.memory.lifecycle import validate_candidate_status_transition
+
+    if candidate.status != "pending_review":
+        # 同状态写回是幂等的恢复，不算状态转换
+        validate_candidate_status_transition(candidate.status, "pending_review")
     candidate.status = "pending_review"
     await db.commit()
 
