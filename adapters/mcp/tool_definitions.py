@@ -1,4 +1,4 @@
-"""cwiki 全部 19 个记忆工具的 MCP JSON Schema 定义。
+"""cwiki 全部 21 个记忆工具的 MCP JSON Schema 定义。
 
 纯数据集合——不依赖 MCPServer、CwikiClient 或传输层。
 工具名与 description 是对宿主（Agent）可见的协议契约，保持原样不动。
@@ -586,6 +586,57 @@ def build_tool_definitions() -> list[dict[str, Any]]:
                     },
                 },
                 "required": [],
+            },
+        },
+        {
+            "name": "memory_conflicts",
+            "description": (
+                "列出记忆冲突。写入时冲突检测会登记 open 冲突并阻止候选自动生效，"
+                "但该操作本身不会改写正文或状态；先用 memory_search/memory_history 核对两边内容，"
+                "再决定修正内容或裁决关闭。"
+            ),
+            "inputSchema": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "status": {
+                        "type": "string",
+                        "enum": ["open", "resolved", "all"],
+                        "default": "open",
+                        "description": "按冲突状态过滤",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "default": 20,
+                        "minimum": 1,
+                        "maximum": 200,
+                        "description": "最大返回数",
+                    },
+                },
+                "required": [],
+            },
+        },
+        {
+            "name": "memory_conflict_resolve",
+            "description": (
+                "记录冲突裁决并关闭冲突，留下 conflict_resolved 审计。"
+                "它不会自动修改正文或记忆状态：需要先完成必要的内容修正，再关闭冲突。"
+            ),
+            "inputSchema": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "conflict_id": {
+                        "type": "string",
+                        "description": "冲突 ID（来自 memory_conflicts）",
+                    },
+                    "resolution": {
+                        "type": "string",
+                        "description": "裁决说明：保留哪一方、依据与已做的内容修正",
+                        "maxLength": 2000,
+                    },
+                },
+                "required": ["conflict_id", "resolution"],
             },
         },
     ]

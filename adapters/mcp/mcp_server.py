@@ -602,6 +602,8 @@ class MCPServer:
         "memory_review_due": "_handle_memory_review_due",
         "memory_review_submit": "_handle_memory_review_submit",
         "memory_review_stats": "_handle_memory_review_stats",
+        "memory_conflicts": "_handle_memory_conflicts",
+        "memory_conflict_resolve": "_handle_memory_conflict_resolve",
     }
 
     def __init__(self, client: CwikiClient):
@@ -1763,6 +1765,35 @@ class MCPServer:
             "workspace_id": workspace_id,
             **stats,
         }
+
+    async def _handle_memory_conflicts(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        status = arguments.get("status", "open")
+        if status not in {"open", "resolved", "all"}:
+            return {"error": "status 必须是 open/resolved/all"}
+        limit = arguments.get("limit", 20)
+        if type(limit) is not int or not 1 <= limit <= 200:
+            return {"error": "limit 必须是 1–200 的整数"}
+        conflicts = await self.client.list_conflicts(status=status, limit=limit)
+        return {
+            "status": "ok",
+            "total": len(conflicts),
+            "conflicts": conflicts,
+            "hint": (
+                "open 冲突会阻止相关候选自动生效并拉低记忆健康分。"
+                "先核对双方内容与来源证据，用 memory_update 修正正文后，"
+                "再用 memory_conflict_resolve 记录裁决；关闭冲突不会自动改写内容。"
+            ),
+        }
+
+    async def _handle_memory_conflict_resolve(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        conflict_id = arguments.get("conflict_id")
+        resolution = (arguments.get("resolution") or "").strip()
+        if not conflict_id:
+            return {"error": "conflict_id 必填"}
+        if len(resolution) < 10:
+            return {"error": "resolution 至少 10 个字符：说明保留哪一方、依据与已做的内容修正"}
+        result = await self.client.resolve_conflict(str(conflict_id), resolution)
+        return {"status": "ok", "conflict": result}
 
     async def _handle_tool(
         self, name: str, arguments: dict[str, Any]

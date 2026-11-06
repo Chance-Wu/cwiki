@@ -19,7 +19,7 @@ workspace "cwiki" "Personal Knowledge Workstation & Agent Memory Infrastructure"
         softwareSystem "Local Filesystem" "cwiki-data/ (MD + _meta + SQLite + vectors)" $tags="external"
 
         // --- Containers ---
-        container "MCP Adapter" "JSON-RPC 2.0 over stdio; 19 tools" $technology="Python" $tags="container"
+        container "MCP Adapter" "JSON-RPC 2.0 over stdio; 21 tools" $technology="Python" $tags="container"
         container "Hook Adapter" "Agent event capture (session hooks)" $technology="Python" $tags="container"
         container "REST API" "FastAPI backend; all business endpoints" $technology="Python / Uvicorn :5172" $tags="container"
         container "Worker Queue" "In-process async task queue (2 workers)" $technology="Python / asyncio" $tags="container"

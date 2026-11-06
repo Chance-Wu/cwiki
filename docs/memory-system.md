@@ -271,7 +271,7 @@ graph LR
 1. 先读取当前正文、版本、来源证据及关联记忆；过期时间或负反馈只能触发复核，不单独证明内容错误。
 2. 修正正文时用 `memory_update` / HTTP PATCH，携带 `expected_version` 与 `change_summary`。409 时回读后重新编辑；超时先确认是否已生效，不盲重试。
 3. 如需标记废弃/被替代/冲突，通过 HTTP PATCH 的合法状态转换显式操作并记录原因；恢复时也显式转回 active。状态恢复不等于回滚正文，也不等于延长有效期。
-4. 冲突裁决通过 `POST /v1/conflicts/{id}/resolve` 记录 resolution 并关闭冲突，留下 `conflict_resolved` 审计；它**不自动修改正文或记忆状态**。先完成必要的内容修正，再关闭冲突；多条 open 冲突要分别处理。
+4. 冲突裁决通过 `POST /v1/conflicts/{id}/resolve` 记录 resolution 并关闭冲突，留下 `conflict_resolved` 审计；它**不自动修改正文或记忆状态**。先完成必要的内容修正，再关闭冲突；多条 open 冲突要分别处理。Agent 侧对应 `memory_conflicts`（列举）与 `memory_conflict_resolve`（裁决）：写入时冲突检测登记的 open 冲突，现在既可读也可关，不再只堆积。
 5. 历史正文可从版本接口读取，再以当前版本为 expected_version 发起显式更新以恢复；这会形成新的版本，而不是删除后续历史。当前没有独立的一键版本回滚接口。物理删除不能用状态恢复撤销。
 
 现有版本快照、合法状态转换、冲突审计和人工确认构成保守闭环；自动替代推断、自动废弃和最终回答引用识别不在当前实现范围内。
@@ -335,7 +335,7 @@ graph TD
 
 | 任务 | 触发方式 | 动作 |
 |------|----------|------|
-| 复习提醒 | 周期调度（`review_reminders_enabled` 开启时，默认每 24 小时） | 扫描到期的 `ReviewSchedule`，按工作区把提醒摘要写入状态文件 |
+| 复习提醒 | 周期调度（`review_reminders_enabled` 开启时，默认每 24 小时） | 扫描到期的 `ReviewSchedule`，按工作区把提醒摘要写入状态文件；同一开关还让 hook 在 SessionStart 注入一行「到期 N 条」提示（只读本地 DB、按工作区每日最多一次，到期数变化时重新提示），Agent 据此用 `memory_review_due` / `memory_review_submit` 组织复习 |
 | 定期 `_meta` 导出 | 写入时增量导出 + 周期全量（`meta_export_interval_hours`，默认 12 小时，启动按上次导出时间追赶）+ 每日系统计划任务 | 导出 `_meta` JSON，供 Git 同步与数据库重建 |
 | 间隔重复 | 复习提交时同步更新 | SM-2 算法更新复习间隔与掌握度等级（`python tasks.py recompute` 可重放 review_history 重建调度） |
 | 去重检测 | 新候选入库时自动触发 | Embedding 余弦相似度比对（列级 select 避免加载无关列） |
@@ -413,6 +413,9 @@ utility = 0.30 × retrieval_success   # 上下文采用启发信号（used / ret
 
 **使用流水 stage 语义**：`/v1/search` 命中以及 `/v1/context` 内部引擎检索候选记 `retrieved`（可能包含后续被交付筛选淘汰的候选）；`/v1/context`（curated 交付）仅对最终去重、Token 预算筛选后返回的 items 记 `used`，position 使用交付顺序，淘汰候选不计入；共享 assembler 统一执行入口过滤、冲突提示、出处标记、压缩和 CJK 感知的格式化预算；不先用原始正文长度淘汰可压缩的长记忆。context 文本、items（压缩后正文）、sources、citations、total 与 used 流水均对齐该最终交付选择。相同请求在缓存 TTL 内复用响应不重复记流水（因此统计是非缓存交付观测，不是全部 HTTP 请求数）；`POST /v1/feedback` 且 `feedback_type=useful` 时补记 `cited`。共享效用聚合分别统计三个阶段，不再将全部流水当检索次数，也不再将 `cited` 固定为 0。`retrieval_success` 与 `agent_usage` 是这些独立计数的启发式比值（由评分函数封顶），不是已关联到同次任务的成功转化率。`evidence_strength` 统一取 `evidence` 表计数（与列表页、健康摘要同口径）。
 
+**Hook 召回交付回流**：UserPromptSubmit 自动召回走本地只读检索（`record_trace=False`），历史上既不写 `retrieved` 也不写 `used`，导致最高频的检索路径对使用统计完全不可见。现在 hook 在实际注入后把该批 memory id 落到独立 spool 命名目录（`~/.cwiki/state/hooks/<host>/usage/`，与 capture 记录隔离），由 SessionStart / SessionEnd / `drain` 批量补投 `POST /v1/usage/batch`；prompt 热路径不发 HTTP。批次 id 由 `sha256(session|workspace|prompt|ids)` 派生，服务端按 `uuid5(record_id|memory_id|stage)` 生成主键实现幂等（整批或单条重复投递都不重复计量），因此补投可以跨进程安全重放；`used`/`cited` 之外的 stage 与未知 memory_id 被拒绝/跳过，工作区归属取记忆行本身。`GET /v1/usage/gaps` 按窗口列出"retrieved 达阈值但零交付"的 active 记忆，作为召回质量的可解释缺口入口（不代表记忆一定无价值，需人工或 Agent 判断）。
+
+
 ### 周报复用观测
 
 `GET /v1/review/weekly` 的 `most_used` 仅列出最近 7 天有 `used` 或 `cited` 流水的 active 记忆，按两者合计降序取前 5 条；只有 `retrieved` 的记忆不进入高频复用榜。保留字段 `uses` 表示 `context_uses + citations`，新增 `retrievals`（仅 retrieved）、`context_uses`（仅 used）、`citations`（仅 cited）独立计数。统计同时约束记忆与流水的 workspace，排除窗口外和未来流水。
@@ -452,11 +455,12 @@ utility = 0.30 × retrieval_success   # 上下文采用启发信号（used / ret
 | `memory.duplicate_exact_threshold` / `duplicate_possible_threshold` | 0.85 / 0.6 | 重复分类阈值（运行时读取，改配置即生效） |
 | `memory.submit_dedup_scan_limit` / `submit_dedup_cross_workspace` | 1000 / false | 提交时查重的扫描范围与是否跨工作区 |
 | `mcp.max_retries` / `mcp.retry_backoff_seconds` | 2 / 1.0 | MCP 适配器调用后端时的重试次数与退避基数 |
+| `memory.similarity_strategy` / `similarity_hybrid_weights` | hybrid + 0.20/0.35/0.15/0.30 | 查重融合的通道选择与权重（`_build_verdict` 读取；API 进程配置在启动时加载，改后需重启生效） |
 | `parasitic_evolution.relation_auto_edge_ttl_days` | 0（关闭） | auto 边超过 N 天且从未强化、低置信时由巡检任务清理 |
 | `scheduler.relation_ttl_check_interval_hours` | 24 | 关系老化巡检间隔 |
 
 相关能力：
 
-- `python tasks.py doctor`：DB / Markdown / `_meta` / 索引 / 向量一致性巡检（内容漂移、`_meta` 可解析性、向量维度/模型/配对）；`--fix-drift` 以 MD 为准修复单条内容漂移（见开发指南）。
+- `python tasks.py doctor`：DB / Markdown / `_meta` / 索引 / 向量一致性巡检（内容漂移、`_meta` 可解析性、向量维度/模型/配对）；`--fix-drift` 以 MD 为准修复单条内容漂移（见开发指南）；`--prune-meta` 删除 DB 已无对应行的孤儿 `_meta` 快照（重建本来就会跳过它们，清理避免被 Git 同步传播）。
 - `memory_search mode=semantic`：仅向量路，过滤/重排与 hybrid 一致；`curated=true` 的 limit 超过 50 会夹紧到 50。
 - 质量分布页分箱可下钻：`/memories?usage=…&decay=…&min_confidence=…&min_importance=…`。

@@ -50,3 +50,31 @@ async def test_curated_limit_clamped_to_backend_max(server, monkeypatch):
     await srv._handle_tool("memory_search", {"keyword": "x", "curated": True, "limit": 100})
 
     assert client.get_context.call_args.kwargs["max_items"] == 50
+
+
+async def test_conflicts_tools_route_to_client(server, monkeypatch):
+    """memory_conflicts / memory_conflict_resolve 接通 HTTP 端点并校验入参。"""
+    srv, client = server
+    client.list_conflicts = AsyncMock(return_value=[{"id": "c1", "status": "open"}])
+    client.resolve_conflict = AsyncMock(return_value={"id": "c1", "status": "resolved"})
+
+    result = await srv._handle_tool("memory_conflicts", {"status": "open", "limit": 5})
+    assert result["total"] == 1
+    client.list_conflicts.assert_awaited_once_with(status="open", limit=5)
+    assert "memory_conflict_resolve" in result["hint"]
+
+    resolved = await srv._handle_tool(
+        "memory_conflict_resolve",
+        {"conflict_id": "c1", "resolution": "保留新结论：已用 memory_update 修正正文"},
+    )
+    assert resolved["status"] == "ok"
+    client.resolve_conflict.assert_awaited_once()
+
+    assert "error" in await srv._handle_tool("memory_conflicts", {"status": "bogus"})
+    assert "error" in await srv._handle_tool("memory_conflicts", {"limit": 0})
+    assert "error" in await srv._handle_tool(
+        "memory_conflict_resolve", {"conflict_id": "c1", "resolution": "短"}
+    )
+    assert "error" in await srv._handle_tool(
+        "memory_conflict_resolve", {"resolution": "足够长的裁决说明"}
+    )

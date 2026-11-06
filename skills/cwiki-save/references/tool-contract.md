@@ -1,4 +1,4 @@
-# cwiki 工具契约（19 个）
+# cwiki 工具契约（21 个）
 
 **所有工具 schema 均为 `additionalProperties: false`，传入未列出的键会被直接拒绝。**
 工作区默认自动绑定 Agent 当前项目（宿主 hook 实时同步）；`workspace_name` 仅在明确要跨项目操作时才传。`memory_forget` 按全局唯一 `memory_id` 删除，`workspace_name` 仅作兼容字段。
@@ -34,6 +34,8 @@
 | `memory_review_due` | — | `limit`(1-100，默认 20) | ✓ |
 | `memory_review_submit` | `memory_id`、`quality`(0-5) | — | ✓ |
 | `memory_review_stats` | — | — | ✓ |
+| `memory_conflicts` | — | `status`(open/resolved/all)、`limit`(1–200，默认 20) | ✗ |
+| `memory_conflict_resolve` | `conflict_id`、`resolution`(≥10 字符) | — | ✗ |
 | `memory_export` | — | `entities` | ✓ |
 | `memory_import` | `data` | `strategy`(skip/overwrite/rename) | ✓ |
 

@@ -615,3 +615,17 @@ class CwikiClient:
         """获取工作区的复习统计。"""
         params: dict[str, Any] = {"workspace_id": workspace_id}
         return await self._request("GET", f"{API_V1_PREFIX}/review/stats", params=params)
+
+    async def list_conflicts(self, status: str = "open", limit: int = 20) -> list[dict[str, Any]]:
+        """列出记忆冲突（open/resolved/all）。"""
+        params: dict[str, Any] = {"status": status, "limit": limit}
+        result = await self._request("GET", f"{API_V1_PREFIX}/conflicts/all", params=params)
+        return result if isinstance(result, list) else []
+
+    async def resolve_conflict(self, conflict_id: str, resolution: str) -> dict[str, Any]:
+        """记录冲突裁决并关闭冲突；不自动改写正文或记忆状态。"""
+        return await self._request(
+            "POST",
+            f"{API_V1_PREFIX}/conflicts/{conflict_id}/resolve",
+            json_body={"resolution": resolution},
+        )
