@@ -9,8 +9,8 @@
 | `config.py` | 从 `config.yaml` 加载数据库、应用、检索、演化、调度等配置（`settings` 单例） |
 | `settings.py` | 应用设置访问入口（`get_settings()`） |
 | `database.py` | 异步 SQLAlchemy 引擎、`async_session_maker`、`Base` 声明基类 |
-| `models/` | ORM 模型：`memory.py`（Memory / MemoryVersion / CandidateMemory / Evidence 等）、`session.py`（Session / Event / Episode / AgentSession / SessionNote）、`workspace.py`（Workspace / Agent / AgentProfile）、`retrieval.py`（检索追踪） |
-| `schemas/` | API 请求/响应 Pydantic v2 schema：memory、search、session、workspace、agent_capture、candidate_contract、task_queue |
+| `models/` | ORM 模型：`base.py`（`Base` 与 JSONB/UUID/Vector 自定义类型）、`memory.py`（Memory / MemoryVersion / CandidateMemory / Evidence 等）、`session.py`（Session / Event / Episode / AgentSession / SessionNote）、`workspace.py`（Workspace / Agent / AgentProfile）、`retrieval.py`（检索追踪）、`file_sync.py`（FileSyncJob，数据库→Markdown 镜像的追加式修复日志） |
+| `schemas/` | API 请求/响应 Pydantic v2 schema：memory、search、session、workspace、agent_capture、candidate_contract、task_queue、common |
 | `task_queue.py` | 轻量后台任务队列：内存调度 + 磁盘持久化、重试、死信 |
 | `scheduler.py` | `PeriodicScheduler`：在 FastAPI lifespan 内按间隔触发队列任务 |
 | `write_decisions.py` | 写入决策：`write` / `skip` / `update` |

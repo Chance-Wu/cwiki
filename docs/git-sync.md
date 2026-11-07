@@ -23,10 +23,10 @@ cwiki/                      # 代码仓库（cwiki.git）
     ├── index.db            # BM25 索引（可重建）
     ├── vectors.npz         # 向量索引（可重建）
     ├── vectors.json        # 向量 id/metadata 侧车（缺失时向量索引不可加载，会触发重建）
-    └── _review_prefs.json  # 复习偏好（每日目标），`_` 前缀不会被记忆侧车清理，随数据仓库同步
     └── _meta/
         ├── <memory_id_1>.json   # 关系数据：feedback, usage, review_schedule 等
         ├── <memory_id_2>.json
+        ├── _review_prefs.json   # 复习偏好（每日目标），首次设置后生成；`_` 前缀不会被记忆侧车清理，随数据仓库同步
         ├── _workspaces.json     # workspace 元数据（name/id/时间戳，含无记忆的空 workspace）
         ├── _review_queue.json   # 候选 + 评审留痕（候选不经 Markdown 承载）
         └── _capture_notes.json  # Agent 会话 + 待整理笔记全文（不经 Markdown 承载）
@@ -89,7 +89,7 @@ app:
 python tasks.py start
 ```
 
-`start` 会自动 pull 代码仓库；`cwiki-data/cwiki.db` 缺失时从 MD + `_meta` 重建。数据更新与上报由数据仓库自带脚本完成：`python cwiki-data/sync.py`（见「日常使用」）。
+`start` 会自动 pull 代码仓库、应用未执行的 Alembic 迁移；`cwiki-data/cwiki.db` 缺失时从 MD + `_meta` 重建。数据同步由数据仓库自带脚本完成：`python cwiki-data/sync.py`（见「日常使用」）。
 
 ## 镜像失败恢复与升级
 
@@ -109,13 +109,15 @@ python cwiki-data/sync.py
 ```
 
 `sync.py` 的 git 操作全部在**数据仓库**内执行（不触碰代码仓库），流程：
-1. 执行 WAL checkpoint（`PRAGMA wal_checkpoint(TRUNCATE)`）：把 `-wal` 中的写入并入 `cwiki.db` 主文件并清空 `-wal`，保证提交的 .db 含全部数据；服务正在写入导致 checkpoint 未完成时，本次跳过并提示稍后重试
+1. 执行 WAL checkpoint（`PRAGMA wal_checkpoint(TRUNCATE)`）：把 `-wal` 中的写入并入 `cwiki.db` 主文件并清空 `-wal`，保证提交的 .db 含全部数据；checkpoint 未完成（打印 `WAL checkpoint busy (rc=N)`）且 `-wal` 仍有未合并数据时（服务正在写入），本次跳过导出与 pull，只补推本地已有提交，停写后重试
 2. 检查是否有未提交变化：
    - **无变化**：跳过导出与 commit（日志显示 `本机无未提交变化`）
    - **有变化**：调用代码仓库的导出脚本把 SQLite 中的记忆导出到 `cwiki-data/`（MD + _meta）→ `git add -A` → `git commit`（带时间戳）
-3. `git pull --rebase` 拉取远端数据——在本地改动已提交、工作区干净后执行，避免覆盖本机未提交数据（离线时提示并继续；rebase 冲突会明确提示手动解决）
-4. `git push`（失败不丢数据，commit 保留在本地；无变化时仅补推离线留下的 commit）
-5. 代码改动不走 `sync.py`：代码仓库照常 `git add` / `git commit` / `git push`
+3. 双端修改检测：fetch 后对比 merge-base，本机与远端都改过同一 `.md` 时逐条告警并提示 `git checkout --ours/--theirs`（rebase 对同一文件的不同 hunk 会自动合并，可能留下两台设备各改一半的混合内容）
+4. `git pull --rebase` 拉取远端数据——在本地改动已提交、工作区干净后执行；离线时提示并继续。脚本检测到未完成的 rebase 会直接退出，需先 `git -C cwiki-data rebase --continue|--abort`；rebase 冲突同样提示手动解决
+5. pull 后若 `cwiki.db` 有变化，提示需 `python tasks.py restart`，并抽样比对 MD frontmatter 的 `updated` 与 DB 的 `updated_at`（日志 `新鲜度对账通过（抽样 N 条 MD 与 DB 一致）`）
+6. `git push`（失败不丢数据，commit 保留在本地；无变化时仅补推离线留下的 commit）
+7. 代码改动不走 `sync.py`：代码仓库照常 `git add` / `git commit` / `git push`
 
 > 前置条件：代码仓库位于 `cwiki-data/` 上一级（标准布局 `cwiki/cwiki-data/`），且已通过 `python tasks.py install` 备好 `.venv`——`sync.py` 会自动定位 `../.venv` 解释器调用导出脚本。
 > checkpoint 若有 WAL 合并会改写 `cwiki.db`，`git status` 因此显示变化，走正常导出路径（正确行为）。
@@ -123,21 +125,22 @@ python cwiki-data/sync.py
 ### 启动服务
 
 ```bash
-# 自动 pull 代码仓库 + 检测 DB 缺失触发 rebuild
+# 自动 pull 代码仓库 + 应用迁移 + 检测 DB 缺失触发 rebuild
 python tasks.py start
 ```
 
 `start` 命令会（不触碰数据仓库；数据更新请先运行 `python cwiki-data/sync.py`）：
-1. `git pull --rebase` 代码仓库（拉取最新代码）
-2. 检测 `cwiki-data/cwiki.db` 是否存在，若缺失则自动从 MD + _meta 重建；重建时：
+1. `git pull --rebase` 代码仓库（拉取最新代码；失败不阻塞启动）
+2. 执行 `alembic upgrade head` 应用未执行的迁移（幂等；失败直接拒绝启动）
+3. 检测 `cwiki-data/cwiki.db` 是否存在，若缺失则自动从 MD + _meta 重建；重建时：
    - 索引文件（`index.db` + `vectors.npz` + `vectors.json`）存在且与记忆数一致 → 跳过 embedding 重建（数秒完成）
    - `_meta` 已恢复 review_schedule → 跳过 recompute（日志显示 `Skipped: review schedules restored from _meta`）
-3. 检测索引文件是否缺失（DB 正常但索引丢了，如 git 冲突解决、手动删除）：仅重建索引，不重建 DB（日志显示 `[sync] index files missing ..., rebuilding index only ...`；失败不阻塞启动）
-4. 启动全栈服务
+4. 检测索引文件是否缺失（DB 正常但索引丢了，如 git 冲突解决、手动删除）：仅重建索引，不重建 DB（日志显示 `[sync] index files missing ..., rebuilding index only ...`；失败不阻塞启动）
+5. 启动全栈服务
 
 ### 运行中拉取远端更新
 
-服务运行中拉到新的 `cwiki.db` 后，运行中的服务不会自动加载新文件；且本地未同步的数据改动会让数据仓库 pull 失败。正确姿势：
+服务运行中拉到新的 `cwiki.db` 后，运行中的服务不会自动加载新文件；且直接 `git -C cwiki-data pull` 遇到本地未提交的数据改动会失败。正确姿势：
 
 ```bash
 # 1. 同步数据：sync.py 自动提交本机改动、拉取远端数据并推送
@@ -200,7 +203,7 @@ python tasks.py recompute
 
 历史版本中代码与数据位于同一仓库；现拆分为两个独立仓库。**已按新布局同步过的旧设备**需要执行以下一次性迁移（本机已完成拆分并由其推送了数据仓库初始快照）：
 
-> 迁移前：先在旧布局下 `python tasks.py sync` 一次，并停止在其他设备写入数据，尽量减少两端差异。
+> 迁移前：先在旧布局下 `python tasks.py sync` 一次（该命令只存在于旧代码；新代码已移除），并停止在其他设备写入数据，尽量减少两端差异。
 
 ```bash
 # ① 为 cwiki-data 建立独立仓库，快照并同步本地数据（保护本机数据）
@@ -300,7 +303,7 @@ python tasks.py rebuild-db
 python scripts/verify_rebuild.py
 ```
 
-DB 文件缺失或损坏时，重建会经 Alembic 自动创建完整 schema（含非记忆表），无需手工建表或先执行迁移。workspace 表从 `_meta/_workspaces.json` 恢复（保留原 id 与时间戳，含无记忆的空 workspace）；该文件缺失时（旧版本导出）回退为从 MD frontmatter 恢复有记忆的 workspace，记忆的 workspace 归属不会丢失。候选与待整理笔记分别从 `_meta/_review_queue.json`、`_meta/_capture_notes.json` 恢复；旧版导出缺这两个文件时对应表为空，不影响记忆本体重建。
+DB 文件缺失（或已删除损坏文件）时，重建会经 Alembic 自动创建完整 schema（含非记忆表），无需手工建表或先执行迁移；若留下的 `cwiki.db` 不是可读的 SQLite 库，重建会直接报错并要求先删除该文件。workspace 表从 `_meta/_workspaces.json` 恢复（保留原 id 与时间戳，含无记忆的空 workspace）；该文件缺失时（旧版本导出）回退为从 MD frontmatter 恢复有记忆的 workspace，记忆的 workspace 归属不会丢失。候选与待整理笔记分别从 `_meta/_review_queue.json`、`_meta/_capture_notes.json` 恢复；旧版导出缺这两个文件时对应表为空，不影响记忆本体重建。
 
 若只是索引文件丢失（DB 完好），无需任何手工操作：`python tasks.py start` 检测到后会只重建索引（不重建 DB，日志 `[sync] index files missing ..., rebuilding index only ...`）；手动等价命令：
 
@@ -351,7 +354,7 @@ python tasks.py recompute
 ## 注意事项
 
 - **不要手动编辑 cwiki.db**：SQLite 是二进制，无法 git 合并；数据变更走 API，由 `python cwiki-data/sync.py` 统一提交
-- **切换设备前先 sync.py**：未提交的 DB 改动会让 `sync.py` 跳过 pull（日志会提示），先在旧设备完成同步再切新设备
+- **切换设备前先 sync.py**：服务正在写入导致 WAL 无法合并时，`sync.py` 会跳过导出与 pull（只补推本地已有提交，日志会提示），先停写并重试同步，再切新设备
 - **WAL 侧车不跟踪**：`*.db-wal` / `*.db-shm` / `*.db-journal` 由 `cwiki-data/.gitignore` 排除，`sync` 自动 checkpoint 保证提交的 .db 完整
 - **定期运行 `python cwiki-data/sync.py`**：避免多设备离线工作太久导致冲突
 - **备份**：首次迁移或重建前备份 `cwiki-data/cwiki.db`

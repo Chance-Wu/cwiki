@@ -29,7 +29,7 @@ python tasks.py install --skip-web --skip-setup
 | 5. 数据与数据库 | 创建 `cwiki-data/` + Alembic 迁移 | `python tasks.py migrate-init` |
 | 6. Agent 接入 | 调用 `setup.py --sync-instructions` | `python scripts/setup.py` |
 
-> 旧命令 `python tasks.py install` 的等价子集保留为 `install-deps`（仅装 Python 依赖 + 验证）。
+> 其余开关：`--skip-db`（跳过数据库初始化）、`--skip-verify`（跳过核心模块导入验证）、`--force`（强制重装依赖）。`install` 的 Python 依赖子集保留为 `install-deps`（仅装 Python 依赖 + 验证）。
 
 ---
 
@@ -47,23 +47,24 @@ python start.py
 
 **启动流程：**
 
-`python tasks.py start` 会先执行同步预检（步骤 1-3），再交由 `start.py` 启动服务：
+`python tasks.py start` 会先执行同步预检（步骤 1-4），再交由 `start.py` 启动服务：
 
-1. 依次 `git pull --rebase` 代码仓库与数据仓库（失败不阻塞：离线或本地有未 sync 的改动时继续启动）
+1. 仅对**代码仓库**执行 `git pull --rebase`（数据仓库由 `cwiki-data/sync.py` 单独同步；拉取失败不阻塞：离线或本地有未提交改动时继续启动）
 2. 检测 `cwiki-data/cwiki.db` 缺失时自动从 MD + `_meta/` 重建（索引文件在且一致时跳过 embedding 重建；review_schedule 已从 `_meta/` 恢复时跳过 recompute）
 3. 检测索引文件（`index.db`/`vectors.npz`/`vectors.json`）缺失时只重建索引（不重建 DB，失败不阻塞）
-4. 检查 npm 和 Python 依赖
-5. 读取 `config.yaml` 获取端口配置（默认 API: 5172, Web: 5173）
-6. 确保存储目录 `cwiki-data/` 存在（独立数据仓库，已在根仓库 `.gitignore` 中忽略）
-7. 检查端口占用情况：
+4. 执行 `alembic upgrade head` 应用未执行的迁移（幂等；迁移失败直接拒绝启动，避免旧 schema 在写入路径触发 500）
+5. 检查 npm 和 Python 依赖
+6. 读取 `config.yaml` 获取端口配置（默认 API: 5172, Web: 5173）
+7. 确保存储目录 `cwiki-data/` 存在（独立数据仓库，已在根仓库 `.gitignore` 中忽略）
+8. 检查端口占用情况：
    - 端口空闲 → 继续启动
    - 端口有健康服务 → 提示已运行，建议用 `restart`
    - 端口被占用但无响应 → 自动释放（杀僵尸进程）
-8. 检查前端 `node_modules`，缺失时自动 `npm install`
-9. 启动后端（uvicorn --reload）和前端（npm run dev）
-10. Windows 下使用 Job Object 管理进程树，确保 Ctrl+C 能清理所有子进程
+9. 检查前端 `node_modules`，缺失时自动 `npm install`
+10. 启动后端（`app.debug: true` 时 uvicorn 附加 `--reload`）和前端（`npm run dev`）
+11. Windows 下使用 Job Object 管理进程树，确保 Ctrl+C 能清理所有子进程
 
-> 直接运行 `python start.py` 会跳过步骤 1-3 的同步预检，仅启动服务；多设备场景建议使用 `python tasks.py start`。
+> 直接运行 `python start.py` 会跳过步骤 1-4 的同步预检，仅启动服务；多设备场景建议使用 `python tasks.py start`。
 
 ### 一键重启
 
@@ -88,6 +89,7 @@ python start.py --restart
 ```bash
 python tasks.py restart-serve   # 强制重启 API
 python tasks.py restart-web     # 强制重启前端
+python tasks.py restart-mcp     # 终止 MCP 适配器进程（宿主下次工具调用时重新拉起）
 ```
 
 ### 服务地址
@@ -186,11 +188,16 @@ python scripts/setup.py --check               # 只读诊断（不启动 MCP、�
 
 ### Hook 与提醒
 
-插件中的 `cwiki-hook` 只在会话开始与用户输入时注入静态保存提醒：
+插件 hooks 由 `adapters/hooks` 运行时驱动：`hooks.json` 由 `HostProfile` 渲染（`setup.py` 写入插件缓存），命令统一为 `python -m adapters.hooks <host> <event>`：
 
-- 不读取 transcript、不上传 prompt 或工具输出、不阻塞用户
-- `setup.py` 自动在 `enabledPlugins` 中启用 `cwiki-qoder@local`，使 hooks 在新会话中生效
-- 提醒不等于自动采集：事件和笔记为空时，`memory_checkpoint` 无法恢复完整对话
+- `SessionStart`：注入静态保存提醒 + 写入决策摘要 + `always_inject` 记忆头部（本地 SQLite）+ 复习到期提示，并投递本地 spool
+- `UserPromptSubmit`：本地召回（≤3 条、≤1200 字符、不留痕）；prompt 仅用于本地检索，不写日志或检索追踪
+- `PreToolUse`：为 workspace 作用域工具注入 `workspace_name`（取自会话 `cwd`，不覆盖显式参数）
+- `PostCompact`：把压缩摘要存为捕获笔记
+- `PostToolUseFailure`：接收事件但不产生记录（工具失败不进待整理，教训由 `memory_checkpoint` 链路提炼）
+- `SessionEnd`：关闭会话、投递 spool，并 drain 到 `/v1/integrations/agent/capture` 与 `/v1/usage/batch`
+
+hooks 采用 fail-open（输入非法也以 0 退出），不阻塞用户；默认不读取对话记录，捕获笔记（如 `PostCompact` 摘要）最终作为待整理笔记进入 `_meta/_capture_notes.json`。`setup.py` 自动在 `enabledPlugins` 中启用 `cwiki-qoder@local`，使 hooks 在新会话中生效。提醒与捕获都不等于自动采集：事件和笔记为空时，`memory_checkpoint` 无法恢复完整对话。
 
 ### 重载与验证
 
@@ -224,6 +231,7 @@ python tasks.py serve              # 仅启动 API
 python tasks.py restart-serve      # 仅重启 API
 python tasks.py web                # 仅启动前端
 python tasks.py restart-web        # 仅重启前端
+python tasks.py restart-mcp        # 终止 MCP 适配器进程（宿主下次调用时重新拉起）
 python tasks.py preview            # 前端生产模式（构建 + :4173，日常浏览用）
 ```
 
@@ -244,7 +252,7 @@ python tasks.py import-qoder-memory --since-days 30 --apply  # 写入待整理
 ### 数据库迁移
 
 ```bash
-python tasks.py migrate-init       # 初始化数据库
+python tasks.py migrate-init       # 初始化数据库（等价于 migrate-up）
 python tasks.py migrate-up         # 应用待执行迁移
 python tasks.py migrate-down       # 回退最近一次迁移
 python tasks.py migrate-create "描述"  # 生成新迁移
@@ -263,6 +271,7 @@ python tasks.py doctor             # 存储一致性巡检（内容漂移 / _met
 python tasks.py doctor --fix       # 仅补齐 _workspaces.json 缺失工作区（只增不删）
 python tasks.py doctor --fix-meta  # 从 DB 补导出缺失的 _meta 快照
 python tasks.py doctor --fix-drift # 以 Markdown 为准修复内容漂移（单条同步回 DB）
+python tasks.py doctor --prune-meta # 删除 DB 已无对应记忆的孤儿 _meta 快照（其余参数 --json / --skip-port）
 ```
 
 > 详见 [Git 同步指南](git-sync.md)。数据同步由数据仓库自带的 `cwiki-data/sync.py` 管理（随数据仓库版本化），代码侧不再提供同步入口；`sync.py` 在独立数据仓库中提交 `cwiki-data/` 全部内容（MD + `_meta/` + `cwiki.db` + 索引文件）。DB 为二进制不可合并，冲突时可删除后经 `rebuild-db` 从 MD + `_meta/` 重建。
@@ -299,8 +308,8 @@ python tasks.py test               # 运行测试（通过 scripts/run_pytest.py
 | `python tasks.py serve` | 启动 API 服务（含后台任务） |
 | `python serve_backend.py` | 后台常驻服务（计划任务自启，幂等+自愈+让位） |
 | `python tasks.py test` | 运行测试（通过 `scripts/run_pytest.py` 包装，自动跳过损坏的 entry_points） |
-| `python -m adapters.qoder.mcp_server` | MCP Server 入口（Qoder 插件，需设置 `PYTHONPATH`） |
-| `python -m adapters.qoder.hooks <command>` | Qoder 静态记忆提醒（不采集正文、不调用 API） |
+| `python -m adapters.mcp` | 宿主无关 MCP Server 入口（工具数由 `tests/integration/test_mcp_stdio.py` 断言，当前 24 个；宿主标识由 `CWIKI_HOST` 声明，默认 `generic`。`adapters.qoder.mcp_server` 是固定 `CWIKI_HOST=qoder` 的兼容 shim） |
+| `python -m adapters.hooks <host> <event>` | Hook 运行时：召回、捕获与 workspace 注入（事件清单见 `adapters/hooks/README.md`） |
 
 **为什么不用 `pip install -e .` 的 console_scripts？**
 - 亿赛通加密软件会加密 `site-packages` 中的 `entry_points.txt` 文件
@@ -312,7 +321,7 @@ python tasks.py test               # 运行测试（通过 scripts/run_pytest.py
 
 ## 配置
 
-通过项目根目录的 `config.yaml` 统一配置（不使用环境变量）。
+通过项目根目录的 `config.yaml` 统一配置（不使用环境变量）。完整键、默认值与注释见 `config.yaml` 自身，分组为 `app` / `mcp` / `database` / `memory` / `agent_policy` / `parasitic_evolution` / `scheduler` / `retrieval` / `performance` / `skills` / `storage`；下面只列常用项。设备本地覆盖写在 `config.local.yaml`（不同步）。
 
 ### 基础配置
 
@@ -328,9 +337,11 @@ python tasks.py test               # 运行测试（通过 scripts/run_pytest.py
 
 | 配置项 | 默认值 | 说明 |
 |--------|--------|------|
-| `bm25_top_k` / `vector_top_k` | `50` | 各路召回数量 |
+| `bm25_weight` / `vector_weight` | `0.6` / `0.4`（config.yaml；代码内置默认 `0.4` / `0.6`） | 本地 BM25 与向量两路的融合权重 |
 | `reranker_*_weight` | 见 config.yaml | 重排信号权重：相关性组与元数据组各自组内归一 |
 | `reranker_relevance_band` | `0.05` | 元数据组总影响力上限；0 = 纯相关性排序 |
+
+> 其余检索键（`reranker_key_term_bonus`、`utility_weight`、`stale_filter_mode` / `confidence_floor_mode` / `relevance_floor_mode` 三档过滤、`confidence_floor`、`relevance_floor`、`explain_enabled`）见 `config.yaml` 的 `retrieval` 段注释。
 
 ### Feature Flags（`parasitic_evolution`）
 
@@ -348,7 +359,9 @@ P0-P4 分级开关，控制各阶段功能启用。详见 `config.yaml`。
 
 ### MCP 适配器环境变量
 
-Qoder MCP 适配器另有独立环境变量：`CWIKI_API_URL`、`CWIKI_WORKSPACE`、`CWIKI_TIMEOUT`、`CWIKI_DB_PATH`（只读检索的 DB 路径，默认按 `config.yaml` 的 `database.url` 解析；见 `adapters/qoder/README.md`）。API 为单用户本地部署，不做 token 认证（见 `apps/api/auth.py`）。
+MCP 适配器另有独立环境变量（`adapters/mcp/README.md`）：`CWIKI_API_URL`（默认 `http://127.0.0.1:5172`）、`CWIKI_WORKSPACE`、`CWIKI_DB_PATH`（本地只读检索的 DB 路径，默认按 `config.yaml` 的 `database.url` 解析）、`CWIKI_HOST`（宿主标识，默认 `generic`）、`CWIKI_TIMEOUT`（默认 `10.0`）、`CWIKI_STATE_DIR`（默认 `~/.cwiki/state`）。
+
+API 默认是单用户零鉴权；在 `config.yaml`（或 `config.local.yaml`）配置 `app.auth_token` 后，请求需带 `Authorization: Bearer <token>`，缺失或不匹配返回 401。监听非回环地址且未配置 token 时，启动会打印告警。
 
 ### 版本号管理
 

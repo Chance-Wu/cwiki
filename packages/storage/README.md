@@ -12,9 +12,12 @@
 | `meta_export.py` | `_meta` 导出的共享实现（单条增量重写、工作区快照） |
 | `export_state.py` | 最近一次全量导出的时间戳，供周期任务重启后追赶 |
 | `indexer.py` | 异步索引器：Markdown → SQLite 全文索引与向量索引同步 |
+| `md_sync.py` | Markdown → DB 单条同步：手改 MD 后把正文/标题/类型/标签/状态写回主库 |
+| `index_health.py` | 派生索引健康检查（向量文件配对、维度/模型、index.db 覆盖），供 doctor 与 rebuild-db 复用 |
 | `vector_index.py` | 基于 numpy 的向量索引（`vectors.npz` + `vectors.json`） |
 | `rebuilder.py` | `DatabaseRebuilder`：从 Markdown + `_meta` 重建 `cwiki.db`，恢复候选、审核留痕、版本与复习史 |
 | `consistency.py` | 运行时只读对账：DB / Markdown / index.db / vectors 四份载体比对 |
+| `review_prefs.py` | 复习偏好存取（`_meta/_review_prefs.json`，随数据仓库跨设备同步） |
 | `git_version.py` | 记忆文件的 Git 版本集成 |
 
 ## 数据目录
@@ -26,6 +29,7 @@ cwiki-data/
 ├── {workspace}/{type}/{id前8位}_{标题}.md
 ├── _meta/{memory_id}.json
 ├── _meta/_workspaces.json
+├── _meta/_review_prefs.json
 ├── cwiki.db
 ├── index.db
 └── vectors.npz / vectors.json

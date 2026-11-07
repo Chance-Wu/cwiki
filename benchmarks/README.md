@@ -7,21 +7,35 @@ benchmarks/
 ├── datasets/
 │   ├── retrieval/              # 检索评测黄金数据集（按 workspace 分文件）
 │   │   ├── gold.jsonl          # 默认数据集
-│   │   └── eval-fixture.jsonl  # 合成夹具数据集（97 条记忆，CI 回归用）
-│   └── context/
-│       └── gold.jsonl          # 上下文组装评测数据集（26 查询，含负例与矛盾对）
+│   │   ├── cwiki.jsonl 等      # 各真实 workspace 的标注集
+│   │   ├── eval-fixture.jsonl  # 合成夹具数据集（97 条记忆，CI 回归用）
+│   │   └── eval-fixture-extended.jsonl  # 扩展夹具
+│   ├── context/
+│   │   └── gold.jsonl          # 上下文组装评测数据集（26 查询，含负例与矛盾对）
+│   ├── duplicates/             # 重复检测黄金集（词面 + 语义）
+│   ├── quality_annotation.py   # 候选质量标注集（配套 quality_annotation_baseline.json）
+│   └── relation_test_suite.py  # 关系判定评测集（配套 relation_test_suite.json）
 ├── evaluators/
 │   ├── retrieval.py            # IR 指标计算
-│   └── context.py              # 上下文组装四指标计算
+│   ├── context.py              # 上下文组装四指标计算
+│   ├── duplicates.py           # 重复检测指标计算
+│   └── refinement.py           # 候选提炼质量评估器
 ├── fixtures/
-│   └── generate_fixture.py     # 合成评测夹具生成器（固定种子，可逐字节复现）
+│   ├── generate_fixture.py     # 合成评测夹具生成器（固定种子，可逐字节复现）
+│   ├── generate_context_gold.py
+│   └── generate_extended_dataset.py
 ├── failures/                   # 失败案例库（JSONL，修复后保留作回归参照）
+├── labeling/                   # 真实查询导出中间产物（.gitignore，不入库）
 ├── performance/
 │   └── perf_runner.py          # 大规模延迟基准（10K-1M 规模）
 ├── runners/
 │   ├── retrieval_runner.py     # 检索 Pipeline 对比运行器
 │   ├── context_runner.py       # 上下文组装运行器
-│   └── compare_reports.py      # 基线门槛对比（CI 回归用）
+│   ├── compare_reports.py      # 基线门槛对比（CI 回归用）
+│   ├── calibrate_reranker.py   # Rerank 权重标定
+│   ├── domain_gate_runner.py   # 领域门控配对消融
+│   ├── duplicate_runner.py     # 重复检测黄金集运行器
+│   └── relevance_review.py     # 盲审材料生成与外部标签回填
 ├── reports/                    # 输出报告目录（baseline.json 为 CI 回归门槛）
 └── README.md
 ```
@@ -42,7 +56,7 @@ benchmarks/
 
 相关性等级：0 = 不相关，1 = 弱相关，2 = 相关，3 = 直接有用。
 
-> **阅读提示**：eval-fixture 每条查询只有 1–5 条相关记忆，Useful@10 的理论上限约 **0.2386**，
+> **阅读提示**：eval-fixture 每条查询只有 1–7 条相关记忆，Useful@10 的理论上限约 **0.2386**，
 > 实测 0.189 已是上限的 79%。因此不要把 Useful@10 的原始密度当绝对目标；
 > 回归与目标请使用 **Recall@10** 与 **Useful@10 达成率**。
 
@@ -68,8 +82,11 @@ benchmarks/
 ## 运行
 
 ```bash
-# 运行全部 pipeline（默认数据集，主库全部 workspace）
+# 运行全部 pipeline（默认 datasets/retrieval/gold.jsonl + 第一个 workspace）
 python -m benchmarks.runners.retrieval_runner
+
+# 按 workspace 跑各自数据集（datasets/retrieval/{workspace}.jsonl）
+python -m benchmarks.runners.retrieval_runner --all-workspaces
 
 # 合成夹具上运行（CI 回归同款，先重新生成夹具保证可复现）
 python -m benchmarks.fixtures.generate_fixture

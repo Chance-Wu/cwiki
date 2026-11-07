@@ -12,7 +12,7 @@
 | [agent-onboarding.md](agent-onboarding.md) | MCP 最小配置、HTTP API 直连、兼容性验证、故障排查 |
 | [git-sync.md](git-sync.md) | 多设备同步、冲突处理、数据库重建与迁移 |
 | [api-reference.md](api-reference.md) | 路由模块、核心接口、反馈与冲突 |
-| [development.md](development.md) | 安装配置、开发命令、`config.yaml` 完整参考 |
+| [development.md](development.md) | 安装配置、开发命令、`config.yaml` 常用配置参考 |
 
 ## 子目录
 

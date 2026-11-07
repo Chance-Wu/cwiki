@@ -27,6 +27,7 @@ cwiki 为 AI Agent 提供知识的持久化存储、智能检索和持续进化�
 | 类型系统 | 11 种记忆分类，自动类型推断，类型仅分类不做格式约束 |
 | 间隔重复 | SM-2 算法调度复习，追踪掌握度（new → learning → familiar → proficient → mastered） |
 | 自动演化 | 关系发现、Hebbian 强化、复习调度与演化指标；相近内容由 Agent 查重后更新既有记忆 |
+| 查重与合并 | 全库两两查重（四路相似度 + 向量），周报与质量页给出合并建议；`POST /v1/memories/merge` 一键合并，标签/关系/证据并入保留方，被并方留 superseded 历史 |
 | 反馈闭环 | Agent 和人类可对记忆进行有用 / 无用 / 过时反馈，驱动记忆演进 |
 
 ### 检索与智能
@@ -37,7 +38,8 @@ cwiki 为 AI Agent 提供知识的持久化存储、智能检索和持续进化�
 | 质量评估 | 5 维质量门控 + 5 维价值评分（novelty 仅作排序）+ 5 因子效用评分 + 健康状态机 |
 | 冲突检测 | 新候选与已有记忆的自动冲突 / 重复检测 |
 | 主动推送 | 基于对话关键词主动推送相关记忆，无需手动检索 |
-| 记忆关联 | 关系图谱（相关、取代、依赖等），支持多层深度查询 |
+| 交付回流 | hook 注入的记忆自动上报 used 流水，配合 `/v1/usage/gaps` 定位「高频命中却从未被用」的记忆 |
+| 记忆关联 | 关系图谱（相关、取代、依赖等），支持多层深度查询；正文写 `[[标题]]` 即自动建 related 边 |
 
 ### 安全与体验
 
@@ -47,7 +49,7 @@ cwiki 为 AI Agent 提供知识的持久化存储、智能检索和持续进化�
 | 运维诊断 | 队列状态快照 + FAILED 死信重放、DB/MD/索引四方一致性对账端点 |
 | 内容安全 | MCP 提交时自动检测 Prompt 注入等恶意内容 |
 | Web 控制台 | 记忆浏览、搜索、审核、状态监控，响应式布局 + 亮暗主题 |
-| 通用适配 | 通过 MCP 协议接入任意 Agent（Qoder 已内置 19 个工具） |
+| 通用适配 | 通过 MCP 协议接入任意 Agent（Qoder 已内置 24 个工具） |
 
 ---
 
@@ -69,7 +71,7 @@ graph TB
     end
 
     subgraph "API 层"
-        API[FastAPI Server :5172<br/>24 路由模块]
+        API[FastAPI Server :5172<br/>26 路由模块]
         Worker[后台 Worker<br/>10 个异步任务]
     end
 
@@ -83,7 +85,7 @@ graph TB
     end
 
     subgraph "存储层"
-        DB[(SQLite<br/>24 张表)]
+        DB[(SQLite<br/>25 张表)]
         Vector[向量索引<br/>numpy]
         BM25[BM25 索引<br/>自研 BM25]
         Files[Markdown 文件<br/>cwiki-data/]
@@ -219,7 +221,7 @@ python -m benchmarks.runners.retrieval_runner
 python -m benchmarks.runners.compare_reports --current benchmarks/reports/eval-fixture
 ```
 
-全量测试 1766 项通过（W3 报告验收记录）。
+全量测试 2608 项通过。
 
 ---
 
@@ -238,7 +240,7 @@ setup 仅更新 `<!-- cwiki:begin -->` / `<!-- cwiki:end -->` 管理的区块，
 
 接入后获得：
 
-- **19 个 MCP 工具** — `memory_search`、`memory_save`、`memory_tags`、`memory_relations`、`memory_relation_create`、`memory_relation_delete`、`memory_history`、`memory_review_due`、`memory_review_submit`、`memory_review_stats` 等
+- **24 个 MCP 工具** — 读写（`memory_save` / `memory_search` / `memory_update`）、关系与双链（`memory_relations` / `memory_relation_create`）、复习（`memory_review_due` / `memory_review_quiz` / `memory_review_submit` / `memory_review_manage`）、健康与冲突（`memory_health` / `memory_conflicts` / `memory_conflict_resolve`）等
 - **cwiki-save skill** — 按需提取与保存记忆
 - **4 个斜杠命令** — `/memory-status`、`/memory-search`、`/memory-review`、`/memory-pin`
 
@@ -288,7 +290,7 @@ python tasks.py start
 python tasks.py rebuild-db
 python tasks.py recompute
 
-# 三层存储一致性巡检（DB / MD / _meta / 索引 / 向量）；--fix 仅补齐 _workspaces.json
+# 一致性巡检（DB / MD / _meta / 索引 / 向量）；--fix 补齐 _workspaces.json，--prune-meta 清孤儿 _meta
 python tasks.py doctor
 ```
 
@@ -305,9 +307,8 @@ python tasks.py doctor
 | [检索引擎](docs/retrieval.md) | 检索流程、Rerank 信号权重、各阶段详解 |
 | [Agent 接入指南](docs/agent-onboarding.md) | MCP 最小配置、HTTP API 直连、兼容性验证清单、故障排查 |
 | [Git 同步](docs/git-sync.md) | 多设备同步、冲突处理、数据库重建与故障排查 |
-| [API 参考](docs/api-reference.md) | 23 个路由模块、核心接口、反馈与冲突 |
+| [API 参考](docs/api-reference.md) | 26 个路由模块、核心接口、反馈与冲突 |
 | [开发指南](docs/development.md) | 安装配置、开发命令、config.yaml 完整参考 |
-| [架构与实现](docs/architecture.md) | 整体架构、模块职责与实现原理 |
 
 ---
 

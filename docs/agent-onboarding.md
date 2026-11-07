@@ -12,7 +12,7 @@
 |---|---|---|
 | 适用场景 | Qoder 等 MCP 宿主 | 任意能发 HTTP 请求的程序 / 自研 Agent |
 | 适配层 | `adapters/qoder/`（stdio，`python -m adapters.qoder.mcp_server`） | 无，直接调 API |
-| 能力 | 24 个 `memory_*` 工具 + cwiki-save skill + 3 个斜杠命令 | 全部 REST 端点（见 [API 参考](api-reference.md)） |
+| 能力 | 24 个 `memory_*` 工具 + cwiki-save skill + 4 个斜杠命令 | 全部 REST 端点（见 [API 参考](api-reference.md)） |
 | 可靠写入 | 客户端本地暂存（`cached: true`），恢复后 `memory_retry_failed` 重试 | 幂等键 `client_write_id`（候选）/ `sequence`（事件） |
 | 行为契约 | AGENTS.md 受管区块 + hook 静态提醒 | 由调用方自行约定 |
 
@@ -51,12 +51,12 @@ MCP 服务器以 stdio 方式运行 `python -m adapters.qoder.mcp_server`。最�
 | `cwd` | **是** | 项目根目录绝对路径。**不能省略**：宿主在未知工作目录启动 stdio 子进程时，`python -m` 找不到模块、`PYTHONPATH="."` 也会解析到错误目录，表现为 Qoder 重启后插件**间歇性连接失败或被超时丢弃**（Windows 上尤其高发）。`scripts/setup.py` 修补配置时会自动注入此字段 |
 | `env.PYTHONPATH` | 是 | 指向项目根目录，使 `python -m` 能找到项目模块 |
 | `env.CWIKI_API_URL` | 否 | 默认 `http://127.0.0.1:5172`。用 `127.0.0.1` 而非 `localhost`，避免 Windows 下 IPv6 `::1` 优先解析带来的连接延迟 |
-| `env.CWIKI_WORKSPACE` | 否 | 默认工作区，默认 `default` |
+| `env.CWIKI_WORKSPACE` | 否 | 默认工作区；未设置时由宿主项目目录推导，推导不出时回落 `default` |
 | `env.CWIKI_TIMEOUT` | 否 | API 请求超时秒数，默认 `10.0` |
 
 Qoder 用户的推荐做法仍是 `python scripts/setup.py`：它把 cwiki 写入全局 `~/.qoder/settings.json`（Qoder App 实际加载的全局配置），并维护全局 `~/.qoder/mcp.json` 作为 CLI 兜底；插件只提供 hooks/skills，不再声明 MCP。配置改动后需**完全重启宿主**——MCP 服务器列表只在宿主启动时读取。
 
-24 个工具的完整契约（参数、默认值、严格 schema）见 [MCP 工具参考](../adapters/qoder/README.md#mcp-tools)；写入契约（语义原样保存、类型仅分类）见[记忆系统](memory-system.md#写入契约)。
+24 个工具的完整契约（参数、默认值、严格 schema）见 [MCP 工具参考](../adapters/qoder/README.md#mcp-工具)；写入契约（语义原样保存、类型仅分类）见[记忆系统](memory-system.md#写入契约)。
 
 ---
 
@@ -68,7 +68,7 @@ Qoder 用户的推荐做法仍是 `python scripts/setup.py`：它把 cwiki 写�
 |---|---|---|
 | MCP | `python -m adapters.mcp` | 与 Qoder 共用同一套工具；用户级全局配置，不绑定项目；工作区归属由运行期 hooks / 目录推导决定 |
 | Hook | `python -m adapters.hooks <host> <event>` | `host`：`qoder` / `claude` / `cursor`；事件见下表 |
-| 捕获 | `POST /v1/integrations/agent/capture` | 任意语言/脚本可直接提交 compact summary、工具失败、会话结束 |
+| 捕获 | `POST /v1/integrations/agent/capture` | 任意语言/脚本可直接提交 compact summary、会话结束（`kind` 仅这两类，工具失败已从协议移除） |
 
 Hook 事件与宿主能力：
 
@@ -188,7 +188,7 @@ curl -X POST http://127.0.0.1:5172/v1/candidates \
 - 响应 `201`，含创建的候选、提交时发现的相似记忆（`similar_items`）与建议（`hint`）
 - 若配置了 `agent_policy.write_decisions`，SessionStart 会注入写入决策摘要，`memory_save` 时服务端按规则准入（write/skip/update，优先级 skip > update > write）；被 skip/update 拒绝时响应带 `write_decision`。详见[写入决策](memory-system.md#写入决策write_decisions)
 - 若配置了 `memory.write_policy`，响应的候选会带 `policy_rule_id` / `policy_action`；命中的 `reject` 规则直接返回 4xx。详见[写入策略](memory-system.md#写入策略write_policy)
-- 审核端点为 `POST /v1/reviews`（approve / edit / reject / later / merge / update）
+- 审核端点为 `POST /v1/reviews`（approve / edit / reject / later / discard / merge / update）
 
 ### 检索
 
@@ -315,6 +315,6 @@ curl -X POST http://127.0.0.1:5172/v1/task-queue/retry \
 
 - [MCP 工具参考（adapters/qoder）](../adapters/qoder/README.md) — 24 个工具的完整参数契约
 - [开发指南 · Agent 接入配置](development.md#agent-接入配置) — setup.py 全流程、更新与内容保护、重载与验证
-- [API 参考](api-reference.md) — 20 个路由模块全量端点
+- [API 参考](api-reference.md) — 26 个路由模块全量端点
 - [记忆系统 · 写入契约](memory-system.md#写入契约) — memory_save / memory_checkpoint 的行为约定
 - [Git 同步指南](git-sync.md) — 多设备数据同步与重建

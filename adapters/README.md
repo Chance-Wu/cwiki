@@ -5,7 +5,7 @@
 | 目录 | 职责 | 入口 |
 |------|------|------|
 | [mcp](mcp/README.md) | 宿主无关的 MCP server 核心：24 个记忆工具、本地只读检索、写前 Outbox | `python -m adapters.mcp` |
-| [hooks](hooks/README.md) | 宿主无关的 hook 运行时：会话提醒、自动召回、捕获、spool 投递 | `python -m adapters.hooks <host> <command>` |
+| [hooks](hooks/README.md) | 宿主无关的 hook 运行时：会话提醒、自动召回、捕获、spool 投递 | `python -m adapters.hooks <host> <event>` |
 | [qoder](qoder/README.md) | Qoder 插件资产（`.mcp.json`、hooks、skills、commands）与兼容 shim | `python scripts/setup.py` |
 
 宿主差异（事件名、项目目录环境变量、输出形状）集中在 `hooks/profiles.py` 的 `HostProfile` 声明；新增宿主只需注册一个 profile 与 MCP 环境变量。

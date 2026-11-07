@@ -47,10 +47,10 @@ digraph cwiki_data_flow {
         fontcolor="#37474F"
 
         task_embed [label="generate_candidate_embedding\n(fastembed ONNX, 512d)", fillcolor="#E1BEE7"]
-        task_score [label="score_candidate\n6 维加权价值评分", fillcolor="#E1BEE7"]
-        value_filter [label="value_score < 0.35?\n→ 自动丢弃", fillcolor="#E1BEE7", shape=diamond]
-        auto_approve [label="auto-approve\n(分数达标 + 开关开启)", fillcolor="#E1BEE7"]
-        queue_review [label="进入审核队列\nhigh_value / normal / low", fillcolor="#E1BEE7"]
+        task_score [label="score_candidate\n5 维加权价值评分", fillcolor="#E1BEE7"]
+        value_filter [label="value_score < 0.35?\n→ needs_enrichment（可补全）", fillcolor="#E1BEE7", shape=diamond]
+        auto_approve [label="auto-approve\n(阈值达标 + 开关开启)", fillcolor="#E1BEE7"]
+        queue_review [label="审核队列 / needs_enrichment\nhigh_value / normal / low_priority", fillcolor="#E1BEE7"]
     }
 
     // ===== PHASE 3: REVIEW =====
@@ -77,7 +77,7 @@ digraph cwiki_data_flow {
         md_file [label="Markdown 文件\ncwiki-data/{ws}/{type}/{id}.md", fillcolor="#F5F5F5", shape=folder]
         meta_json [label="_meta/ JSON\n(sidecar 元数据)", fillcolor="#F5F5F5", shape=folder]
         sqlite_db [label="SQLite cwiki.db\n(主存储索引)", fillcolor="#FFCCBC", shape=cylinder]
-        vectors_npz [label="vectors.npz\n(向量索引权威源)", fillcolor="#FFCCBC", shape=cylinder]
+        vectors_npz [label="vectors.npz\n(向量索引，可重建)", fillcolor="#FFCCBC", shape=cylinder]
     }
 
     // ===== PHASE 5: RETRIEVE =====
@@ -94,7 +94,7 @@ digraph cwiki_data_flow {
         vector_recall [label="Vector Top50\n(余弦相似度)", fillcolor="#B2DFDB"]
         rrf_fusion [label="RRF 融合\nk=60", fillcolor="#B2DFDB"]
         reranker [label="Multi-signal Rerank\n8 信号加权", fillcolor="#B2DFDB"]
-        diversity [label="Diversity Filter\n每类型 ≤3", fillcolor="#B2DFDB"]
+        diversity [label="Diversity Filter\n按意图每类型 ≤2–4", fillcolor="#B2DFDB"]
         context_assembly [label="Context Assembly\nToken 预算组装", fillcolor="#B2DFDB"]
     }
 
@@ -126,8 +126,8 @@ digraph cwiki_data_flow {
     create_candidate -> task_embed [label="入队", style=bold]
     task_embed -> task_score [label="向量就绪"]
     task_score -> value_filter
-    value_filter -> auto_approve [label="≥ 0.35"]
-    value_filter -> queue_review [label="< 0.35 丢弃"]
+    value_filter -> auto_approve [label="阈值达标"]
+    value_filter -> queue_review [label="未达标或 < 0.35"]
     auto_approve -> approve [label="自动通过"]
 
     // Phase 3: Review

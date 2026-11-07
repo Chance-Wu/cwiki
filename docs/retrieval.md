@@ -61,7 +61,7 @@ graph LR
     C2 --> D
     D --> E[Temporal Scoring<br/>时间衰减]
     E --> F[Multi-signal Rerank]
-    F --> G[Diversity Filter<br/>max_per_type=3]
+    F --> G[Diversity Filter<br/>按意图每类型 2–4]
     G --> H[Context Assembly<br/>Token 预算]
     H --> I[返回结果]
 ```
@@ -115,10 +115,10 @@ final = (1 - band) × relevance + band × metadata
 
 ### 3. RRF 融合
 
-Reciprocal Rank Fusion，k=60。将两路结果按排名融合为统一候选池。
+Reciprocal Rank Fusion，k=60，`bm25_weight=0.6` / `vector_weight=0.4`（config.yaml）。将两路结果按排名加权融合为统一候选池。
 
 ```
-RRF_score(d) = Σ 1 / (k + rank_i(d))
+RRF_score(d) = bm25_weight / (k + rank_bm25(d)) + vector_weight / (k + rank_vec(d))
 ```
 
 ### 4. Temporal Scoring
@@ -132,7 +132,7 @@ RRF_score(d) = Σ 1 / (k + rank_i(d))
 | 查询意图 | 高匹配类型 | 次匹配类型 |
 |----------|-----------|-----------|
 | `project_rule` | rule (1.0) | constraint (0.8) |
-| `lesson` | lesson (1.0) | decision (0.6) |
+| `lesson` | lesson (1.0) | issue (0.8) / decision (0.6) |
 | `procedure` | procedure (1.0) | rule (0.5) |
 | `decision` | decision (1.0) | lesson (0.5) |
 | `constraint` | constraint (1.0) | rule (0.8) |
@@ -143,7 +143,7 @@ RRF_score(d) = Σ 1 / (k + rank_i(d))
 
 ### 6. Diversity Filter
 
-限制每种记忆类型最多返回 3 条（`max_per_type=3`），确保结果多样性。
+按查询意图限制每种记忆类型最多返回 2–4 条（fact 4、procedure 3、lesson 3、project_rule 2、constraint 2、decision 3、unknown 3），确保结果多样性；显式指定 `memory_type` 过滤时不限同类型条数（上限为 `top_k`）。
 
 ### 7. Context Assembly
 
@@ -186,7 +186,7 @@ fingerprint = (active 数量, MAX(updated_at), SUM(LENGTH(title) + LENGTH(conten
 
 - **写操作**：SQLAlchemy 的 `onupdate=func.now()` 使 `Memory.updated_at` 自动更新，指纹变化
 - **结构变化**：插入、状态离开 active 和删除都会改变 active 数量，指纹变化
-- **已知盲区**：SQLite `CURRENT_TIMESTAMP` 秒级精度，同秒同总长度原地编辑可能漏检，由 30 秒 TTL 兜底
+- **已知盲区**：SQLite `CURRENT_TIMESTAMP` 秒级精度，同秒同总长度原地编辑可能漏检，由 60 秒 TTL 兜底
 
 ### 缓存策略
 
@@ -249,4 +249,4 @@ effective_strength = strength × 0.5 ^ (距上次强化的天数 / 半衰期天�
 - **原子写入**：write-to-temp-then-rename，防止进程崩溃导致数据损坏
 - **一致性校验**：加载时 `len(ids) != len(vecs)` 则清空重建
 
-> 索引文件 `index.db`（BM25）与 `vectors.npz`（向量）位于 `cwiki-data/` 下随 Git 同步，两者均为派生数据，可随时删除后从 Markdown 记忆重建（`python tasks.py rebuild-db`）。
+> 索引文件 `index.db`（Markdown 文件索引，SQLite 表 `memory_index`）与 `vectors.npz`（向量）位于 `cwiki-data/` 下随 Git 同步，两者均为派生数据，可随时删除后从 Markdown 记忆重建（`python tasks.py rebuild-db`）。BM25 倒排索引是进程内存结构，不落盘。

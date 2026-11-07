@@ -343,6 +343,8 @@ graph TD
 | 定期 `_meta` 导出 | 写入时增量导出 + 周期全量（`meta_export_interval_hours`，默认 12 小时，启动按上次导出时间追赶）+ 每日系统计划任务 | 导出 `_meta` JSON，供 Git 同步与数据库重建 |
 | 间隔重复 | 复习提交时同步更新 | SM-2 算法更新复习间隔与掌握度等级（`python tasks.py recompute` 可重放 review_history 重建调度） |
 | 去重检测 | 新候选入库时自动触发 | Embedding 余弦相似度比对（列级 select 避免加载无关列） |
+| 关系自动发现 | 周期调度（`auto_relation_enabled` 开启时，`auto_relation_interval_hours`，默认 6 小时） | 对近期记忆做相似度配对，写入 `created_by=auto` 的 related 边 |
+| 关系老化 | 周期调度（`relation_auto_edge_ttl_days > 0` 时，`relation_ttl_check_interval_hours`，默认 24 小时） | 只清理 `created_by=auto`、`strength<=0`、从未被强化（`last_reinforced_at` 为空）、`confidence<0.75` 且创建超过 TTL 的边；`0` 表示关闭老化（此时 auto 边只增不减） |
 | 批量 Embedding | 手动入队 / 孤儿恢复触发 | 一次性收集缺失 embedding 的待审候选，fastembed 本地 ONNX 批量生成 |
 
 **填空判分**：`GET /v1/review/quiz/{id}` 用确定性规则从标签/标题中的反引号、英文标识符与中文短语选词，在正文中挖空（跳过代码块，最多 3 个术语），只返回题干与空格数。`POST /v1/review/quiz/{id}` 提交答案后后端**重新出题并判分**：答案按大小写/空白/标点归一后做多重集匹配，全对→quality 5、超过一半→4、部分命中→3、全错→1，自动应用 SM-2 并写入 `review_history` 的 `quiz_type/quiz_correct/quiz_prompt/quiz_expected/quiz_response`。判分不信任客户端提交的正确答案；无可用术语时回退到翻面自评。

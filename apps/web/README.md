@@ -32,7 +32,7 @@ python tasks.py start     # 前后端一起启动
 
 ## 目录
 
-- `src/components/`：按域分组 —— `ui/` 基础组件，`home/`、`inbox/`、`memories/`、`memory/`、`notes/`、`review/`、`settings/`、`skills/`、`config/` 业务组件，以及 `Layout`、`CommandPalette`、`Toast`、`ErrorBoundary`
+- `src/components/`：按域分组 —— `ui/` 基础组件，`home/`、`inbox/`、`memories/`、`memory/`、`notes/`、`review/`、`settings/`、`skills/`、`config/`、`quality/` 业务组件，以及 `Layout`、`CommandPalette`、`Toast`、`ErrorBoundary`
 - `src/hooks/`：`useMemories`、`useCandidates`、`useSearch`、`useReview`、`useSkills`、`useDashboard` 等数据与交互 hooks
 - `src/lib/api/`：按域拆分的 API 客户端；`base.ts` 定义 `API_BASE`、Bearer 头与统一错误处理
 - `src/i18n/`：中英文案（`locales/zh.ts`、`en.ts`）与 `I18nProvider`

@@ -1,7 +1,8 @@
 # 检索失败案例库
 
 收集检索效果不佳的真实案例，作为优化迭代的驱动输入。每条案例一个 JSONL 行，
-放在本目录（`benchmarks/failures/`），命名按 workspace 分文件（如 `cwiki.jsonl`）。
+放在本目录（`benchmarks/failures/`），命名按 workspace 分文件（如 `cwiki.jsonl`）；
+上下文组装类案例统一记在 `context.jsonl`。
 
 ## 字段说明
 
@@ -38,14 +39,19 @@
 3. 人工核对失败原因，按上述格式记录到对应 workspace 文件
 4. 每次检索算法改动后复查历史案例是否修复（第 3 周验收：修复 ≥5 例）
 
-## 已知系统性失败（2026-10 基线）
+## 历史系统性失败（2026-10 基线，已在 W3 修复）
 
-- 夹具基线显示 `hybrid_rrf_rerank` 与 `full_pipeline` 相比 `hybrid_rrf`
+- 夹具基线曾显示 `hybrid_rrf_rerank` 与 `full_pipeline` 相比 `hybrid_rrf`
   MRR 从 0.93 降至 0.57、NDCG@10 从 0.78 降至 0.51——多信号重排的
   confidence/importance/freshness/usage 信号压过了 RRF 排名信号，
-  属 wrong_order 型系统性退化（见 benchmarks/reports/eval-fixture/）。
-- 上下文组装三例（context.jsonl，基线见 benchmarks/reports/eval-fixture/context-report.md）：
+  属 wrong_order 型系统性退化（W1 基线现象，原始报告未入库）。
+  W3 修复后重排不再有系统性负收益：rerank MRR 0.7406 / NDCG@10 0.6478、
+  full_pipeline 0.7381 / 0.6458（见 benchmarks/reports/w3-regression-report.md，报告产物不入库），
+  当前 eval-fixture 复跑的 MRR / NDCG@10 为 0.9220 / 0.7655 与 0.9212 / 0.7698。
+- 上下文组装三例（context.jsonl，报告由 `context_runner` 生成到
+  benchmarks/reports/eval-fixture/context-report.md，产物不入库）：
   ① 真实风格中文矛盾对漏报（CJK run 级 token 粗筛拦截，ctx-2026-001）；
   ② 组装无相关性下限，负例排除率仅 0.33（ctx-2026-002）；
   ③ 改写重复逃过词面去重（ctx-2026-003）。
-  机制验证（字面重复去重、显式矛盾词对告警）均通过，失败集中在阈值与分词粒度。
+  机制验证（字面重复去重、显式矛盾词对告警）均通过，当时失败集中在阈值与分词粒度。
+  三例均已修复（W3 报告：Negative Exclusion Rate、Conflict Warning Recall、Selection Recall 均为 1.0）。

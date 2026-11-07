@@ -1,22 +1,22 @@
 # adapters/hooks — Hook 运行时
 
-宿主无关的 hook 实现。每个命令从 stdin 读取一个 UTF-8 JSON 对象（≤1 MiB），校验原生 `hook_event_name`，即使输入非法也以 0 退出（fail-open）。
+宿主无关的 hook 实现。每个命令从 stdin 读取一个 UTF-8 JSON 对象（≤1 MiB），校验原生 `hook_event_name`（Qoder / Claude Code；二者提供该字段时才比对），即使输入非法也以 0 退出（fail-open）。
 
 ## 命令
 
 ```bash
-python -m adapters.hooks <host> <command>
+python -m adapters.hooks <host> <event>
 ```
 
 | 命令 | 对应事件 | 行为 |
 |------|----------|------|
-| `session-start` | `SessionStart` | 固定提醒 + 写入决策摘要 + always_inject 头部（本地 SQLite）+ spool 投递 |
+| `session-start` | `SessionStart` | 固定提醒 + 写入决策摘要 + always_inject 头部（本地 SQLite）+ 复习到期提示（`parasitic_evolution.review_reminders_enabled`）+ spool 投递 |
 | `user-prompt-submit` | `UserPromptSubmit` | 本地召回（≤3 条、≤1200 字符、不留痕），SQLite BM25 优先，回落 API |
-| `pre-tool-use` | `PreToolUse` | 为 cwiki MCP 调用注入 `workspace_name`（来自会话 `cwd`，不覆盖显式参数） |
+| `pre-tool-use` | `PreToolUse` | 为 workspace 作用域工具注入 `workspace_name`（来自会话 `cwd`，不覆盖显式参数；`memory_search` 除外） |
 | `post-compact` | `PostCompact` | 把压缩摘要存为捕获笔记 |
-| `post-tool-failure` | `PostToolUseFailure` | 保存脱敏后的失败信息（跳过用户中断） |
+| `post-tool-failure` | `PostToolUseFailure` | 接收事件但不产生记录（工具失败不进待整理，教训由 checkpoint 链路提炼） |
 | `session-end` | `SessionEnd` | 关闭会话、投递 spool、写入决策收尾审计 |
-| `drain` | 手动 | 将 spool 刷入 `/v1/integrations/agent/capture` |
+| `drain` | 手动 | 将 spool 刷入 `/v1/integrations/agent/capture` 与 `/v1/usage/batch` |
 
 ## 模块
 

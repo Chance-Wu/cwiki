@@ -31,7 +31,7 @@ cwiki 是个人知识工作台与 Agent 记忆基础设施。核心闭环：**�
 
 ## 项目结构
 
-三层架构：`apps/`（api + web + worker）、`packages/`（domain + memory + retrieval + storage + protocol）、`adapters/qoder/`（MCP 服务器）。辅助：`skills/`、`scripts/`、`docs/`、`migrations/`、`tests/`、`benchmarks/`。
+三层架构：`apps/`（api + web + worker）、`packages/`（domain + memory + retrieval + storage + protocol）、`adapters/`（`mcp/` 宿主无关 MCP 服务器、`hooks/` 召回与捕获运行时、`qoder/` 插件资产）。辅助：`skills/`、`scripts/`、`docs/`、`migrations/`、`tests/`、`benchmarks/`。
 
 ## 开发命令
 

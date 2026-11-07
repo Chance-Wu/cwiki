@@ -22,6 +22,7 @@ digraph cwiki_dependencies {
         mcp_signal [label="mcp/signal_engine.py\n事件分析/提取", fillcolor="#B8D4E3"]
         hook_capture [label="hooks/capture.py\n事件捕获", fillcolor="#B8D4E3"]
         hook_recall [label="hooks/recall.py\n记忆召回", fillcolor="#B8D4E3"]
+        hook_envelope [label="hooks/envelope.py\nHookEvent", fillcolor="#B8D4E3"]
     }
 
     // ===== LAYER: Apps (Application Processes) =====
@@ -31,8 +32,8 @@ digraph cwiki_dependencies {
         color="#C5E1A5"
 
         api_main [label="api/main.py\nFastAPI create_app()", fillcolor="#C5E1A5"]
-        api_routes [label="api/routes/*\n28 个路由模块", fillcolor="#C5E1A5"]
-        worker_tasks [label="worker/tasks/*\n9 个后台任务", fillcolor="#E1BEE7"]
+        api_routes [label="api/routes/*\n26 个路由模块", fillcolor="#C5E1A5"]
+        worker_tasks [label="worker/tasks/*\n10 个后台任务", fillcolor="#E1BEE7"]
         web_ui [label="web/src/*\nReact SPA", fillcolor="#C5E1A5"]
     }
 
@@ -69,7 +70,7 @@ digraph cwiki_dependencies {
     mcp_server -> mcp_signal [label="事件分析"]
     mcp_server -> api_routes [label="转发到 REST"]
     hook_capture -> api_routes [label="POST /v1/events"]
-    hook_recall -> mcp_server [label="memory_search"]
+    hook_recall -> api_routes [label="POST /v1/search"]
 
     // ===== App Dependencies =====
     api_main -> api_routes [label="挂载路由"]
@@ -87,9 +88,8 @@ digraph cwiki_dependencies {
     // ===== Package Dependencies =====
     pkg_memory -> pkg_domain [label="models, config,\ntask_queue, errors"]
     pkg_memory -> pkg_retrieval [label="embedding,\nsimilarity"]
-    pkg_memory -> pkg_storage [label="file sync,\nindexer"]
     pkg_retrieval -> pkg_domain [label="models, config"]
-    pkg_retrieval -> pkg_storage [label="vector_index,\nBM25 cache"]
+    pkg_retrieval -> pkg_storage [label="storage config"]
     pkg_storage -> pkg_domain [label="models, config,\ndatabase"]
 
     // ===== Infrastructure Dependencies =====
@@ -102,9 +102,8 @@ digraph cwiki_dependencies {
     pkg_retrieval -> fastembed [label="ONNX inference"]
 
     // ===== Cross-cutting Concerns (dashed) =====
-    mcp_server -> pkg_protocol [label="EventEnvelope", style=dashed]
-    hook_capture -> pkg_protocol [label="HookEvent", style=dashed]
-    pkg_memory -> pkg_protocol [label="事件协议", style=dashed, color="#999"]
+    hook_capture -> hook_envelope [label="HookEvent", style=dashed]
+    api_routes -> pkg_protocol [label="EventEnvelope", style=dashed]
 
     // ===== Legend =====
     subgraph cluster_legend {

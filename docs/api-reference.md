@@ -1,6 +1,6 @@
 # API 参考
 
-所有接口前缀 `/v1`。单用户本地部署，无认证（`apps/api/auth.py` 默认信任所有本地请求），默认仅监听 127.0.0.1（局域网访问见 `config.yaml` 的 `app.api_host` 注释）。共 24 个路由模块。
+所有接口前缀 `/v1`。单用户本地部署，无认证（`apps/api/auth.py` 默认信任所有本地请求），默认仅监听 127.0.0.1（局域网访问见 `config.yaml` 的 `app.api_host` 注释）。共 26 个路由模块。
 
 ## 路由模块总览
 
@@ -19,6 +19,8 @@
 | `context` | 检索 + 上下文组装 |
 | `memory_quality` | 质量评分查询 |
 | `memory_status` | 健康度与统计 |
+| `memory_duplicates` | 库内查重（全库两两比较）与记忆合并 |
+| `memory_usage` | 使用信号回填（交付/引用）与召回缺口 |
 | `notes` | 会话笔记 CRUD |
 | `file_memories` | Markdown 文件存储 CRUD + 索引重建 |
 | `health` | 健康检查 + 指标汇总 + 一致性对账 |
@@ -42,7 +44,7 @@
 | `POST` | `/v1/candidates/{id}/restore` | 把 `rejected` / `deferred` / `needs_enrichment`（及历史 `quarantined` / `discarded`）恢复为 `pending_review` |
 | `POST` | `/v1/candidates/{id}/revert-auto-approve` | 撤销自动生效：物理删除生成的正式记忆，候选回到 `pending_review` |
 | `POST` | `/v1/reviews` | 提交审核结果（approve / edit / reject / later / merge / update） |
-| `GET` | `/v1/memories` | 正式记忆列表；支持 `tags`、`review_status=due|new|learning|familiar|proficient|mastered|suspended|unscheduled`；列表项含 `mastery_level/next_review/lapse_streak/leech/evidence_count` |
+| `GET` | `/v1/memories` | 正式记忆列表；支持 `tags`、`review_status` 取 `due` / `new` / `learning` / `familiar` / `proficient` / `mastered` / `suspended` / `unscheduled`；列表项含 `mastery_level/next_review/lapse_streak/leech/evidence_count` |
 | `GET` | `/v1/graph` | 知识图谱节点/边；节点含 `mastery_level/next_review/lapse_streak/leech/suspended`，用于按掌握度着色与学习视图 |
 | `PATCH` | `/v1/memories/{id}` | 更新记忆；`status` 支持 `active / superseded / conflicted / deprecated`；支持 `tags` 字段更新 |
 | `DELETE` | `/v1/memories/{id}` | 物理删除记忆及其 Markdown、索引、向量与 `_meta` 资产（不可恢复）；响应含 `assets_removed` |
@@ -158,5 +160,26 @@ provenance 证据。
 | `GET/PUT` | `/v1/review/preferences` | 读取/更新跨设备每日复习目标（`_meta/_review_prefs.json`） |
 | `GET` | `/v1/review/stats` | 复习统计（含近 30 天判分次数/正确数/准确率） |
 | `POST` | `/v1/system/restart` | 重启服务 |
+
+### 复习调度管理
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| `GET` | `/v1/review/suspended` | 已暂停复习的记忆列表 |
+| `GET` | `/v1/review/schedule/{memory_id}` | 查询单条记忆的调度参数（ease / interval / 下次到期 / 累计复习） |
+| `POST` | `/v1/review/batch` | 批量提交自评结果（body 为 `{items:[{memory_id, quality}]}`） |
+| `POST` | `/v1/review/suspend/{memory_id}`、`/v1/review/resume/{memory_id}`、`/v1/review/undo/{memory_id}`、`/v1/review/postpone/{memory_id}`、`/v1/review/reset/{memory_id}` | 暂停 / 恢复 / 撤销上次复习 / 推迟 N 天（body `{days}`）/ 重置调度；Agent 侧统一走 `memory_review_manage` |
+
+### 质量与统计
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| `GET` | `/v1/dashboard-stats` | 首页卡片计数（候选 / 高价值 / 冲突 / 已批准 / 待整理笔记） |
+| `GET` | `/v1/quality-distribution` | 记忆质量分档分布 |
+| `GET` | `/v1/health-summary` | 工作区健康度聚合（`workspace_id` 省略时为全库）；Agent 侧对应 `memory_health` |
+| `GET` | `/v1/candidate-quality` | 候选质量评分明细 |
+| `GET` | `/v1/evolution-metrics` | 演化指标（合并 / 取代 / 冲突等随时间的变化） |
+| `GET` | `/v1/system/integrity` | 触发并返回一次完整性巡检结果 |
+| `POST` | `/v1/task-queue/clear` | 清空队列中指定状态的任务（诊断用，慎用） |
 
 > 完整路由实现见 `apps/api/routes/` 目录。

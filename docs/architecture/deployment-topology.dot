@@ -38,14 +38,14 @@ digraph cwiki_deployment {
             color="#90A4AE"
 
             sqlite_db [label="cwiki-data/cwiki.db\nSQLite (WAL mode)\n主存储索引", fillcolor="#FFCCBC", shape=cylinder]
-            vectors_npz [label="cwiki-data/vectors.npz\nnumpy 向量矩阵\n(检索权威源)", fillcolor="#FFCCBC", shape=folder]
+            vectors_npz [label="cwiki-data/vectors.npz\nnumpy 向量矩阵\n(检索索引，可重建)", fillcolor="#FFCCBC", shape=folder]
             vectors_json [label="cwiki-data/vectors.json\n向量元数据", fillcolor="#FFCCBC", shape=folder]
-            index_db [label="cwiki-data/index.db\nBM25 倒排索引", fillcolor="#FFCCBC", shape=cylinder]
+            index_db [label="cwiki-data/index.db\nMarkdown 文件索引 (SQLite)", fillcolor="#FFCCBC", shape=cylinder]
             md_dir [label="cwiki-data/*.md\nMarkdown 记忆文件\n({workspace}/{type}/)", fillcolor="#FFCCBC", shape=folder]
             meta_dir [label="cwiki-data/_meta/\nJSON sidecar\n(per-memory + _workspaces.json)", fillcolor="#FFCCBC", shape=folder]
             model_cache [label="data/models/\nfastembed ONNX weights\n(bge-small-zh-v1.5, 90M)", fillcolor="#E0E0E0", shape=folder]
             task_state [label="~/.cwiki/state/\ntask_queue.json\n(磁盘持久化队列)", fillcolor="#E0E0E0", shape=folder]
-            outbox_dir [label="~/.cwiki/outbox/\nWAL outbox entries\n(崩溃恢复)", fillcolor="#E0E0E0", shape=folder]
+            outbox_dir [label="~/.cwiki/state/outbox/\nWAL outbox entries\n(崩溃恢复)", fillcolor="#E0E0E0", shape=folder]
             wal_files [label="cwiki.db-wal\ncwiki.db-shm\n(WAL 侧车, 不同步)", fillcolor="#E0E0E0", shape=folder, style=dashed]
         }
 
@@ -72,8 +72,8 @@ digraph cwiki_deployment {
 
     // ===== Process → Data =====
     api_proc -> sqlite_db [label="SQLAlchemy async\naiosqlite"]
-    api_proc -> vectors_npz [label="numpy mmap"]
-    api_proc -> index_db [label="BM25 缓存"]
+    api_proc -> vectors_npz [label="np.load 读取"]
+    api_proc -> index_db [label="文件索引"]
     api_proc -> md_dir [label="FileStore I/O"]
     api_proc -> meta_dir [label="MetaStore I/O"]
     api_proc -> model_cache [label="fastembed lazy load"]

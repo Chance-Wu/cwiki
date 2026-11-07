@@ -7,7 +7,7 @@ cwiki 的 Qoder 插件——为 AI Agent 提供持久记忆基础设施。
 cwiki-qoder 将 cwiki 集成进 Qoder 的 Agent 生命周期：
 
 - **自动召回** — `UserPromptSubmit` 读取本地 SQLite 索引，注入一小段有界记忆上下文；仅在本地 DB 不可读时才调用 API
-- **捕获** — `PostCompact` 保存宿主摘要，`PostToolUseFailure` 保存脱敏后的失败信息，`SessionEnd` 关闭 Agent 会话；瞬时的网络/DNS/超时错误与工具协议误用会在进入收件箱前被丢弃，构建/测试/业务失败则保留
+- **捕获** — `PostCompact` 保存宿主摘要，`SessionEnd` 关闭 Agent 会话；`PostToolUseFailure` 仍挂载但不再产生记录（工具失败内容不进待整理，真实教训由事件/checkpoint 链路提炼）
 - **人工审核** — 捕获的笔记整理为候选，经审批后成为已验证知识
 - **本地优先读取** — `memory_search` 命中强本地 BM25 结果时直接返回，不调用 API；本地弱命中/空命中回落到混合检索，连接失败或 5xx 时降级回本地。`semantic` 始终 API 优先。仅写入必须依赖 API
 
@@ -39,13 +39,13 @@ Hooks 使用 `adapters/hooks` 中的宿主无关运行时，遵循 [Qoder CLI ho
 
 | 命令 | 事件 | 行为 |
 |---|---|---|
-| `python -m adapters.hooks qoder session-start` | `SessionStart` | 提醒 + 必须保存提示 + always_inject 头部（本地 SQLite）+ 暂存投递 |
+| `python -m adapters.hooks qoder session-start` | `SessionStart` | 提醒 + 必须保存提示 + always_inject 头部（本地 SQLite）+ 复习到期提示 + 暂存投递 |
 | `python -m adapters.hooks qoder user-prompt-submit` | `UserPromptSubmit` | 本地召回（≤3 条记忆、≤1200 字符、不留痕）：优先 SQLite BM25，回落 API 语义检索 |
 | `python -m adapters.hooks qoder pre-tool-use` | `PreToolUse`（匹配 `mcp_call\|mcp__.*`） | 确定性 workspace 归属：通过 `updatedInput` 从调用所在会话的 `cwd` 注入 `workspace_name`（不覆盖显式参数；不作用于 `memory_search`） |
 | `python -m adapters.hooks qoder post-compact` | `PostCompact` | 将 `compact_summary` 存为完整捕获笔记 |
-| `python -m adapters.hooks qoder post-tool-failure` | `PostToolUseFailure` | 保存脱敏后的失败信息（跳过用户中断） |
+| `python -m adapters.hooks qoder post-tool-failure` | `PostToolUseFailure` | 接收事件但不产生记录（工具失败不进待整理） |
 | `python -m adapters.hooks qoder session-end` | `SessionEnd` | 关闭会话，投递暂存 |
-| `python -m adapters.hooks qoder drain` | 手动 | 将暂存刷入 `/v1/integrations/agent/capture` |
+| `python -m adapters.hooks qoder drain` | 手动 | 将暂存刷入 `/v1/integrations/agent/capture` 与 `/v1/usage/batch` |
 
 默认不读取对话记录；prompt 仅用于本地检索，不写入日志或检索追踪。`adapters/qoder/hooks.py` 保留为旧安装配置的兼容垫片；新安装使用 `adapters/hooks`。
 
@@ -83,7 +83,7 @@ agent_policy:
 |---|---|---|
 | `PYTHONPATH` | 项目根目录 | 由 hooks/MCP 配置设置，使 `python -m` 无需 `pip install -e .` 即可找到项目模块 |
 | `CWIKI_API_URL` | `http://127.0.0.1:5172` | cwiki API 基础地址（避免 Windows 下 localhost→`::1` 解析延迟） |
-| `CWIKI_WORKSPACE` | `default` | 默认 workspace 名称或 UUID |
+| `CWIKI_WORKSPACE` | 由项目目录推导（兜底 `default`） | 默认 workspace 名称或 UUID |
 | `CWIKI_TIMEOUT` | `10.0` | API 请求超时（秒） |
 
 ## 可用命令
@@ -118,6 +118,7 @@ agent_policy:
 | `memory_export` | 导出 workspace 数据 |
 | `memory_import` | 导入 workspace 数据 |
 | `memory_review_due` | 获取到期需复习的记忆 |
+| `memory_review_quiz` | 取一条记忆的填空复习题（题干挖空，不含答案） |
 | `memory_review_submit` | 提交复习质量评分 |
 | `memory_review_stats` | 获取复习统计与趋势 |
 | `memory_conflicts` | 列出记忆冲突（open/resolved/all） |
@@ -125,10 +126,10 @@ agent_policy:
 | `memory_health` | 查看单条记忆健康度，或缺省时的工作区/全局聚合分布 |
 | `memory_review_manage` | 暂停/恢复/撤销/推迟某条记忆的复习 |
 
-- `memory_search` 默认 `curated=false`；仅该模式使用 `mode`（默认 `hybrid`，或 `semantic`）与 `filters`（`type` 指定记忆类型，`min_confidence` 指定最低置信度 0.0–1.0）。`limit` 默认 10（1–100）；普通搜索沿用后端上限范围。省略 `workspace_name` 时跨全部 workspace 搜索；传入则限定单个 workspace。
+- `memory_search` 默认 `curated=false`；仅该模式使用 `mode`（默认 `hybrid`，或 `semantic`）与 `filters`（`type` 指定记忆类型，`min_confidence` 指定最低置信度 0.0–1.0，`tags` 按标签过滤、AND 逻辑）。`limit` 默认 10（1–100）；普通搜索沿用后端上限范围。省略 `workspace_name` 时跨全部 workspace 搜索；传入则限定单个 workspace。
 - `curated=true` 时返回原始 `get_context` 结果，包含 `context`、`items` 与可选的 `_hints`。`limit` 取代 `max_items`，取值 1–50；`max_tokens` 为 100–20000（默认 5000），可选的 `project` 上下文过滤器保留。`max_tokens` 与 `project` 仅作用于 curated 上下文。Curated 上下文始终按 workspace 组装：省略 `workspace_name` 时回落到默认 workspace。
 - `memory_history` 默认 `view="lifecycle"`；`view="content"` 返回已存储的内容版本历史，而非当前记忆正文。其 `limit` 为 1–50（默认 10），仅作用于 content 视图。
-- 工具 schema 严格（`additionalProperties: false`）：未知参数名会被拒绝。workspace 参数为 `workspace_name`（名称或 UUID），由 `memory_search`、`memory_save`、`memory_checkpoint`、`memory_status`、`memory_tags`、`memory_export`、`memory_import`、`memory_review_due`、`memory_review_submit` 与 `memory_review_stats` 支持；`memory_update`、`memory_types`、`memory_relations`、`memory_relation_create`、`memory_relation_delete`、`memory_history` 与 `memory_retry_failed` 不接受 workspace 参数；`memory_conflicts` 与 `memory_conflict_resolve` 为全局工具、不接受 workspace 参数；`memory_health`（聚合时）与 `memory_review_manage` 接受 `workspace_name`；`memory_feedback` 接受 `workspace_name` 限定范围；`memory_forget` 按全局唯一 `memory_id` 删除，`workspace_name` 仅作兼容字段。
+- 工具 schema 严格（`additionalProperties: false`）：未知参数名会被拒绝。workspace 参数为 `workspace_name`（名称或 UUID），由 `memory_search`、`memory_save`、`memory_checkpoint`、`memory_status`、`memory_tags`、`memory_export`、`memory_import`、`memory_review_due`、`memory_review_quiz`、`memory_review_submit` 与 `memory_review_stats` 支持；`memory_update`、`memory_types`、`memory_relations`、`memory_relation_create`、`memory_relation_delete`、`memory_history` 与 `memory_retry_failed` 不接受 workspace 参数；`memory_conflicts` 与 `memory_conflict_resolve` 为全局工具、不接受 workspace 参数；`memory_health`（聚合时）与 `memory_review_manage` 接受 `workspace_name`；`memory_feedback` 接受 `workspace_name` 限定范围；`memory_forget` 按全局唯一 `memory_id` 删除，`workspace_name` 仅作兼容字段。
 
 后端 API 仍然可用。提取策略仍由 `cwiki-save` 负责；提醒类 hooks 不提供检查点事件/笔记。
 

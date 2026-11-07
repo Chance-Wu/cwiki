@@ -17,8 +17,8 @@ graph TB
     end
 
     subgraph "API Layer"
-        API[FastAPI Server :5172<br/>24 路由模块]
-        Worker[Background Worker<br/>9 异步任务]
+        API[FastAPI Server :5172<br/>26 路由模块]
+        Worker[Background Worker<br/>10 异步任务]
     end
 
     subgraph "Core Services"
@@ -31,7 +31,7 @@ graph TB
     end
 
     subgraph "Storage Layer"
-        DB[(SQLite<br/>24 Tables)]
+        DB[(SQLite<br/>25 Tables)]
         Vector[Vector Index<br/>numpy]
         BM25[BM25 Index<br/>custom BM25]
         Files[Markdown Files<br/>cwiki-data/]
@@ -113,21 +113,23 @@ graph TB
 ```
 cwiki/
 ├── apps/
-│   ├── api/                  # FastAPI 服务端（24 个路由模块）
+│   ├── api/                  # FastAPI 服务端（26 个路由模块）
 │   │   ├── main.py           # 应用入口（含进程内任务队列）
 │   │   ├── auth.py           # 本地单用户模式，默认身份，无 token 认证
 │   │   └── routes/           # workspaces / agents / events /
 │   │                         # candidates / memories / reviews /
 │   │                         # context / search / memory_quality /
-│   │                         # memory_status / agent_sessions / file_memories /
-│   │                         # health / notes /
+│   │                         # memory_status / memory_usage / agent_sessions /
+│   │                         # agent_capture / file_memories / markdown_export /
+│   │                         # memory_duplicates / health / notes /
 │   │                         # data_io / skills / spaced_review /
-│   │                         # config / system
+│   │                         # config / system / task_queue / weekly_review
 │   │                         # _skill_scanner / _skill_publisher（内部模块）
 │   ├── worker/               # 后台任务（asyncio.Queue，随 API 进程启动）
 │   │   ├── run_worker.py     # 历史事件手动回填入口
 │   │   ├── tasks/            # 10 个注册任务：Episode 处理 / 候选评分 /
-│   │   │                     #   Embedding / 去重 / 整合 / 复习提醒 / meta 导出
+│   │   │                     #   Embedding（单条、候选、批量）/ 去重 / 复习提醒 /
+│   │   │                     #   meta 导出 / 关系发现与剪枝
 │   │   ├── episode_builder.py
 │   │   ├── scoring.py        # 候选价值评分（5 维加权，novelty 仅作排序）
 │   │   └── dedup.py
@@ -135,14 +137,14 @@ cwiki/
 │
 ├── packages/
 │   ├── domain/               # 领域层
-│   │   ├── models/           # SQLAlchemy 2.0 ORM（24 表，4 个模块文件）
+│   │   ├── models/           # SQLAlchemy 2.0 ORM（25 张表，6 个模块文件）
 │   │   ├── schemas/          # Pydantic v2 Schema（按领域拆分）
 │   │   ├── config.py         # 配置加载
 │   │   ├── task_queue.py     # 进程内异步任务队列（磁盘持久化）
 │   │   ├── types.py          # 11 种记忆类型定义与校验
 │   │   ├── version.py        # 版本号权威源（app_version()，见 development.md「版本号管理」）
 │   │   └── database.py       # 数据库引擎
-│   ├── memory/               # 记忆管理（12 个模块）
+│   ├── memory/               # 记忆管理（26 个模块）
 │   │   ├── service.py        # 业务逻辑 + 类型/正文最小长度校验，原文入库
 │   │   ├── quality_gate.py   # 质量门控（5 维评分）
 │   │   ├── utility_score.py  # 效用评分（5 因子）
@@ -166,7 +168,7 @@ cwiki/
 │   ├── storage/              # Markdown 文件存储 + _meta 关系数据（meta_store）
 │   │                         # + 向量索引（原子写入 + 损坏检测）+ Git 版本
 │   │                         # + 从 MD + _meta 重建数据库（rebuilder）
-│   └── protocol/             # Agent Event Protocol（15 种事件类型）
+│   └── protocol/             # Agent Event Protocol（EventEnvelope 信封）
 │
 ├── adapters/                 # Agent 适配层
 │   ├── mcp/                  # 宿主无关 MCP 入口（新宿主统一用 python -m adapters.mcp）
@@ -186,7 +188,7 @@ cwiki/
 │   ├── port_utils.py         # 跨平台端口管理
 │   └── restart_watcher.py    # 重启守护
 │
-├── migrations/               # Alembic 迁移（42 个版本）
+├── migrations/               # Alembic 迁移（43 个版本）
 ├── benchmarks/               # 检索基准测试（见 benchmarks/README.md）
 ├── docs/                     # 设计与发布文档
 ├── config.yaml               # 统一配置文件
@@ -215,7 +217,7 @@ cwiki/
 
 ## 数据库 Schema
 
-共 25 张 ORM 表（按 `packages/domain/models/` 中的 `__tablename__` 统计，不含 `alembic_version`），高频查询列已补全索引（workspace_id、created_at、confidence、importance 等 18 个）。
+共 25 张 ORM 表（按 `packages/domain/models/` 中的 `__tablename__` 统计，不含 `alembic_version`），高频查询列已补全索引（workspace_id、created_at、confidence、importance 等）。
 
 ### 记忆核心
 
@@ -226,6 +228,7 @@ cwiki/
 | `memory_version` | 记忆版本历史 |
 | `evidence` | 证据链 |
 | `review` / `review_schedule` | 审核记录与间隔重复调度 |
+| `review_history` | 单次复习事件历史（评分与复习前后状态，支持撤销） |
 | `memory_usage` | 使用记录 |
 | `memory_feedback` | 反馈记录 |
 | `memory_conflict` | 冲突记录 |
@@ -249,7 +252,7 @@ cwiki/
 | `workspace` | 工作区（唯一组织维度） |
 | `project` | 项目（手动可选标注） |
 | `agent` / `agent_profile` | Agent 注册与行为画像 |
-| `audit_log` | 审计日志 |
+| `file_sync_job` | 文件镜像同步任务（append-only 补偿日志，无外键） |
 
 ### 检索追踪
 

@@ -20,7 +20,7 @@
 |------|------|------|:---:|
 | `memory_search` | `keyword` 或 `query`（二选一） | `limit`(非 curated 1–100，curated 1–50，默认 10)、`mode`(hybrid/semantic)、`curated`、`max_tokens`(100–20000)、`project`、`filters`(`type`/`min_confidence`/`tags`，tags 为 AND) | ✓ |
 | `memory_save` | `title`(≤80 字符)、`content`(≥20 字符) | `type`、`tags`、`is_permanent`、`permanent_reason` | ✓ |
-| `memory_update` | `memory_id` | `content`、`title`、`tags`、`expected_version`、`confidence`、`importance`、`reason`、`is_permanent`、`permanent_reason` | ✗ |
+| `memory_update` | `memory_id` | `content`、`title`、`tags`、`expected_version`、`confidence`、`importance`、`reason`、`change_summary`、`is_permanent`、`permanent_reason` | ✗ |
 | `memory_feedback` | `memory_id`、`feedback_type` | `reason` | ✓ |
 | `memory_forget` | `memory_id` | `reason` | ✓ |
 | `memory_history` | `memory_id` | `view`(lifecycle/content)、`limit`(1–50，仅 content 视图) | ✗ |
@@ -38,7 +38,7 @@
 | `memory_review_stats` | — | — | ✓ |
 | `memory_conflicts` | — | `status`(open/resolved/all)、`limit`(1–200，默认 20) | ✗ |
 | `memory_conflict_resolve` | `conflict_id`、`resolution`(≥10 字符) | — | ✗ |
-| `memory_health` | — | `memory_id`(省略则统计全部工作区) | ✓ |
+| `memory_health` | — | `memory_id`(省略则统计全部工作区，可用 `workspace_name` 限定) | ✓ |
 | `memory_review_manage` | `memory_id`、`action`(suspend/resume/undo/postpone) | `days`(1–365，默认 3，仅 postpone) | ✓ |
 | `memory_export` | — | `entities` | ✓ |
 | `memory_import` | `data` | `strategy`(skip/overwrite/rename) | ✓ |

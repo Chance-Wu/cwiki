@@ -5,8 +5,8 @@
 ## 内容
 
 - `envelope.py`
-  - `EventEnvelope`：事件信封类型（agent / session / workspace / event_type / sequence / timestamp / payload）
-  - `redact_envelope_payload`：写入前对 payload 做脱敏
+  - `EventEnvelope`：事件信封类型（`protocol_version` / `event_id` / `event_type` / `agent` / `session` / `workspace` / `project` / `sequence` / `timestamp` / `payload` / `metadata`）
+  - `redact_envelope_payload`：返回脱敏后的 payload 字典（不修改原信封）
 
 事件经 `apps/api/routes/events.py` 的 `/v1/events` 接入，hook 侧在 `adapters/hooks/` 中构造同一协议的信封。
 
