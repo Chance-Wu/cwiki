@@ -91,6 +91,12 @@ class TestIntentBonus:
         assert _intent_bonus("rule", "project_rule") == 1.0
         assert _intent_bonus("constraint", "project_rule") == 0.8
 
+    def test_secondary_type_uses_real_memory_type_names(self):
+        """次匹配项必须是真实记忆类型：`project_rule` 是查询意图而非记忆类型，
+        用它作键会让 procedure/constraint 意图的 rule 加成永远不生效。"""
+        assert _intent_bonus("rule", "procedure") == 0.5
+        assert _intent_bonus("rule", "constraint") == 0.8
+
 
 class TestRelevanceSignals:
     """相关性主导：RRF 锚定、元数据为池内最小不被压扁。"""

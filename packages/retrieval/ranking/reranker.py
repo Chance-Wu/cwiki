@@ -195,8 +195,8 @@ def _intent_bonus(memory_type: str, query_intent: str) -> float:
         "project_rule": {"rule": 1.0, "constraint": 0.8},
         "lesson": {"lesson": 1.0, "issue": 0.8, "decision": 0.6},
         "fact": {"fact": 1.0},
-        "procedure": {"procedure": 1.0, "project_rule": 0.5},
-        "constraint": {"constraint": 1.0, "project_rule": 0.8},
+        "procedure": {"procedure": 1.0, "rule": 0.5},
+        "constraint": {"constraint": 1.0, "rule": 0.8},
         "decision": {"decision": 1.0, "lesson": 0.5},
     }
     return match_map.get(query_intent, {}).get(memory_type, 0.5)
