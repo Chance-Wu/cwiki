@@ -30,7 +30,9 @@ async def test_real_context_endpoint_with_negative_fixture(client, db_session, m
 
     # 检查 fixture 数据库实际 schema（同步操作，在异步上下文外执行）
     from datetime import datetime
-    from sqlalchemy import inspect as sa_inspect, text
+
+    from sqlalchemy import inspect as sa_inspect
+    from sqlalchemy import text
     from sqlalchemy.engine import create_engine
 
     sync_engine = create_engine("sqlite:///" + fixture.as_posix())
