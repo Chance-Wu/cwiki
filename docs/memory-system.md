@@ -476,5 +476,5 @@ utility = 0.30 × retrieval_success   # 上下文采用启发信号（used / ret
 相关能力：
 
 - `python tasks.py doctor`：DB / Markdown / `_meta` / 索引 / 向量一致性巡检（内容漂移、`_meta` 可解析性、向量维度/模型/配对）；`--fix-drift` 以 MD 为准修复单条内容漂移（见开发指南）；`--prune-meta` 删除 DB 已无对应行的孤儿 `_meta` 快照（重建本来就会跳过它们，清理避免被 Git 同步传播）。
-- `memory_search mode=semantic`：仅向量路，过滤/重排与 hybrid 一致；`curated=true` 的 limit 超过 50 会夹紧到 50。
+- 检索模式语义（`/v1/search` 与 `/v1/context` 的 `mode`）：`hybrid`=BM25+向量双路召回（默认，`/v1/context` 的 hybrid 额外并入 episode），`semantic`=仅向量路（过滤/重排与其余阶段一致生效），`episodic`=纯情节检索（仅 `/v1/context`）。`retrieve()` 已把 mode 原样透传给排序管线；`curated=true` 的 limit 超过 50 会夹紧到 50。
 - 质量分布页分箱可下钻：`/memories?usage=…&decay=…&min_confidence=…&min_importance=…`。

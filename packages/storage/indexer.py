@@ -196,7 +196,9 @@ class MemoryIndexer:
         if update_vector:
             if embedding is None:
                 text = format_memory_for_embedding(memory.title, memory.content)
-                embedding = await self._embedding_service.generate_embedding(text)
+                embedding = await self._embedding_service.generate_embedding(
+                    text, allow_fallback=False
+                )
             if embedding:
                 self.vector_index.add(
                     memory.id,

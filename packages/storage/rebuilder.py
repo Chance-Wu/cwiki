@@ -392,7 +392,7 @@ class DatabaseRebuilder:
             if memory.status != "active":
                 continue
             emb_text = format_memory_for_embedding(memory.title, memory.content)
-            embedding = await embedding_service.generate_embedding(emb_text)
+            embedding = await embedding_service.generate_embedding(emb_text, allow_fallback=False)
             await indexer.index_memory(memory, embedding=embedding, update_vector=True)
             if embedding is not None:
                 embedding_updates.append((memory.id, embedding))

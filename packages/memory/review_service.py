@@ -15,6 +15,7 @@ from packages.domain.models import Memory, ReviewHistory, ReviewSchedule
 from packages.memory.spaced_repetition import (
     calculate_mastery_level,
     get_initial_schedule,
+    mastery_level_expr,
     sm2_algorithm,
 )
 
@@ -392,14 +393,9 @@ class ReviewService:
         # 掌握度分布：SQL CASE WHEN + GROUP BY，口径与 calculate_mastery_level 一致
         mastery_stmt = (
             select(
-                case(
-                    (ReviewSchedule.repetitions == 0, "new"),
-                    (ReviewSchedule.repetitions <= 2, "learning"),
-                    (ReviewSchedule.repetitions <= 5, "familiar"),
-                    (ReviewSchedule.repetitions <= 10, "proficient"),
-                    (ReviewSchedule.ease_factor >= 2.5, "mastered"),
-                    else_="proficient",
-                ).label("level"),
+                mastery_level_expr(ReviewSchedule.repetitions, ReviewSchedule.ease_factor).label(
+                    "level"
+                ),
                 func.count(ReviewSchedule.id).label("cnt"),
             )
             .where(ReviewSchedule.workspace_id == workspace_id)

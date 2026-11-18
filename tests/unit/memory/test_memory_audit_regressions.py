@@ -482,7 +482,7 @@ async def test_embedding_does_not_overwrite_concurrently_updated_memory(
     _, mid, _ = await seed(sessions)
     monkeypatch.setattr("apps.worker.tasks.embedding.async_session_maker", sessions)
 
-    async def changed_while_generating(text):
+    async def changed_while_generating(text, **_kwargs):
         async with sessions() as db:
             await db.execute(
                 update(Memory)

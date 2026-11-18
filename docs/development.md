@@ -2,7 +2,7 @@
 
 ## 环境要求
 
-- Python >= 3.11
+- Python >= 3.12
 - Node.js >= 18（前端开发）
 
 ## 安装
@@ -22,7 +22,7 @@ python tasks.py install --skip-web --skip-setup
 
 | 阶段 | 内容 | 失败兜底 |
 |------|------|----------|
-| 1. 环境预检 | Python >= 3.11、Node.js >= 18、npm、git | 按提示安装缺失项 |
+| 1. 环境预检 | Python >= 3.12、Node.js >= 18、npm、git | 按提示安装缺失项 |
 | 2. 虚拟环境 | 缺失时自动 `python -m venv .venv` 并切换解释器 | `python -m venv .venv` |
 | 3. Python 依赖 | `pip install -e .[dev]` + 核心模块导入验证 | `python tasks.py install-deps` |
 | 4. 前端依赖 | `npm install`（apps/web） | 在 `apps/web/` 下手动 `npm install` |
@@ -423,3 +423,15 @@ scripts/port_utils.py  # 同上端口工具
 - `scripts/port_utils.py`：跨平台端口管理，Windows 用 netstat + taskkill，Unix 用 lsof + fuser
 
 > **数据类 `to_dict` 约定**：纯 dataclass 用 `dataclasses.asdict`（递归转换、深拷贝叶子值）；需要四舍五入浮点时用 `{k: round(v, 4) if isinstance(v, float) else v for k, v in asdict(self).items()}`；有字段排除或改名的保持手写实现。
+
+### 事务提交约定
+
+路由层的数据库提交是**两层的**，二者都是刻意设计，不要机械统一：
+
+1. **默认退出提交**：`deps.get_db` 在请求成功结束时自动 commit、异常时 rollback。路由内只做 flush 即可读取主键，大多数路由不需要写 `commit()`。
+2. **显式边界提交**：仅用于三类场景——
+   - **提交后有副作用**：文件镜像（`sync_memory_to_file`）、后台任务入队等依赖"已提交状态"的工作，必须在 `await db.commit()` 之后执行（file-sync outbox 的意图由 session 事件自动写入，但镜像重放读取的是提交后的数据）；
+   - **批量逐项提交**：批处理路由希望每一项独立持久化，单项失败不回滚整批；
+   - **隔离已完成部分**：把已成功的工作与后续可能失败的副作用（如技能文件写入）隔开。
+
+判断标准：新增路由默认不写 commit；只有当 commit 后紧跟非 DB 副作用或需要独立边界时才显式提交，并保留现有测试对 `test_transaction_isolation.py` 中 savepoint 语义的约束。

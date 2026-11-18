@@ -48,6 +48,9 @@ class TestMemoryStatusTransitions:
         assert exc_info.value.current == "deprecated"
         assert exc_info.value.target == "superseded"
         assert "active" in exc_info.value.allowed
+        # 继承 AppError：API 层自动映射为 409
+        assert exc_info.value.status_code == 409
+        assert exc_info.value.code == "invalid_status_transition"
 
 
 class TestCandidateStatusTransitions:

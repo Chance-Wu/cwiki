@@ -99,7 +99,11 @@ class ContextRequest(BaseModel):
     limit: int = Field(default=50, ge=1, le=500)
     include_memories: bool = True
     include_entities: bool = True
-    mode: str = Field(default="semantic", description="Retrieval mode: semantic, episodic, hybrid")
+    mode: str = Field(
+        default="hybrid",
+        pattern="^(hybrid|semantic|episodic)$",
+        description="hybrid=BM25+向量双路并合并 episode；semantic=仅向量路；episodic=纯情节检索",
+    )
 
 
 class ContextItem(BaseModel):

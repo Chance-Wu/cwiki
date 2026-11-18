@@ -6,6 +6,7 @@ import asyncio
 import logging
 import time
 import uuid
+from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -54,15 +55,11 @@ _VecFingerprint = tuple[int, datetime | None, int] | tuple[int, datetime | None,
 # 内容指纹不变时复用缓存的 BM25 索引。
 # SQLite CURRENT_TIMESTAMP 只有秒级精度，同一秒内总长度不变的原地编辑
 # 可能逃过指纹检测；TTL 用于限制这类编辑最长的不可见时间。
-# 优化：减少缓存条目数，降低内存占用
-_INDEX_MAX_AGE_SECONDS = 60.0  # 从 30s 延长到 60s，减少重建频率
-_INDEX_CACHE_SIZE = 4  # 从 8 减少到 4
-_VEC_CACHE_SIZE = 2  # 从 4 减少到 2
-
-# 指纹缓存：内容未变时避免每次请求都查库。
-# 曾设 5s 短 TTL，但该时间窗会让过期指纹掩盖新写入、连带 BM25 索引缓存
-# 一起滞后，故已禁用（置 0）；retrieve() 内的单请求复用已足够。
-_FINGERPRINT_CACHE_TTL = 0.0
+_INDEX_MAX_AGE_SECONDS = 60.0
+# LRU 缓存容量（warm_up 会按 workspace 数上调，见 warm_up 文档）
+_INDEX_CACHE_SIZE = 4
+_VEC_CACHE_SIZE = 2
+_VEC_CACHE_SIZE_MAX = 8  # 向量矩阵内存开销大（每份可达数十 MB），只允许有限上调
 
 
 @dataclass
@@ -101,6 +98,31 @@ def _ensure_candidate(candidates: dict[str, dict[str, Any]], doc_id: str) -> dic
     return entry
 
 
+class _LRUCache(OrderedDict[Any, Any]):
+    """按访问顺序驱逐的缓存：命中即移到末尾，超容量淘汰最久未用的条目。
+
+    引擎缓存此前是 FIFO（插入序驱逐）：``warm_up`` 为全部 workspace
+    预热后，超出容量的最早条目被立即挤掉，预热白做。LRU 保证最近
+    使用过的工作区缓存存活。
+    """
+
+    def __init__(self, maxsize: int) -> None:
+        super().__init__()
+        self.maxsize = maxsize
+
+    def get(self, key: Any) -> Any | None:  # type: ignore[override]
+        entry = super().get(key)
+        if entry is not None:
+            self.move_to_end(key)
+        return entry
+
+    def put(self, key: Any, value: Any) -> None:
+        self[key] = value
+        self.move_to_end(key)
+        while len(self) > self.maxsize:
+            self.popitem(last=False)
+
+
 class RetrievalEngine:
     """混合检索引擎：BM25 + 向量 → RRF 融合 → 重排 → 多样性 → 上下文。
 
@@ -119,20 +141,11 @@ class RetrievalEngine:
 
     def __init__(self) -> None:
         # (workspace_id, project_id) -> (指纹, 构建时刻, BM25 索引)
-        self._index_cache: dict[
-            tuple[uuid.UUID | None, uuid.UUID | None],
-            tuple[tuple[int, datetime | None, int], float, BM25Index],
-        ] = {}
+        self._index_cache: _LRUCache = _LRUCache(_INDEX_CACHE_SIZE)
         # (workspace_id, project_id) -> (指纹, 构建时刻, ids, 向量矩阵, 范数)
-        self._vec_cache: dict[
-            tuple[uuid.UUID | None, uuid.UUID | None],
-            tuple[_VecFingerprint, float, list[str], np.ndarray, np.ndarray],
-        ] = {}
-        # (workspace_id, project_id) -> (指纹, 获取时刻)
-        self._fingerprint_cache: dict[
-            tuple[uuid.UUID | None, uuid.UUID | None],
-            tuple[tuple[int, datetime | None, int], float],
-        ] = {}
+        self._vec_cache: _LRUCache = _LRUCache(_VEC_CACHE_SIZE)
+        # workspace_id -> (episode 指纹, BM25Index)；episodic 检索的轻量缓存
+        self._episodic_index_cache: _LRUCache = _LRUCache(_INDEX_CACHE_SIZE)
         # 向量来源覆写：设置后向量取自该提供者（文件版 VectorIndex），
         # 而非遗留的 DB embedding 列。
         self._vector_source: Callable[[], Any] | None = None
@@ -172,12 +185,11 @@ class RetrievalEngine:
             and cached[0] == fingerprint
             and time.monotonic() - cached[1] < _INDEX_MAX_AGE_SECONDS
         ):
-            return cached[2]
+            cached_index: BM25Index = cached[2]
+            return cached_index
 
         index = await self._build_index(db, workspace_id, project_id)
-        self._index_cache[key] = (fingerprint, time.monotonic(), index)
-        if len(self._index_cache) > _INDEX_CACHE_SIZE:
-            self._index_cache.pop(next(iter(self._index_cache)))
+        self._index_cache.put(key, (fingerprint, time.monotonic(), index))
         return index
 
     async def _content_fingerprint(
@@ -188,13 +200,10 @@ class RetrievalEngine:
     ) -> tuple[int, datetime | None, int]:
         """用一次廉价的 DB 聚合查询标识该范围的 active 内容。
 
-        结果按 _FINGERPRINT_CACHE_TTL 秒缓存，内容未变时避免每次请求都查库。
+        不做跨请求缓存：曾设 5s 短 TTL，但该时间窗会让过期指纹掩盖新写入、
+        连带 BM25 索引缓存一起滞后。聚合查询本身是 ms 级，且同一次
+        retrieve() 内的多次取用共享同一指纹值，足够。
         """
-        key = (workspace_id, project_id)
-        cached = self._fingerprint_cache.get(key)
-        if cached is not None and time.monotonic() - cached[1] < _FINGERPRINT_CACHE_TTL:
-            return cached[0]
-
         stmt = select(
             func.count(),
             func.max(Memory.updated_at),
@@ -205,9 +214,7 @@ class RetrievalEngine:
         if project_id:
             stmt = stmt.where(Memory.project_id == project_id)
         row = (await db.execute(stmt)).one()
-        fingerprint = (row[0], row[1], row[2])
-        self._fingerprint_cache[key] = (fingerprint, time.monotonic())
-        return fingerprint
+        return (row[0], row[1], row[2])
 
     async def _build_index(
         self,
@@ -263,10 +270,17 @@ class RetrievalEngine:
 
         from packages.retrieval.bm25 import BM25Index
 
-        bm25 = BM25Index()
-        for ep in episodes:
-            text = f"{ep.goal or ''} {ep.summary or ''}"
-            bm25.add(str(ep.id), text)
+        # 索引按 episode 指纹（数量 + 最新 id）缓存；候选 ≤200 条，重建虽
+        # 不算贵，但 hybrid 模式每次检索都会走到这里，白付成本没有意义
+        fingerprint = (len(episodes), str(episodes[0].id))
+        cached = self._episodic_index_cache.get(workspace_id)
+        if cached is not None and cached[0] == fingerprint:
+            bm25 = cached[1]
+        else:
+            bm25 = BM25Index()
+            for ep in episodes:
+                bm25.add(str(ep.id), f"{ep.goal or ''} {ep.summary or ''}")
+            self._episodic_index_cache.put(workspace_id, (fingerprint, bm25))
 
         bm25_results = bm25.search(query, top_k=top_k)
         ep_map = {str(ep.id): ep for ep in episodes}
@@ -857,13 +871,14 @@ class RetrievalEngine:
         max_items: int = 10,
         max_tokens: int = 5000,
         session_id: uuid.UUID | None = None,
-        mode: str = "semantic",
+        mode: str = "hybrid",
     ) -> dict[str, Any]:
-        """语义检索 + 上下文组装（/v1/context 入口）。
+        """检索 + 上下文组装（/v1/context 入口）。
 
-        排序管线委托 search_ranked()；本方法负责 episode 模式分支、
-        混合模式的 episode 并入、上下文组装，以及组装后记录带
-        filter_reasons 的完整 trace。
+        排序管线委托 search_ranked()，mode 原样透传（hybrid=双路召回、
+        semantic=仅向量路）；本方法另负责 episode 模式分支、混合模式
+        的 episode 并入、上下文组装，以及组装后记录带 filter_reasons
+        的完整 trace。
         """
         start_time = time.time()
 
@@ -902,6 +917,9 @@ class RetrievalEngine:
             top_k=max_items,
             session_id=session_id,
             record_trace=False,
+            # mode 透传：semantic 真正走仅向量路（API 契约如此声明）；
+            # episodic 已在上方分支处理，回落时按双路检索
+            mode="semantic" if mode == "semantic" else "hybrid",
         )
         final_memories = result["memories"]
 
@@ -1253,24 +1271,14 @@ class RetrievalEngine:
                 np.empty((0, 0), dtype=np.float32),
                 np.empty(0, dtype=np.float32),
             )
-            self._vec_cache[key] = (
-                effective_fp,
-                time.monotonic(),
-                empty[0],
-                empty[1],
-                empty[2],
-            )
-            if len(self._vec_cache) > _VEC_CACHE_SIZE:
-                self._vec_cache.pop(next(iter(self._vec_cache)))
+            self._vec_cache.put(key, (effective_fp, time.monotonic(), empty[0], empty[1], empty[2]))
             return empty
 
         ids = [r[0] for r in rows]
         matrix = np.array([r[1] for r in rows], dtype=np.float32)
         norms = np.linalg.norm(matrix, axis=1)
 
-        self._vec_cache[key] = (effective_fp, time.monotonic(), ids, matrix, norms)
-        if len(self._vec_cache) > _VEC_CACHE_SIZE:
-            self._vec_cache.pop(next(iter(self._vec_cache)))
+        self._vec_cache.put(key, (effective_fp, time.monotonic(), ids, matrix, norms))
         return ids, matrix, norms
 
     async def _collect_vectors_from_index(
@@ -1322,11 +1330,19 @@ class RetrievalEngine:
         """为所有含 active 记忆的 workspace 预构建 BM25 + 向量缓存。
 
         启动时调用一次，让首个真实查询直接命中热缓存而不必支付
-        完整构建成本。返回摘要字典用于日志。
+        完整构建成本。缓存容量按 workspace 数上调（向量矩阵封顶
+        _VEC_CACHE_SIZE_MAX），保证多工作区时预热结果不被 LRU 挤掉。
+        返回摘要字典用于日志。
         """
         stmt = select(Memory.workspace_id).where(Memory.status == "active").distinct()
         result = await db.execute(stmt)
         workspace_ids = [row[0] for row in result if row[0]]
+
+        # 上调容量：否则 workspace 多于默认容量时，预热完即被驱逐
+        self._index_cache.maxsize = max(self._index_cache.maxsize, len(workspace_ids))
+        self._vec_cache.maxsize = max(
+            self._vec_cache.maxsize, min(len(workspace_ids), _VEC_CACHE_SIZE_MAX)
+        )
 
         # 预热 embedding 模型（首次加载也可能触发下载，放到线程里避免阻塞循环）
         embedding_ready = await get_embedding_service().warm_up()

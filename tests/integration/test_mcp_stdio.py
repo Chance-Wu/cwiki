@@ -1113,13 +1113,21 @@ async def test_update_security_error_is_visible_in_rpc(memory_server):
 
 
 async def test_tools_list_reloads_only_when_disk_changes_and_status_is_safe(
-    memory_server, monkeypatch, tmp_path
+    memory_server, monkeypatch, tmp_path, request
 ):
     config = mcp_server.domain_config
     # 测试结束后还原所有内存态设置与缓存；绝不触碰仓库配置。
     for key, value in vars(mcp_server.settings).copy().items():
         monkeypatch.setattr(mcp_server.settings, key, value)
-    monkeypatch.setattr(config, "_yaml_config", config._yaml_config)
+    # reload_yaml_config 原地更新共享 dict（storage.config 等 from-import
+    # 同一对象），setattr 式还原是空操作；必须以快照原地恢复。
+    yaml_snapshot = dict(config._yaml_config)
+
+    def _restore_yaml_config() -> None:
+        config._yaml_config.clear()
+        config._yaml_config.update(yaml_snapshot)
+
+    request.addfinalizer(_restore_yaml_config)
     path = tmp_path / "config.yaml"
     path.write_text(
         "memory:\n  title_max_length: 9\napp:\n  openai_api_key: do-not-expose\n", encoding="utf-8"

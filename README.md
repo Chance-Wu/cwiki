@@ -6,7 +6,7 @@
 
 *让 AI Agent 拥有持续学习的长期记忆*
 
-[![Python](https://img.shields.io/badge/python-3.11+-green.svg)](https://www.python.org/)
+[![Python](https://img.shields.io/badge/python-3.12+-green.svg)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-009688.svg)](https://fastapi.tiangolo.com/)
 [![License](https://img.shields.io/badge/license-Private-red.svg)]()
 
@@ -150,7 +150,7 @@ python tasks.py web
 
 > 日常浏览建议用生产模式（内存占用约为 dev 模式一半）：`python tasks.py preview`（构建并以 :4173 启动）。`web` 的 dev 服务器留给开发调试。
 
-> 环境要求：Python >= 3.11，Node.js >= 18。`install` 会自动检测并提示缺失项；未装 Node.js 时传 `--skip-web` 跳过前端。
+> 环境要求：Python >= 3.12，Node.js >= 18。`install` 会自动检测并提示缺失项；未装 Node.js 时传 `--skip-web` 跳过前端。
 
 ## 30 秒体验路径
 

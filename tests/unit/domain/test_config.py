@@ -78,3 +78,35 @@ class TestAutoRecallFlag:
         self._retrieval_with(monkeypatch, auto_recall_enabled=False)
         s.reload()
         assert s.auto_recall_enabled is False
+
+
+class TestStorageConfigReload:
+    """reload_yaml_config 必须同步刷新存储侧模块级配置。"""
+
+    def test_reload_picks_up_memory_dir_change(self, monkeypatch):
+        import copy
+
+        from packages.storage import config as storage_config
+        from packages.storage.config import reload_storage_config
+
+        saved_yaml = copy.deepcopy(domain_config._yaml_config)
+        original_memory_dir = storage_config.memory_dir
+        base = copy.deepcopy(saved_yaml)
+        base.setdefault("storage", {})["memory_dir"] = "./tmp-reload-test"
+
+        def _fake_load():
+            return copy.deepcopy(base)
+
+        monkeypatch.setattr(domain_config, "_load_yaml_config", _fake_load)
+        try:
+            domain_config.reload_yaml_config()
+            assert storage_config.memory_dir == "./tmp-reload-test"
+            # 派生路径一并重算
+            assert storage_config.index_db_path.endswith("tmp-reload-test/index.db")
+            assert storage_config.vector_meta_path.endswith("tmp-reload-test/vectors.json")
+        finally:
+            # 原地恢复，保持 storage.config 持有的 dict 引用有效
+            domain_config._yaml_config.clear()
+            domain_config._yaml_config.update(saved_yaml)
+            reload_storage_config()
+        assert storage_config.memory_dir == original_memory_dir

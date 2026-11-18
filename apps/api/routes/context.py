@@ -350,6 +350,8 @@ async def proactive_memory_push(
         workspace_id=workspace_id,
         db=db,
         max_items=max_items + len(already_pushed),
+        # 主动推送按关键词查询，保持双路召回
+        mode="hybrid",
     )
 
     pushed: list[ProactivePushItem] = []

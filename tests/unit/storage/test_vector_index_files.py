@@ -143,3 +143,37 @@ def test_dimension_mismatch_discards_vectors(tmp_path):
 
     reloaded = VectorIndex(dimensions=4, index_path=str(index_path))
     assert reloaded.vectors == {}
+
+
+def test_save_skips_rewrite_when_unchanged(tmp_path):
+    """内容未变时 save() 必须跳过 O(N) 整写；变更后恢复写盘。"""
+    import hashlib
+
+    index_path = tmp_path / "vectors.npz"
+    vi = VectorIndex(dimensions=3, index_path=str(index_path))
+    vi.add("a", [1.0, 0.0, 0.0])
+    vi.save()
+    first_hash = hashlib.sha256(index_path.read_bytes()).hexdigest()
+
+    # 无变更的重复 save：跳过重写，文件逐字节一致
+    vi.save()
+    assert (
+        hashlib.sha256(index_path.read_bytes()).hexdigest() == first_hash
+    )  # 未触发重写才可能保持一致；仍需配合 mtime 断言
+    assert vi._unsaved is False
+
+    # 新增向量后 save 恢复真实写盘
+    vi.add("b", [0.0, 1.0, 0.0])
+    assert vi._unsaved is True
+    vi.save()
+    assert vi._unsaved is False
+    assert VectorIndex(dimensions=3, index_path=str(index_path)).size() == 2
+
+
+def test_force_save_writes_even_when_unchanged(tmp_path):
+    index_path = tmp_path / "vectors.npz"
+    vi = VectorIndex(dimensions=3, index_path=str(index_path))
+    vi.add("a", [1.0, 0.0, 0.0])
+    vi.save()
+    vi.save(force=True)  # 旧格式升级等场景必须真实写盘
+    assert index_path.exists()

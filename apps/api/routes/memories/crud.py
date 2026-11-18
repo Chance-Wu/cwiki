@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 from typing import Annotated, Any
 
 from fastapi import Depends, HTTPException, Query, status
-from sqlalchemy import and_, case, delete, exists, func, select
+from sqlalchemy import and_, delete, exists, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer
 
@@ -54,7 +54,7 @@ from packages.domain.schemas import (
 )
 from packages.domain.task_queue import queue as task_queue
 from packages.memory.service import snapshot_and_advance
-from packages.memory.spaced_repetition import calculate_mastery_level
+from packages.memory.spaced_repetition import calculate_mastery_level, mastery_level_expr
 from packages.memory.tag_query import memory_has_tag
 from packages.memory.utility_aggregation import (
     aggregate_evidence_counts,
@@ -158,14 +158,7 @@ async def list_memories(
                 )
             )
         else:
-            level_expr = case(
-                (ReviewSchedule.repetitions == 0, "new"),
-                (ReviewSchedule.repetitions <= 2, "learning"),
-                (ReviewSchedule.repetitions <= 5, "familiar"),
-                (ReviewSchedule.repetitions <= 10, "proficient"),
-                (ReviewSchedule.ease_factor >= 2.5, "mastered"),
-                else_="proficient",
-            )
+            level_expr = mastery_level_expr(ReviewSchedule.repetitions, ReviewSchedule.ease_factor)
             conditions.append(
                 exists().where(
                     ReviewSchedule.memory_id == Memory.id,
@@ -541,24 +534,12 @@ async def get_memory_lifecycle(
 ) -> dict[str, Any]:
     try:
         uid = uuid.UUID(memory_id)
-    except ValueError:
-        return {
-            "memory_id": memory_id,
-            "current_status": "unknown",
-            "timeline": [],
-            "age_days": None,
-            "event_count": 0,
-        }
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Memory not found") from exc
 
     memory = await db.get(Memory, uid, options=_MEMORY_NO_EMBED)
     if memory is None:
-        return {
-            "memory_id": memory_id,
-            "current_status": "unknown",
-            "timeline": [],
-            "age_days": None,
-            "event_count": 0,
-        }
+        raise HTTPException(status_code=404, detail="Memory not found")
 
     # 尽力而为：生命周期时间线属补充信息，失败不阻断响应
     event_count = 0

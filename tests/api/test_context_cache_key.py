@@ -30,7 +30,8 @@ def test_cache_key_separates_projects_and_sessions() -> None:
     base_key = _cache_key(_request())
     assert base_key != _cache_key(_request(project_id=uuid.uuid4()))
     assert base_key != _cache_key(_request(session_id=uuid.uuid4()))
-    assert base_key != _cache_key(_request(mode="hybrid"))
+    # ContextRequest 默认已是 hybrid，与 semantic 必须区分缓存
+    assert base_key != _cache_key(_request(mode="semantic"))
     assert base_key != _cache_key(_request(max_tokens=8000))
     assert base_key != _cache_key(_request(event_types=["error"]))
 

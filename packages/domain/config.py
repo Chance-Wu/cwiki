@@ -93,8 +93,16 @@ _yaml_config = _load_yaml_config()
 
 def reload_yaml_config() -> dict[str, Any]:
     """重新从磁盘读取 config.yaml，并更新模块级缓存。"""
-    global _yaml_config
-    _yaml_config = _load_yaml_config()
+    new_cfg = _load_yaml_config()
+    # 原地更新而非重新绑定：storage.config 等模块通过 from-import 持有
+    # 同一 dict 对象，重新绑定会让它们继续读到旧配置快照
+    _yaml_config.clear()
+    _yaml_config.update(new_cfg)
+    # 存储侧（memory_dir / 索引路径等）的模块级配置同步重算；
+    # 延迟导入避免 domain ↔ storage 循环依赖
+    from packages.storage.config import reload_storage_config
+
+    reload_storage_config()
     return _yaml_config
 
 

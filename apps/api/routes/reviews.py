@@ -67,7 +67,7 @@ async def _prepare_review_embedding_for_text(title: str, content: str) -> list[f
         from packages.retrieval.embedding import get_embedding_service
 
         text = format_memory_for_embedding(title, content)
-        embedding = await get_embedding_service().generate_embedding(text)
+        embedding = await get_embedding_service().generate_embedding(text, allow_fallback=False)
         return list(embedding) if embedding else None
     except Exception:
         logger.warning("Failed to embed review content for checks", exc_info=True)
@@ -104,7 +104,9 @@ async def _auto_detect_relations(
             try:
                 from packages.retrieval.embedding import get_embedding_service
 
-                emb = await get_embedding_service().generate_embedding(new_text)
+                emb = await get_embedding_service().generate_embedding(
+                    new_text, allow_fallback=False
+                )
                 if emb:
                     new_embedding = emb
             except Exception:

@@ -8,7 +8,7 @@ from typing import Annotated, Any, Literal
 
 import yaml
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from apps.api.auth import AgentIdentity
 from apps.api.deps import require_scope
@@ -44,10 +44,15 @@ router = APIRouter(tags=["config"])
 
 
 class AppConfig(BaseModel):
+    # from_attributes：GET /v1/config 直接从 settings 对象取值，避免手抄字段漂移
+    model_config = ConfigDict(from_attributes=True)
+
     debug: bool
 
 
 class ParasiticEvolutionConfigModel(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     memory_gap_detection_enabled: bool
     proactive_push_enabled: bool
     memory_relations_enabled: bool
@@ -66,7 +71,12 @@ class ParasiticEvolutionConfigModel(BaseModel):
 
 
 class MemoryConfigModel(BaseModel):
-    title_max_length: int = Field(ge=1, le=500)
+    model_config = ConfigDict(from_attributes=True)
+
+    # settings 侧属性名是 memory_title_max_length；PATCH 请求仍以字段名传输
+    title_max_length: int = Field(
+        ge=1, le=500, validation_alias=AliasChoices("title_max_length", "memory_title_max_length")
+    )
     consolidate_threshold: float = Field(ge=0.0, le=1.0)
     similarity_threshold: float = Field(ge=0.0, le=1.0)
     relation_merge_threshold: float = Field(ge=0.0, le=1.0)
@@ -90,16 +100,29 @@ class MemoryConfigModel(BaseModel):
 
 
 class McpConfigModel(BaseModel):
-    max_retries: int = Field(ge=0, le=10)
-    retry_backoff_seconds: float = Field(ge=0.0, le=60.0)
+    model_config = ConfigDict(from_attributes=True)
+
+    # settings 侧属性名带 mcp_ 前缀；PATCH 请求仍以裸字段名传输
+    max_retries: int = Field(
+        ge=0, le=10, validation_alias=AliasChoices("max_retries", "mcp_max_retries")
+    )
+    retry_backoff_seconds: float = Field(
+        ge=0.0,
+        le=60.0,
+        validation_alias=AliasChoices("retry_backoff_seconds", "mcp_retry_backoff_seconds"),
+    )
 
 
 class SchedulerConfigModel(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     auto_relation_interval_hours: float = Field(ge=0.0, le=720.0)
     relation_ttl_check_interval_hours: float = Field(ge=0.0, le=720.0)
 
 
 class PerformanceConfigModel(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     context_cache_ttl: float = Field(ge=0.0, le=86400.0)
     context_cache_max_size: int = Field(ge=1, le=100_000)
     context_token_budget: int = Field(ge=64, le=200_000)
@@ -107,6 +130,8 @@ class PerformanceConfigModel(BaseModel):
 
 
 class RetrievalConfigModel(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     bm25_weight: float = Field(ge=0.0, le=10.0)
     vector_weight: float = Field(ge=0.0, le=10.0)
     reranker_rrf_weight: float = Field(ge=0.0, le=10.0)
@@ -563,75 +588,22 @@ async def update_write_policy(
 
 @router.get("/v1/config", response_model=ConfigData)
 async def get_config() -> ConfigData:
-    """获取当前运行时配置。"""
+    """获取当前运行时配置。
+
+    各配置段用 ``model_validate(source)`` 从运行时单例取值（模型开启
+    ``from_attributes``），字段名与单例属性名漂移处用 validation_alias
+    对齐；新增配置字段只需改模型，无需同步手抄 GET 端点。
+    """
     return ConfigData(
-        app=AppConfig(debug=settings.debug),
-        parasitic_evolution=ParasiticEvolutionConfigModel(
-            memory_gap_detection_enabled=parasitic_evolution_config.memory_gap_detection_enabled,
-            proactive_push_enabled=parasitic_evolution_config.proactive_push_enabled,
-            memory_relations_enabled=parasitic_evolution_config.memory_relations_enabled,
-            agent_profile_enabled=parasitic_evolution_config.agent_profile_enabled,
-            memory_version_tracking_enabled=parasitic_evolution_config.memory_version_tracking_enabled,
-            review_reminders_enabled=parasitic_evolution_config.review_reminders_enabled,
-            mastery_coupled_decay_enabled=parasitic_evolution_config.mastery_coupled_decay_enabled,
-            entity_extraction_enabled=parasitic_evolution_config.entity_extraction_enabled,
-            write_time_conflict_enabled=parasitic_evolution_config.write_time_conflict_enabled,
-            episodic_retrieval_enabled=parasitic_evolution_config.episodic_retrieval_enabled,
-            auto_relation_enabled=parasitic_evolution_config.auto_relation_enabled,
-            auto_relation_threshold=parasitic_evolution_config.auto_relation_threshold,
-            auto_relation_max_per_memory=parasitic_evolution_config.auto_relation_max_per_memory,
-            relation_auto_edge_ttl_days=parasitic_evolution_config.relation_auto_edge_ttl_days,
+        app=AppConfig.model_validate(settings),
+        parasitic_evolution=ParasiticEvolutionConfigModel.model_validate(
+            parasitic_evolution_config
         ),
-        memory=MemoryConfigModel(
-            title_max_length=settings.memory_title_max_length,
-            consolidate_threshold=settings.consolidate_threshold,
-            similarity_threshold=settings.similarity_threshold,
-            relation_merge_threshold=settings.relation_merge_threshold,
-            relation_update_threshold=settings.relation_update_threshold,
-            relation_conflict_threshold=settings.relation_conflict_threshold,
-            priority_discard_threshold=settings.priority_discard_threshold,
-            priority_low_threshold=settings.priority_low_threshold,
-            priority_high_threshold=settings.priority_high_threshold,
-            auto_create_workspace=settings.auto_create_workspace,
-            duplicate_exact_threshold=settings.duplicate_exact_threshold,
-            duplicate_possible_threshold=settings.duplicate_possible_threshold,
-            submit_dedup_scan_limit=settings.submit_dedup_scan_limit,
-            submit_dedup_cross_workspace=settings.submit_dedup_cross_workspace,
-            auto_approve_enabled=settings.auto_approve_enabled,
-            auto_approve_value_threshold=settings.auto_approve_value_threshold,
-            auto_approve_confidence_threshold=settings.auto_approve_confidence_threshold,
-            auto_approve_gate_threshold=settings.auto_approve_gate_threshold,
-            auto_approve_duplicate_threshold=settings.auto_approve_duplicate_threshold,
-        ),
-        performance=PerformanceConfigModel(
-            context_cache_ttl=settings.context_cache_ttl,
-            context_cache_max_size=settings.context_cache_max_size,
-            context_token_budget=settings.context_token_budget,
-            dedup_top_k=settings.dedup_top_k,
-        ),
-        retrieval=RetrievalConfigModel(
-            bm25_weight=settings.bm25_weight,
-            vector_weight=settings.vector_weight,
-            reranker_rrf_weight=settings.reranker_rrf_weight,
-            reranker_semantic_weight=settings.reranker_semantic_weight,
-            reranker_bm25_weight=settings.reranker_bm25_weight,
-            reranker_confidence_weight=settings.reranker_confidence_weight,
-            reranker_importance_weight=settings.reranker_importance_weight,
-            reranker_freshness_weight=settings.reranker_freshness_weight,
-            reranker_usage_weight=settings.reranker_usage_weight,
-            reranker_intent_weight=settings.reranker_intent_weight,
-            reranker_key_term_bonus=settings.reranker_key_term_bonus,
-            reranker_relevance_band=settings.reranker_relevance_band,
-            auto_recall_enabled=settings.auto_recall_enabled,
-        ),
-        mcp=McpConfigModel(
-            max_retries=settings.mcp_max_retries,
-            retry_backoff_seconds=settings.mcp_retry_backoff_seconds,
-        ),
-        scheduler=SchedulerConfigModel(
-            auto_relation_interval_hours=scheduler_config.auto_relation_interval_hours,
-            relation_ttl_check_interval_hours=scheduler_config.relation_ttl_check_interval_hours,
-        ),
+        memory=MemoryConfigModel.model_validate(settings),
+        performance=PerformanceConfigModel.model_validate(settings),
+        retrieval=RetrievalConfigModel.model_validate(settings),
+        mcp=McpConfigModel.model_validate(settings),
+        scheduler=SchedulerConfigModel.model_validate(scheduler_config),
         system_info=SystemInfoModel(
             embedding_model=settings.embedding_model,
             embedding_dimensions=settings.embedding_dimensions,

@@ -108,7 +108,8 @@ class TestGenerateCandidateEmbedding:
         assert mock_candidate.type == memory_type
         assert mock_candidate.embedding == embedding
         mock_embedding_service.generate_embedding.assert_awaited_once_with(
-            format_memory_for_embedding(mock_candidate.title, content)
+            format_memory_for_embedding(mock_candidate.title, content),
+            allow_fallback=False,  # 候选向量会持久化，不得使用哈希兜底
         )
         mock_db.commit.assert_awaited_once_with()
         mock_queue.enqueue.assert_awaited_once_with(

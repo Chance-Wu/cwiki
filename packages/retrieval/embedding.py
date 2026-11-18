@@ -217,18 +217,26 @@ class EmbeddingService:
         await asyncio.to_thread(self._ensure_local_model)
         return not self.is_fallback
 
-    async def generate_embedding(self, text: str) -> list[float] | None:
+    async def generate_embedding(
+        self, text: str, *, allow_fallback: bool = True
+    ) -> list[float] | None:
         """为给定文本生成向量。"""
-        results = await self.generate_embeddings_batch([text])
+        results = await self.generate_embeddings_batch([text], allow_fallback=allow_fallback)
         return results[0] if results else None
 
     async def generate_embeddings_batch(
-        self, texts: list[str], batch_size: int = 256
+        self, texts: list[str], batch_size: int = 256, *, allow_fallback: bool = True
     ) -> list[list[float] | None]:
         """批量生成多段文本的向量。
 
         返回列表与 *texts* 等长，失败或空文本对应位置为 ``None``。
         LRU 缓存已有的文本直接命中返回，不重复计算。
+
+        ``allow_fallback=False`` 用于文档侧（向量会被持久化）的调用：
+        模型不可用时返回 ``None`` 而不是哈希兜底向量——哈希向量无语义
+        含义，一旦写入 vectors.npz / DB 列会静默污染检索；调用方已有
+        任务重试（generate_embedding 队列任务）或优雅降级（相似度计 0）
+        兜底。查询侧保持 True，保证模型故障时召回链路不中断。
         """
         if not texts:
             return []
@@ -282,11 +290,13 @@ class EmbeddingService:
                 _embedding_metrics["total_latency_ms"] += latency
             except Exception as e:
                 logger.error("Local embedding failed, falling back to hash: %s", e)
-                # 本批回退到哈希兜底
-                self._embed_hash_batch(pending_indices, pending_texts, texts, results, start)
+                # 本批回退到哈希兜底；文档侧（不可持久化哈希向量）保持 None
+                if allow_fallback:
+                    self._embed_hash_batch(pending_indices, pending_texts, texts, results, start)
         else:
-            # 哈希兜底
-            self._embed_hash_batch(pending_indices, pending_texts, texts, results, start)
+            # 哈希兜底；文档侧（不可持久化哈希向量）保持 None
+            if allow_fallback:
+                self._embed_hash_batch(pending_indices, pending_texts, texts, results, start)
 
         return results
 

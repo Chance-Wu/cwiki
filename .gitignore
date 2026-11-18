@@ -67,3 +67,6 @@ benchmarks/labeling/
 .vscode/
 *.swp
 *.swo
+
+# ZCode CLI 工作区配置
+.zcode/

@@ -411,7 +411,7 @@ async def batch_detect_duplicates_with_embedding(
         cand_text = format_memory_for_embedding(
             candidate.get("title", ""), candidate.get("content", "")
         )
-        cand_embedding = await embedding_service.generate_embedding(cand_text)
+        cand_embedding = await embedding_service.generate_embedding(cand_text, allow_fallback=False)
 
     # 区分已存 embedding 与需现场生成的项
     stored_embeddings: list[tuple[int, list[float]]] = []
@@ -429,7 +429,7 @@ async def batch_detect_duplicates_with_embedding(
     generated_embeddings: dict[int, list[float] | None] = {}
     if needs_generation:
         texts = [text for _, text in needs_generation]
-        generated = await embedding_service.generate_embeddings_batch(texts)
+        generated = await embedding_service.generate_embeddings_batch(texts, allow_fallback=False)
         for (idx, _), emb in zip(needs_generation, generated):
             generated_embeddings[idx] = emb
 
@@ -495,7 +495,7 @@ async def _compute_embedding_similarity(
     )
 
     embeddings = await embedding_service.generate_embeddings_batch(
-        [text_a_combined, text_b_combined]
+        [text_a_combined, text_b_combined], allow_fallback=False
     )
 
     if len(embeddings) < 2 or embeddings[0] is None or embeddings[1] is None:

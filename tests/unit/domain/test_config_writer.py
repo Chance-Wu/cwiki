@@ -193,3 +193,39 @@ def test_block_update_writes_string_scalar_without_document_end_marker() -> None
     lines = out.splitlines()
     assert lines.count("    default_action: skip") == 1
     assert "..." not in lines
+
+
+class TestRootFlowDocument:
+    """根级流式映射文档（如测试用的 `{}`）无法按行编辑，必须整份重写。
+
+    在 `{}` 后插入 `section:` 块会产出既有流映射又有块映射的非法 YAML。
+    """
+
+    def test_block_update_rewrites_flow_document(self) -> None:
+        import yaml
+
+        out = apply_block_updates(
+            "{}\n",
+            [
+                (("memory", "write_policy", "enabled"), True),
+                (("memory", "write_policy", "rules"), [{"id": "pinned-auto"}]),
+            ],
+        )
+        data = yaml.safe_load(out)
+        assert data["memory"]["write_policy"]["enabled"] is True
+        assert data["memory"]["write_policy"]["rules"] == [{"id": "pinned-auto"}]
+
+    def test_scalar_update_rewrites_flow_document(self) -> None:
+        import yaml
+
+        out = apply_scalar_updates("{}\n", [("memory", "title_max_length", 80)])
+        assert yaml.safe_load(out) == {"memory": {"title_max_length": 80}}
+
+    def test_flow_rewrite_preserves_existing_keys(self) -> None:
+        import yaml
+
+        raw = "{app: {api_port: 5172}}\n"
+        out = apply_block_updates(raw, [(("memory", "similarity_strategy"), "hybrid")])
+        data = yaml.safe_load(out)
+        assert data["app"]["api_port"] == 5172
+        assert data["memory"]["similarity_strategy"] == "hybrid"

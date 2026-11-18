@@ -129,6 +129,85 @@ def test_search_returns_active_memory_with_normalized_score(db_path: Path):
     assert data["insufficient"] is False
 
 
+def test_snapshot_disk_cache_warm_start(monkeypatch, db_path: Path):
+    """新进程指纹命中磁盘快照时直接反序列化，不付全量构建成本。
+
+    hook 进程是一次性的：进程内缓存帮不到它们，磁盘快照是
+    UserPromptSubmit 延迟的关键来源。
+    """
+    import adapters.mcp.local_index as li
+
+    monkeypatch.setattr(li.tempfile, "gettempdir", lambda: str(db_path.parent))
+    first = li._snapshot(db_path)
+    assert first is not None
+
+    reset_cache()  # 模拟新 hook 进程：进程内缓存为空
+    builds: list[Path] = []
+    original_build = li._build_snapshot
+
+    def _spy_build(path: Path, conn: sqlite3.Connection, fingerprint: object):
+        builds.append(path)
+        return original_build(path, conn, fingerprint)
+
+    monkeypatch.setattr(li, "_build_snapshot", _spy_build)
+    second = li._snapshot(db_path)
+    assert second is not None
+    assert builds == []  # 磁盘快照命中，未触发全量构建
+    assert second.fingerprint == first.fingerprint
+    # 快照只含 active 记忆（m3 是 superseded，不入索引）
+    assert sorted(second.rows) == ["m1", "m2"]
+
+
+def test_snapshot_disk_cache_invalidated_after_write(monkeypatch, db_path: Path):
+    """DB 指纹变化后磁盘快照必须失效并重建覆写，不能读到陈旧索引。"""
+    import adapters.mcp.local_index as li
+
+    monkeypatch.setattr(li.tempfile, "gettempdir", lambda: str(db_path.parent))
+    stale = li._snapshot(db_path)
+    assert stale is not None
+
+    _insert(
+        db_path,
+        id="m4",
+        workspace_id="w1",
+        title="新写入的记忆",
+        content="fresh content",
+        type="fact",
+    )
+    reset_cache()
+
+    builds: list[Path] = []
+    original_build = li._build_snapshot
+
+    def _spy_build(path: Path, conn: sqlite3.Connection, fingerprint: object):
+        builds.append(path)
+        return original_build(path, conn, fingerprint)
+
+    monkeypatch.setattr(li, "_build_snapshot", _spy_build)
+    rebuilt = li._snapshot(db_path)
+    assert rebuilt is not None
+    assert builds == [db_path]  # 指纹变化触发全量重建
+    assert "m4" in rebuilt.rows
+    assert rebuilt.fingerprint != stale.fingerprint
+
+
+def test_corrupt_disk_snapshot_falls_back_to_rebuild(monkeypatch, db_path: Path):
+    """磁盘快照损坏（截断/版本不符）时必须静默回落全量构建。"""
+    import adapters.mcp.local_index as li
+
+    monkeypatch.setattr(li.tempfile, "gettempdir", lambda: str(db_path.parent))
+    assert li._snapshot(db_path) is not None
+    cache_file = li._disk_cache_file(db_path)
+    cache_file.write_bytes(b"corrupted")  # 破坏 pickle 流
+
+    reset_cache()
+    snapshot = li._snapshot(db_path)
+    assert snapshot is not None
+    assert len(snapshot.rows) == 2  # 只含 active 记忆
+    # 回落构建后重新写盘，下一次进程又能热启动
+    assert li._load_disk_snapshot(db_path, snapshot.fingerprint) is not None
+
+
 def test_search_and_context_include_citation_fields(db_path: Path):
     conn = sqlite3.connect(db_path)
     try:
@@ -337,3 +416,27 @@ def test_must_save_hint_from_policy(monkeypatch):
     monkeypatch.setattr(policy, "must_save_types", ())
     monkeypatch.setattr(policy, "must_save_keywords", ())
     assert recall.must_save_hint() == ""
+
+
+def test_snapshot_gc_removes_stale_cache_files(monkeypatch, db_path: Path):
+    """3 天未更新的旧快照在下次写盘时被清理，活跃快照不受影响。"""
+    import os
+    import time
+
+    import adapters.mcp.local_index as li
+
+    monkeypatch.setattr(li.tempfile, "gettempdir", lambda: str(db_path.parent))
+    assert li._snapshot(db_path) is not None  # 写出当前快照
+    cache_file = li._disk_cache_file(db_path)
+    stale = cache_file.parent / "recall-deadbeef.pkl"
+    stale.write_bytes(b"stale")
+    old = time.time() - 4 * 24 * 3600
+    os.utime(stale, (old, old))
+
+    # 触发一次重建（写入新指纹）带动 GC
+    _insert(db_path, id="m5", workspace_id="w1", title="触发GC", content="gc trigger", type="fact")
+    reset_cache()
+    assert li._snapshot(db_path) is not None
+
+    assert not stale.exists()
+    assert cache_file.exists()

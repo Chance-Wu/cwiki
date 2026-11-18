@@ -193,8 +193,10 @@ def test_main_starts_in_project_root_with_isolated_processes(
     monkeypatch.setattr(process_utils, "IS_WINDOWS", windows)
     npm = "C:/Program Files/nodejs/npm.cmd" if windows else "/tools/npm"
     runtime.which.side_effect = lambda name: npm
-    # 固定 api_host 断言值，避免随本机 config.yaml 漂移（Android 联调会临时改 0.0.0.0）
+    # 固定 api_host/debug 断言值，避免随本机 config.yaml 漂移
+    # （Android 联调会临时改 0.0.0.0；debug 决定 uvicorn --reload）
     monkeypatch.setattr(start.settings, "api_host", "127.0.0.1", raising=False)
+    monkeypatch.setattr(start.settings, "debug", True, raising=False)
     (runtime.root / "config.yaml").write_text(
         "storage:\n  memory_dir: ./中文记忆\n", encoding="utf-8"
     )

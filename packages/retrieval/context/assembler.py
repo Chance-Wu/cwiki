@@ -503,7 +503,7 @@ async def _rerank_with_embedding(
     generated_embeddings: dict[int, list[float] | None] = {}
     if needs_generation:
         texts = [text for _, text in needs_generation]
-        generated = await embedding_service.generate_embeddings_batch(texts)
+        generated = await embedding_service.generate_embeddings_batch(texts, allow_fallback=False)
         for (idx, _), emb in zip(needs_generation, generated):
             generated_embeddings[idx] = emb
 

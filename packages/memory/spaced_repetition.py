@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from typing import Any
+
+from sqlalchemy import Case, case
 
 
 @dataclass
@@ -119,3 +122,19 @@ def calculate_mastery_level(repetitions: int, ease_factor: float) -> str:
     else:
         # 次数够了但 EF 偏低，说明记忆仍不稳定，不授予 mastered
         return "proficient"
+
+
+def mastery_level_expr(repetitions_col: Any, ease_factor_col: Any) -> Case[Any]:
+    """SM-2 掌握度等级的 SQL 表达式，口径必须与 ``calculate_mastery_level`` 一致。
+
+    等级分档曾以三份独立 SQL CASE 散落在 review_service / memories 路由里，
+    与此函数漂移过一次后收敛到此。
+    """
+    return case(
+        (repetitions_col == 0, "new"),
+        (repetitions_col <= 2, "learning"),
+        (repetitions_col <= 5, "familiar"),
+        (repetitions_col <= 10, "proficient"),
+        (ease_factor_col >= 2.5, "mastered"),
+        else_="proficient",
+    )

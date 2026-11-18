@@ -146,6 +146,16 @@ class BM25Index:
         if not candidate_doc_ids:
             return []
 
+        # IDF = log(1 + N/n)：加 1 平滑保证任何 df 下都为正值（见类 docstring）。
+        # 预计算每 token 的 IDF，避免候选文档循环里对同一 token 重复求对数
+        token_idf: dict[str, float] = {}
+        for token in set(tokens):
+            df = self._df.get(token, 0)
+            if df > 0:
+                token_idf[token] = math.log(1.0 + n / df)
+        if not token_idf:
+            return []
+
         scores: dict[int, float] = {}
         for doc_idx in candidate_doc_ids:
             if self._ids[doc_idx] in self._tombstones:
@@ -154,11 +164,9 @@ class BM25Index:
             dl = self._dl[doc_idx]
             score = 0.0
             for token in tokens:
-                df = self._df.get(token, 0)
-                if df == 0:
+                idf = token_idf.get(token)
+                if idf is None:
                     continue
-                # IDF = log(1 + N/n)：加 1 平滑保证任何 df 下都为正值（见类 docstring）
-                idf = math.log(1.0 + n / df)
                 tf = tf_map.get(token, 0)
                 numerator = tf * (_BM25_K1 + 1)
                 denominator = tf + _BM25_K1 * (1 - _BM25_B + _BM25_B * dl / self._avgdl)

@@ -103,7 +103,7 @@ async def task_finalize_episode(
                 emb_text = f"{episode_data.goal or ''} {episode_data.summary or ''}".strip()
                 if emb_text:
                     emb_svc = get_embedding_service()
-                    vec = await emb_svc.generate_embedding(emb_text)
+                    vec = await emb_svc.generate_embedding(emb_text, allow_fallback=False)
                     if vec is not None:
                         episode.embedding = vec
                         await db_session.flush()
@@ -269,7 +269,8 @@ async def _generate_episode_candidate(
     title, content = built
 
     try:
-        _candidate, _similar, created = await create_candidate(            db_session,
+        _candidate, _similar, created = await create_candidate(
+            db_session,
             workspace_id=episode.workspace_id,
             title=title,
             content=content,

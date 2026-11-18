@@ -4,6 +4,11 @@ MCP 进程与 hook 进程直接以 ``mode=ro`` 打开 ``cwiki-data/cwiki.db``，
 不依赖 HTTP API。索引按 DB/WAL 的 mtime 与行数指纹做进程内缓存，
 写入提交后下一次查询自动重建；只读连接不会阻塞 API 的 WAL 写入。
 
+hook 进程是一次性的，进程内缓存帮不到它们——快照构建成本（全表读取
++ 分词）原本要每个 hook 事件都付一次。因此快照还会按指纹序列化到
+系统临时目录（``_save_disk_snapshot``）：指纹命中时新进程直接反序列化
+热启动，指纹变化或缓存损坏时回落全量构建并原子覆写。
+
 MCP 先用本模块：覆盖率 ≥ ``STRONG_COVERAGE`` 直接返回，弱命中再请求
 API 做语义补充；API 不可用时回落本模块。只有关键词检索，没有向量语义、
 RRF 融合与重排。
@@ -11,12 +16,15 @@ RRF 融合与重排。
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import math
 import os
+import pickle
 import re
 import sqlite3
+import tempfile
 import threading
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -75,6 +83,71 @@ class _Snapshot:
 
 _cache: dict[str, _Snapshot] = {}
 _lock = threading.Lock()
+
+# 磁盘快照格式版本：BM25Index 结构变化时递增，旧缓存自动失效
+_SNAPSHOT_CACHE_VERSION = 1
+
+
+def _disk_cache_file(path: Path) -> Path:
+    """按 DB 绝对路径哈希定位磁盘快照文件（系统临时目录，随指纹原子覆写）。"""
+    key = hashlib.sha256(str(path.resolve()).encode()).hexdigest()[:16]
+    return Path(tempfile.gettempdir()) / "cwiki-recall-cache" / f"recall-{key}.pkl"
+
+
+def _load_disk_snapshot(
+    path: Path, fingerprint: tuple[int, int, int, str | None]
+) -> _Snapshot | None:
+    """指纹命中时从磁盘反序列化快照；任何异常都视为未命中。"""
+    try:
+        with _disk_cache_file(path).open("rb") as f:
+            payload = pickle.load(f)
+    except Exception:
+        return None
+    if not isinstance(payload, dict) or payload.get("version") != _SNAPSHOT_CACHE_VERSION:
+        return None
+    snapshot = payload.get("snapshot")
+    if isinstance(snapshot, _Snapshot) and snapshot.fingerprint == fingerprint:
+        return snapshot
+    return None
+
+
+def _save_disk_snapshot(path: Path, snapshot: _Snapshot) -> None:
+    """原子写磁盘快照；失败静默（缓存缺失只影响下次启动速度）。"""
+    cache_file = _disk_cache_file(path)
+    tmp: Path | None = None
+    try:
+        cache_file.parent.mkdir(parents=True, exist_ok=True)
+        tmp = cache_file.with_name(f".{cache_file.name}.{os.getpid()}.tmp")
+        with tmp.open("wb") as f:
+            pickle.dump(
+                {"version": _SNAPSHOT_CACHE_VERSION, "snapshot": snapshot},
+                f,
+                protocol=pickle.HIGHEST_PROTOCOL,
+            )
+        os.replace(tmp, cache_file)
+        _gc_stale_snapshots(cache_file.parent)
+    except Exception:
+        if tmp is not None:
+            try:
+                tmp.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+
+_SNAPSHOT_GC_AGE_SECONDS = 3 * 24 * 3600  # 3 天未更新的快照视为垃圾
+
+
+def _gc_stale_snapshots(cache_dir: Path) -> None:
+    """清理过期快照文件；测试的一次性临时库各留一份，不做 GC 会缓慢累积。"""
+    import time
+
+    now = time.time()
+    for stale in cache_dir.glob("recall-*.pkl"):
+        try:
+            if now - stale.stat().st_mtime > _SNAPSHOT_GC_AGE_SECONDS:
+                stale.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 def _resolve_db_path(db_path: str | Path | None = None) -> Path | None:
@@ -206,7 +279,7 @@ def _build_snapshot(
 
 
 def _snapshot(path: Path) -> _Snapshot | None:
-    """取索引快照；DB/WAL 变化时重建。"""
+    """取索引快照；DB/WAL 变化时重建（优先复用磁盘快照热启动）。"""
     conn = _connect(path)
     if conn is None:
         return None
@@ -218,7 +291,10 @@ def _snapshot(path: Path) -> _Snapshot | None:
             cached = _cache.get(str(path))
         if cached is not None and cached.fingerprint == fingerprint:
             return cached
-        snapshot = _build_snapshot(path, conn, fingerprint)
+        snapshot = _load_disk_snapshot(path, fingerprint)
+        if snapshot is None:
+            snapshot = _build_snapshot(path, conn, fingerprint)
+            _save_disk_snapshot(path, snapshot)
         with _lock:
             _cache[str(path)] = snapshot
         return snapshot

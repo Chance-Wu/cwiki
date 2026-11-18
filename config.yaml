@@ -1,10 +1,10 @@
 app:
   # 安全默认：单用户本地部署仅监听本机；手机/局域网设备访问需改回 0.0.0.0，并把设备访问的 origin 加入 cors_origins
-  api_host: 0.0.0.0
+  api_host: 127.0.0.1
   api_port: 5172
   # CORS 默认只放行前端 Vite dev 源（dev 经 proxy 同源访问，正常不触发跨域）
   cors_origins: ["http://localhost:5173", "http://127.0.0.1:5173", "http://192.168.1.223:5173"]
-  debug: true
+  debug: false
   # API 鉴权 token：默认空 = 不鉴权。监听 0.0.0.0 等非回环地址时建议配置；
   # token 生成后写在本文件或 config.local.yaml（优先级更高、不入代码仓库）
   auth_token: ''

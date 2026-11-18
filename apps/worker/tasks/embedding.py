@@ -39,7 +39,7 @@ async def task_generate_embedding(ctx: dict[str, Any], memory_id: str) -> dict[s
             embedding_service = _resolve_embedding_service(ctx)
             version, title, content = memory.version, memory.title, memory.content
             embedding = await embedding_service.generate_embedding(
-                format_memory_for_embedding(title, content)
+                format_memory_for_embedding(title, content), allow_fallback=False
             )
             if not embedding:
                 raise RuntimeError(f"Embedding generation returned None for memory {memory_id}")
@@ -100,7 +100,7 @@ async def task_generate_candidate_embedding(
         embedding_service = _resolve_embedding_service(ctx)
 
         embedding = await embedding_service.generate_embedding(
-            format_memory_for_embedding(candidate.title, candidate.content)
+            format_memory_for_embedding(candidate.title, candidate.content), allow_fallback=False
         )
         if not embedding:
             await db_session.rollback()
@@ -153,7 +153,9 @@ async def task_batch_generate_embeddings(ctx: dict[str, Any]) -> dict[str, Any]:
             candidate_workspace_ids.append(cand_row.workspace_id)
 
         embedding_service = _resolve_embedding_service(ctx)
-        embeddings = await embedding_service.generate_embeddings_batch(all_texts)
+        embeddings = await embedding_service.generate_embeddings_batch(
+            all_texts, allow_fallback=False
+        )
 
         candidates_updated = 0
         for j, emb in enumerate(embeddings):

@@ -24,7 +24,7 @@ cwiki 是个人知识工作台与 Agent 记忆基础设施。核心闭环：**�
 
 | 层 | 技术 |
 |----|------|
-| 后端 | Python 3.11+, FastAPI, SQLAlchemy (async), aiosqlite, Pydantic v2 |
+| 后端 | Python 3.12+, FastAPI, SQLAlchemy (async), aiosqlite, Pydantic v2 |
 | 前端 | React 18, Vite, TypeScript, Tailwind CSS, Radix UI, Framer Motion, TanStack Query |
 | 检索 | 自定义 BM25 (CJK) + 向量余弦 + RRF 融合 + 多信号重排, fastembed (本地 ONNX embedding) |
 | 工程 | Alembic (迁移), ruff (lint + format), mypy (strict), pytest (asyncio_mode=auto) |

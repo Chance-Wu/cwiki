@@ -5,15 +5,22 @@
 
 from __future__ import annotations
 
+from packages.domain.errors import AppError
 
-class InvalidStatusTransition(Exception):
-    """非法状态转换。"""
+
+class InvalidStatusTransition(AppError):
+    """非法状态转换。继承 AppError，API 层自动映射为 409。"""
 
     def __init__(self, current: str, target: str, allowed: list[str]) -> None:
         self.current = current
         self.target = target
         self.allowed = allowed
-        super().__init__(f"非法状态转换: {current!r} → {target!r}，允许的目标状态: {allowed}")
+        super().__init__(
+            "invalid_status_transition",
+            f"非法状态转换: {current!r} → {target!r}，允许的目标状态: {allowed}",
+            status_code=409,
+            extra={"current": current, "target": target, "allowed": allowed},
+        )
 
 
 # 正式记忆合法状态转换表。归档已移除：不再有软删除状态，删除即物理删除。
@@ -30,7 +37,14 @@ MEMORY_STATUS_TRANSITIONS: dict[str, list[str]] = {
 
 # 候选记忆合法状态转换表
 CANDIDATE_STATUS_TRANSITIONS: dict[str, list[str]] = {
-    "pending_review": ["approved", "rejected", "merged", "deferred", "needs_enrichment", "discarded"],
+    "pending_review": [
+        "approved",
+        "rejected",
+        "merged",
+        "deferred",
+        "needs_enrichment",
+        "discarded",
+    ],
     "needs_enrichment": ["pending_review", "rejected"],
     "deferred": ["pending_review", "rejected"],
     # 终态，但 /revert-auto-approve 撤销自动生效时回退待审（已删除生成的记忆）

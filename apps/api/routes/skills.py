@@ -108,11 +108,11 @@ async def list_skills(
     agent: str | None = None,
     _identity: Annotated[AgentIdentity | None, Depends(require_scope("skills:read"))] = None,
 ) -> list[dict[str, Any]]:
-    """列出 skills，可按来源过滤；省略 source 时返回全部。"""
-    if source:
-        result = get_cached_skills(source)
-    else:
-        result = get_cached_skills()
+    """列出 skills，可按来源过滤；省略 source 时返回全部。
+
+    扫描是同步文件系统遍历 + yaml 解析，放线程池避免缓存过期时阻塞事件循环。
+    """
+    result = await asyncio.to_thread(get_cached_skills, source)
     if agent:
         result = [s for s in result if agent in s.get("agents", [])]
     return result
@@ -124,7 +124,7 @@ async def get_skill(
     _identity: Annotated[AgentIdentity | None, Depends(require_scope("skills:read"))] = None,
 ) -> dict[str, Any]:
     """获取 skill 详情（含完整正文）。"""
-    for skill in get_cached_skills():
+    for skill in await asyncio.to_thread(get_cached_skills):
         if skill["name"] == name:
             return skill
     raise HTTPException(status_code=404, detail="Skill not found")

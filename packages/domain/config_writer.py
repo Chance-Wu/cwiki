@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Any
 
 import yaml
@@ -113,14 +113,43 @@ def _apply_one(lines: list[str], section: str, key: str, value: str) -> list[str
     return lines
 
 
+def _is_root_flow_document(lines: list[str]) -> bool:
+    """首个内容行是根级 ``{`` ⇒ 整份文档是流式映射，无法按行编辑。
+
+    在流式文档后插入 ``section:`` 块会产出非法 YAML（根上既有流映射
+    又有块映射），这种文档只能解析后整份重写。
+    """
+    for line in lines:
+        if _is_content(line):
+            return line.lstrip().startswith("{")
+    return False
+
+
+def _rewrite_flow_document(raw: str, assign: Callable[[dict[str, Any]], None]) -> str:
+    """解析流式文档、应用 *assign* 后整份重写（此类文档本无注释可保）。"""
+    data = yaml.safe_load(raw)
+    if not isinstance(data, dict):
+        data = {}
+    assign(data)
+    return yaml.safe_dump(data, allow_unicode=True, sort_keys=False, width=4096)
+
+
 def apply_scalar_updates(raw: str, updates: Sequence[tuple[str, str, Any]]) -> str:
     """把 ``section.key = value`` 逐个写回 *raw* 文本，其余行原样保留。"""
     if not updates:
         return raw
 
+    lines = raw.splitlines()
+    if _is_root_flow_document(lines):
+
+        def _assign(data: dict[str, Any]) -> None:
+            for section_name, key, value in updates:
+                data.setdefault(section_name, {})[key] = value
+
+        return _rewrite_flow_document(raw, _assign)
+
     eol = "\r\n" if "\r\n" in raw else "\n"
     ends_with_eol = raw.endswith(eol)
-    lines = raw.split(eol)
     if ends_with_eol and lines and lines[-1] == "":
         lines.pop()
 
@@ -234,6 +263,25 @@ def apply_block_updates(raw: str, updates: Sequence[tuple[Sequence[str], Any]]) 
     """
     if not updates:
         return raw
+
+    lines = raw.splitlines()
+    if _is_root_flow_document(lines):
+
+        def _assign(data: dict[str, Any]) -> None:
+            for path, value in updates:
+                keys = tuple(path)
+                if not keys:
+                    raise ValueError("块级写回至少需要一层键名")
+                node = data
+                for key in keys[:-1]:
+                    child = node.get(key)
+                    if not isinstance(child, dict):
+                        child = {}
+                        node[key] = child
+                    node = child
+                node[keys[-1]] = value
+
+        return _rewrite_flow_document(raw, _assign)
 
     eol = "\r\n" if "\r\n" in raw else "\n"
     ends_with_eol = raw.endswith(eol)

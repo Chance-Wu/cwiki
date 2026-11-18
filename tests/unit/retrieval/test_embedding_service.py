@@ -106,6 +106,38 @@ async def test_model_load_hang_is_cut_by_timeout(monkeypatch):
     assert service._load_failures == 1
 
 
+async def test_allow_fallback_false_returns_none_instead_of_hash(monkeypatch):
+    """文档侧（allow_fallback=False）：模型不可用时返回 None，哈希向量不得产生。
+
+    哈希向量无语义含义，一旦被文档侧调用方持久化进 vectors.npz / DB 列
+    会静默污染检索；持久化路径必须拿到 None 并依赖任务重试补齐。
+    """
+
+    class _BrokenTextEmbedding:
+        def __init__(self, model_name: str, cache_dir: str) -> None:
+            raise RuntimeError("model files missing")
+
+    monkeypatch.setitem(
+        sys.modules, "fastembed", SimpleNamespace(TextEmbedding=_BrokenTextEmbedding)
+    )
+    service = EmbeddingService()
+
+    # 查询侧（默认）：哈希兜底可用
+    query_vec = await service.generate_embedding("查询侧保持兜底")
+    assert query_vec is not None
+    assert len(query_vec) == settings.embedding_dimensions
+
+    # 文档侧：返回 None，不产生哈希向量，也不污染缓存
+    doc_vec = await service.generate_embedding("文档侧不得兜底", allow_fallback=False)
+    assert doc_vec is None
+
+    batch = await service.generate_embeddings_batch(
+        ["文档侧批量一", "文档侧批量二"], allow_fallback=False
+    )
+    assert batch == [None, None]
+    assert service._cache.get("文档侧不得兜底") is None
+
+
 async def test_model_load_timeout_does_not_leak_local_model(monkeypatch):
     """超时后 _local_model 必须保持 None：迟到的线程结果不得被当成有效模型。"""
 

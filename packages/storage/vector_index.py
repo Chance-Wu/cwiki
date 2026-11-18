@@ -52,9 +52,10 @@ class VectorIndex:
         self._matrix_cache: np.ndarray | None = None
         self._matrix_ids_cache: list[str] | None = None
         self._norms_cache: np.ndarray | None = None
-        self._dirty = False
-
         self._dirty = True  # 缓存延迟到首次检索时构建
+        # 磁盘内容是否落后于内存：save() 依据它跳过与磁盘一致的重复整写
+        # （同步/重放路径常在索引未变时再次 save，全量 O(N) 重写是纯浪费）
+        self._unsaved = False
         self._load()
 
     def _load(self) -> None:
@@ -74,6 +75,7 @@ class VectorIndex:
                     )
                     self.vectors.clear()
                     self.metadata.clear()
+                    self._unsaved = True
                     return
                 indexed_model = meta.get("model")
                 if indexed_model and self.model and indexed_model != self.model:
@@ -85,6 +87,7 @@ class VectorIndex:
                     )
                     self.vectors.clear()
                     self.metadata.clear()
+                    self._unsaved = True
                     return
                 with np.load(self.index_path) as data:
                     vecs = data["vectors"]
@@ -111,6 +114,7 @@ class VectorIndex:
                 for i, id_str in enumerate(ids):
                     self.vectors[id_str] = vecs[i]
                 self.metadata = meta.get("metadata", {})
+                self._unsaved = False
                 logger.info("Loaded %d vectors from index", len(self.vectors))
             except (OSError, ValueError, KeyError) as e:
                 logger.warning(
@@ -129,6 +133,8 @@ class VectorIndex:
             for id_str, vec in vectors_data.items():
                 self.vectors[id_str] = np.array(vec)
             self.metadata = metadata_data
+            # 内存内容与新格式磁盘不一致，save() 必须真实写盘完成格式升级
+            self._unsaved = True
             logger.info("Loaded %d vectors from legacy index", len(self.vectors))
             # 旧格式加载成功后立即按新格式落盘，完成格式升级
             self.save()
@@ -137,15 +143,21 @@ class VectorIndex:
             # 且 np.load 可能遇到 OSError/ValueError/KeyError，统一捕获并记录
             logger.error("Error loading vector index %s: %s", self.index_path, e)
 
-    def save(self) -> None:
+    def save(self, *, force: bool = False) -> None:
         """将索引原子写入磁盘。
 
         采用先写临时文件再重命名的模式，防止写入中途崩溃导致索引损坏。
+        自上次落盘后内容未变时跳过（索引是整份 O(N) 重写）；*force* 用于
+        旧格式升级等必须写盘的场景。
         """
+        if not force and not self._unsaved:
+            logger.debug("Vector index unchanged since last save; skipping rewrite")
+            return
         try:
             if not self.vectors:
                 self.index_path.unlink(missing_ok=True)
                 self._meta_path.unlink(missing_ok=True)
+                self._unsaved = False
                 return
 
             self.index_path.parent.mkdir(parents=True, exist_ok=True)
@@ -188,6 +200,7 @@ class VectorIndex:
                 Path(tmp_meta).unlink(missing_ok=True)
                 raise
 
+            self._unsaved = False
             logger.info("Saved %d vectors to index", len(self.vectors))
         except OSError as e:
             # 保存失败必须向调用方传播，避免 outbox 将未持久化状态视为成功
@@ -202,6 +215,7 @@ class VectorIndex:
         if metadata:
             self.metadata[memory_id] = metadata
         self._dirty = True
+        self._unsaved = True
 
     def remove(self, memory_id: str) -> None:
         """从索引移除一个向量。"""
@@ -210,6 +224,7 @@ class VectorIndex:
         if memory_id in self.metadata:
             del self.metadata[memory_id]
         self._dirty = True
+        self._unsaved = True
 
     def search(
         self,
