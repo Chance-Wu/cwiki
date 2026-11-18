@@ -201,3 +201,80 @@ async def test_patch_keeps_documentation_comments(
     assert ("\r\n" in after) == ("\r\n" in before)
     assert len(after.splitlines()) == len(before.splitlines())
     assert yaml.safe_load(after)["memory"]["title_max_length"] == 96
+
+
+def _write_decision_body(data: dict) -> dict:
+    """GET 的响应形状可直接作为 PUT 请求体，去掉只读字段。"""
+    return {
+        "enabled": data["enabled"],
+        "default_action": data["default_action"],
+        "rules": [
+            {
+                "id": rule["id"],
+                "action": rule["action"],
+                "description": rule.get("description", ""),
+                "examples": rule.get("examples", []),
+                "match": rule.get("match", {}),
+            }
+            for rule in data["rules"]
+        ],
+    }
+
+
+async def test_put_write_decisions_keeps_documentation_comments(
+    client: httpx.AsyncClient, isolated_config: Path
+) -> None:
+    """规则保存只替换 write_decisions 值块，块外注释与别的段都得原样留着。"""
+    before = isolated_config.read_text(encoding="utf-8")
+    body = _write_decision_body((await client.get("/v1/config/write-decisions")).json())
+    body["rules"].append(
+        {
+            "id": "block-write-check",
+            "action": "write",
+            "description": "验证块级写回不吞注释",
+            "examples": [],
+            "match": {"keyword": ["块级写回"]},
+        }
+    )
+
+    response = await client.put("/v1/config/write-decisions", json=body)
+
+    assert response.status_code == 200, response.text
+    assert any(rule["id"] == "block-write-check" for rule in response.json()["rules"])
+    after = isolated_config.read_text(encoding="utf-8")
+    assert _comment_lines(after) == _comment_lines(before)
+    assert ("\r\n" in after) == ("\r\n" in before)
+    stored = yaml.safe_load(after)
+    assert [rule["id"] for rule in stored["agent_policy"]["write_decisions"]["rules"]] == [
+        rule["id"] for rule in body["rules"]
+    ]
+    assert stored["retrieval"] == yaml.safe_load(before)["retrieval"]
+
+
+async def test_put_write_policy_keeps_commented_rule_examples(
+    client: httpx.AsyncClient, isolated_config: Path
+) -> None:
+    """memory.write_policy 的 rules 值块之后存着注释掉的示例规则，必须留在原位。"""
+    before = isolated_config.read_text(encoding="utf-8")
+    body = {
+        "enabled": True,
+        "rules": [
+            {
+                "id": "pinned-check",
+                "action": "auto",
+                "reason": "长期保留",
+                "match": {"type": ["decision"]},
+            }
+        ],
+    }
+
+    response = await client.put("/v1/config/write-policy", json=body)
+
+    assert response.status_code == 200, response.text
+    after = isolated_config.read_text(encoding="utf-8")
+    assert _comment_lines(after) == _comment_lines(before)
+    stored = yaml.safe_load(after)
+    assert stored["memory"]["write_policy"]["enabled"] is True
+    assert [rule["id"] for rule in stored["memory"]["write_policy"]["rules"]] == ["pinned-check"]
+    lines = after.splitlines()
+    assert lines.index("    # - id: pinned-auto") > lines.index("      - id: pinned-check")

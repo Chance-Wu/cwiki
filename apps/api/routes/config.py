@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable, Sequence
 from typing import Annotated, Any, Literal
 
 import yaml
@@ -19,7 +20,7 @@ from packages.domain.config import (
     scheduler_config,
     settings,
 )
-from packages.domain.config_writer import apply_scalar_updates
+from packages.domain.config_writer import apply_block_updates, apply_scalar_updates
 from packages.domain.rule_match import (
     MAX_KEYWORD_VALUES,
     MAX_MATCH_VALUE_CHARS,
@@ -377,8 +378,8 @@ def _read_config_file() -> dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
-def _write_scalar_updates(updates: list[tuple[str, str, Any]]) -> None:
-    """按行定位写回标量键。
+def _rewrite_config(rewrite: Callable[[str], str]) -> None:
+    """读入 config.yaml 原文、交给 *rewrite* 后原样写回。
 
     newline="" 是必须的：默认文本模式会把 LF 换成 CRLF，整份配置进 git diff。
     """
@@ -386,19 +387,22 @@ def _write_scalar_updates(updates: list[tuple[str, str, Any]]) -> None:
     if CONFIG_PATH.exists():
         with open(CONFIG_PATH, encoding="utf-8", newline="") as f:
             raw = f.read()
-    text = apply_scalar_updates(raw, updates)
     with open(CONFIG_PATH, "w", encoding="utf-8", newline="") as f:
-        f.write(text)
+        f.write(rewrite(raw))
+
+
+def _write_scalar_updates(updates: list[tuple[str, str, Any]]) -> None:
+    """按行定位写回标量键。"""
+    _rewrite_config(lambda raw: apply_scalar_updates(raw, updates))
+
+
+def _write_block_updates(updates: list[tuple[Sequence[str], Any]]) -> None:
+    """按路径整块写回，块外的注释与缩进逐字保留。"""
+    _rewrite_config(lambda raw: apply_block_updates(raw, updates))
 
 
 def _write_write_policy(body: WritePolicyModel) -> None:
-    """写入 config.yaml，保留配置中的其他段。"""
-    data = _read_config_file()
-    memory = data.get("memory")
-    if not isinstance(memory, dict):
-        memory = {}
-        data["memory"] = memory
-
+    """按路径写回 memory.write_policy，其余行原样保留。"""
     rules: list[dict[str, Any]] = []
     for rule in body.rules:
         match = {
@@ -417,9 +421,12 @@ def _write_write_policy(body: WritePolicyModel) -> None:
             entry["reason"] = rule.reason
         rules.append(entry)
 
-    memory["write_policy"] = {"enabled": body.enabled, "rules": rules}
-    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-        yaml.dump(data, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+    _write_block_updates(
+        [
+            (("memory", "write_policy", "enabled"), body.enabled),
+            (("memory", "write_policy", "rules"), rules),
+        ]
+    )
 
 
 def _effective_write_decisions() -> WriteDecisionData:
@@ -450,12 +457,6 @@ def _effective_write_decisions() -> WriteDecisionData:
 
 
 def _write_write_decisions(body: WriteDecisionModel) -> None:
-    data = _read_config_file()
-    agent_policy = data.get("agent_policy")
-    if not isinstance(agent_policy, dict):
-        agent_policy = {}
-        data["agent_policy"] = agent_policy
-
     rules: list[dict[str, Any]] = []
     for rule in body.rules:
         entry: dict[str, Any] = {
@@ -479,13 +480,13 @@ def _write_write_decisions(body: WriteDecisionModel) -> None:
             entry["examples"] = list(rule.examples)
         rules.append(entry)
 
-    agent_policy["write_decisions"] = {
-        "enabled": body.enabled,
-        "default_action": body.default_action,
-        "rules": rules,
-    }
-    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-        yaml.dump(data, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+    _write_block_updates(
+        [
+            (("agent_policy", "write_decisions", "enabled"), body.enabled),
+            (("agent_policy", "write_decisions", "default_action"), body.default_action),
+            (("agent_policy", "write_decisions", "rules"), rules),
+        ]
+    )
 
 
 @router.get("/v1/config/write-decisions", response_model=WriteDecisionData)
