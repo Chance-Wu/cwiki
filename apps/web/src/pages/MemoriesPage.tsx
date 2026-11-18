@@ -29,10 +29,10 @@ import { Button } from '../components/ui/Button'
 import { Card } from '../components/ui/Card'
 import type { SearchBoxHandle } from '../components/SearchBox'
 import type { OptimizePreview } from '../components/memory/MemoryDetailModal'
-import MemoryItem, { MEMORY_TYPES } from '../components/memories/MemoryItem'
-import BatchActionBar, { type BatchUpdatePatch } from '../components/memories/BatchActionBar'
-import MemoriesFilterPanel from '../components/memories/MemoriesFilterPanel'
-import MemoryListHeader from '../components/memories/MemoryListHeader'
+import MemoryItem, { MEMORY_TYPES } from '../components/memory/MemoryItem'
+import BatchActionBar, { type BatchUpdatePatch } from '../components/memory/BatchActionBar'
+import MemoriesFilterPanel from '../components/memory/MemoriesFilterPanel'
+import MemoryListHeader from '../components/memory/MemoryListHeader'
 
 const MemoryDetailModal = lazy(() => import('../components/memory/MemoryDetailModal'))
 const MemoryCreateModal = lazy(() => import('../components/memory/MemoryCreateModal'))

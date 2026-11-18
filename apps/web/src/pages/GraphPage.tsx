@@ -20,7 +20,7 @@ import PageTitle from '../components/PageTitle'
 import ErrorAlert from '../components/ErrorAlert'
 import LoadingWrapper from '../components/LoadingWrapper'
 import { CardSkeleton } from '../components/Skeleton'
-import { MEMORY_TYPES } from '../components/memories/MemoryItem'
+import { MEMORY_TYPES } from '../components/memory/MemoryItem'
 
 const MemoryDetailModal = lazy(() => import('../components/memory/MemoryDetailModal'))
 
