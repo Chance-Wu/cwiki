@@ -265,6 +265,9 @@ retrieval:
   # 检索可解释性：开启时 retrieval_trace.metadata 落库各路信号分项与逐条过滤原因
   # （去重/多样性/合并/截断），供排查检索质量问题；关闭时不写 metadata
   explain_enabled: true
+  # 自动召回总闸：关闭后 hook 不再做 UserPromptSubmit 检索召回，也不再带入
+  # SessionStart 常驻记忆；memory_search 主动检索与会话采集不受影响
+  auto_recall_enabled: true
 performance:
   context_cache_ttl: 60.0
   context_cache_max_size: 128

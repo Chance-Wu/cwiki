@@ -157,3 +157,47 @@ async def test_patch_persists_mcp_and_scheduler(
     stored = yaml.safe_load(isolated_config.read_text(encoding="utf-8"))
     assert stored["mcp"]["max_retries"] == 3
     assert stored["scheduler"]["relation_ttl_check_interval_hours"] == 12
+
+
+async def test_auto_recall_flag_exposed_persisted_and_reloaded(
+    client: httpx.AsyncClient,
+    isolated_config: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """UI 关一次召回要同时落盘并重载运行时 settings，否则 hook 读不到新值。"""
+    monkeypatch.setattr(domain_config.settings, "auto_recall_enabled", True)
+
+    data = (await client.get("/v1/config")).json()
+    assert data["retrieval"]["auto_recall_enabled"] is True
+
+    payload = await _current_section(client, "retrieval")
+    payload["auto_recall_enabled"] = False
+    response = await client.patch("/v1/config", json={"retrieval": payload})
+
+    assert response.status_code == 200, response.text
+    assert "retrieval.auto_recall_enabled" in response.json()["changed_fields"]
+    stored = yaml.safe_load(isolated_config.read_text(encoding="utf-8"))
+    assert stored["retrieval"]["auto_recall_enabled"] is False
+    assert domain_config.settings.auto_recall_enabled is False
+
+
+def _comment_lines(text: str) -> list[str]:
+    return [line for line in text.splitlines() if line.strip().startswith("#")]
+
+
+async def test_patch_keeps_documentation_comments(
+    client: httpx.AsyncClient, isolated_config: Path
+) -> None:
+    """config.yaml 的中文注释是文档；UI 拨一次开关不能把它们洗掉。"""
+    before = isolated_config.read_text(encoding="utf-8")
+    payload = await _current_section(client, "memory")
+    payload["title_max_length"] = 96
+
+    response = await client.patch("/v1/config", json={"memory": payload})
+
+    assert response.status_code == 200, response.text
+    after = isolated_config.read_text(encoding="utf-8")
+    assert _comment_lines(after) == _comment_lines(before)
+    assert ("\r\n" in after) == ("\r\n" in before)
+    assert len(after.splitlines()) == len(before.splitlines())
+    assert yaml.safe_load(after)["memory"]["title_max_length"] == 96

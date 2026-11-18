@@ -1096,7 +1096,7 @@ const zh: TranslationKeys = {
     perfDedupTopK: '去重候选数',
     perfDedupTopKDesc: '查重时每条记忆比对的候选数量',
     retrievalConfig: '检索权重',
-    retrievalDesc: '调整混合检索与 RRF 融合排序的各维度权重',
+    retrievalDesc: '调整混合检索与 RRF 融合排序的各维度权重，以及自动召回开关',
     weightBm25: 'BM25 权重',
     weightBm25Desc: '关键词精确匹配的权重（字面命中）',
     weightVector: '向量权重',
@@ -1122,6 +1122,9 @@ const zh: TranslationKeys = {
     weightRelevanceBand: '元数据影响带',
     weightRelevanceBandDesc:
       '置信度/重要度/新鲜度/使用率最多能翻转的相关性差值；0 表示纯相关性排序',
+    autoRecallEnabled: '自动召回',
+    autoRecallEnabledDesc:
+      '关闭后提问时不再自动带入相关记忆，会话开始也不再注入常驻记忆；主动用 memory_search 检索与记忆采集不受影响',
     appConfigDesc: '调试日志与诊断输出，日常使用建议关闭',
     navLabel: '页面导航',
     navUnsaved: '有未保存修改',

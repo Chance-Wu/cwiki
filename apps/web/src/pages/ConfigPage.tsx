@@ -407,6 +407,13 @@ const retrievalFields: EditableField[] = [
   }
 })
 
+retrievalFields.push({
+  key: 'auto_recall_enabled',
+  type: 'boolean',
+  nameKey: 'autoRecallEnabled',
+  descKey: 'autoRecallEnabledDesc',
+})
+
 const mcpFields: EditableField[] = [
   {
     key: 'max_retries',

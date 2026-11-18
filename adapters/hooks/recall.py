@@ -108,11 +108,26 @@ def _search(prompt: str, workspace: str) -> dict[str, Any]:
         return cast("dict[str, Any]", json.loads(response.read().decode("utf-8")))
 
 
+def _recall_enabled() -> bool:
+    """自动召回总闸（``retrieval.auto_recall_enabled``）。
+
+    读不到配置时按开启处理：hook 全程 fail-open，配置异常不能顺手把召回关掉。
+    """
+    try:
+        from packages.domain.config import settings
+
+        return bool(settings.auto_recall_enabled)
+    except Exception:
+        return True
+
+
 def build_session_head(workspace: str) -> str:
     """SessionStart 常驻注入：按 agent_policy.always_inject 读本地 DB。
 
     永久记忆 + 配置的类型/标签，压缩到固定字符预算；任何异常都静默返回空。
     """
+    if not _recall_enabled():
+        return ""
     try:
         from packages.domain.config import agent_policy_config as policy
 
@@ -177,6 +192,8 @@ def build_context(
     *on_deliver*（可选）在真正注入后回调，收到本次注入的 memory id 列表，
     用于把"已交付"信号回流后端（见 adapters/hooks/usage.py）。
     """
+    if not _recall_enabled():
+        return ""
     if len(prompt.strip()) < 8 or prompt.lstrip().startswith("/"):
         return ""
     key = _cache_key(workspace, prompt)

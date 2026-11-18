@@ -1122,7 +1122,8 @@ const en = {
     perfDedupTopK: 'Dedup Candidates',
     perfDedupTopKDesc: 'Candidates compared per memory during deduplication',
     retrievalConfig: 'Retrieval Weights',
-    retrievalDesc: 'Adjust hybrid retrieval and RRF fusion ranking weights',
+    retrievalDesc:
+      'Adjust hybrid retrieval and RRF fusion ranking weights, plus the auto recall switch',
     weightBm25: 'BM25 Weight',
     weightBm25Desc: 'Weight for exact keyword matching (literal hits)',
     weightVector: 'Vector Weight',
@@ -1150,6 +1151,9 @@ const en = {
     weightRelevanceBand: 'Metadata Influence Band',
     weightRelevanceBandDesc:
       'Maximum relevance gap that confidence/importance/freshness/usage may overturn; 0 means pure relevance',
+    autoRecallEnabled: 'Auto Recall',
+    autoRecallEnabledDesc:
+      'When off, prompts stop pulling in related memories and sessions stop receiving standing memories; memory_search and memory capture stay available',
     appConfigDesc: 'Verbose logs and diagnostics; keep off for daily use',
     navLabel: 'Page navigation',
     navUnsaved: 'Unsaved changes',

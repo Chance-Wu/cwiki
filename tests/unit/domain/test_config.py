@@ -2,6 +2,7 @@
 
 import pytest
 
+from packages.domain import config as domain_config
 from packages.domain.config import ParasiticEvolutionConfig, Settings
 
 
@@ -51,3 +52,29 @@ class TestParasiticEvolutionConfig:
         assert cfg.memory_relations_enabled is True
         assert cfg.agent_profile_enabled is True
         assert cfg.memory_version_tracking_enabled is True
+
+
+class TestAutoRecallFlag:
+    """召回总闸 retrieval.auto_recall_enabled 的加载语义。"""
+
+    def _retrieval_with(self, monkeypatch, **override):
+        retrieval = dict(domain_config._yaml_config.get("retrieval", {}))
+        retrieval.update(override)
+        monkeypatch.setitem(domain_config._yaml_config, "retrieval", retrieval)
+        return retrieval
+
+    def test_defaults_to_true_when_key_absent(self, monkeypatch):
+        retrieval = self._retrieval_with(monkeypatch)
+        retrieval.pop("auto_recall_enabled", None)
+        assert Settings().auto_recall_enabled is True
+
+    def test_reads_false_from_config(self, monkeypatch):
+        self._retrieval_with(monkeypatch, auto_recall_enabled=False)
+        assert Settings().auto_recall_enabled is False
+
+    def test_reload_picks_up_flag_change(self, monkeypatch):
+        self._retrieval_with(monkeypatch, auto_recall_enabled=True)
+        s = Settings()
+        self._retrieval_with(monkeypatch, auto_recall_enabled=False)
+        s.reload()
+        assert s.auto_recall_enabled is False

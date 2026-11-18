@@ -19,6 +19,7 @@ from packages.domain.config import (
     scheduler_config,
     settings,
 )
+from packages.domain.config_writer import apply_scalar_updates
 from packages.domain.rule_match import (
     MAX_KEYWORD_VALUES,
     MAX_MATCH_VALUE_CHARS,
@@ -117,6 +118,7 @@ class RetrievalConfigModel(BaseModel):
     reranker_intent_weight: float = Field(ge=0.0, le=10.0)
     reranker_key_term_bonus: float = Field(ge=0.0, le=10.0)
     reranker_relevance_band: float = Field(ge=0.0, le=1.0)
+    auto_recall_enabled: bool = True
 
 
 class SystemInfoModel(BaseModel):
@@ -375,6 +377,20 @@ def _read_config_file() -> dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
+def _write_scalar_updates(updates: list[tuple[str, str, Any]]) -> None:
+    """按行定位写回标量键。
+
+    newline="" 是必须的：默认文本模式会把 LF 换成 CRLF，整份配置进 git diff。
+    """
+    raw = ""
+    if CONFIG_PATH.exists():
+        with open(CONFIG_PATH, encoding="utf-8", newline="") as f:
+            raw = f.read()
+    text = apply_scalar_updates(raw, updates)
+    with open(CONFIG_PATH, "w", encoding="utf-8", newline="") as f:
+        f.write(text)
+
+
 def _write_write_policy(body: WritePolicyModel) -> None:
     """写入 config.yaml，保留配置中的其他段。"""
     data = _read_config_file()
@@ -605,6 +621,7 @@ async def get_config() -> ConfigData:
             reranker_intent_weight=settings.reranker_intent_weight,
             reranker_key_term_bonus=settings.reranker_key_term_bonus,
             reranker_relevance_band=settings.reranker_relevance_band,
+            auto_recall_enabled=settings.auto_recall_enabled,
         ),
         mcp=McpConfigModel(
             max_retries=settings.mcp_max_retries,
@@ -633,6 +650,7 @@ async def patch_config(
 ) -> ConfigPatchResult:
     """更新运行时配置并持久化到 config.yaml。"""
     changed_fields: list[str] = []
+    updates: list[tuple[str, str, Any]] = []
     config_data = await asyncio.to_thread(_read_config_file)
 
     # 逐段应用已知配置段的变更
@@ -642,22 +660,20 @@ async def patch_config(
             continue
         if section_name not in config_data:
             config_data[section_name] = {}
+        section_values = config_data[section_name]
+        if not isinstance(section_values, dict):
+            section_values = {}
+            config_data[section_name] = section_values
         # 只更新请求中显式提供的字段
         for key, value in section_data.model_dump(exclude_unset=True).items():
-            if config_data[section_name].get(key) != value:
-                config_data[section_name][key] = value
+            if section_values.get(key) != value:
+                section_values[key] = value
+                updates.append((section_name, key, value))
                 changed_fields.append(f"{section_name}.{key}")
 
-    # 写回 config.yaml
-    if changed_fields:
-
-        def _write_config() -> None:
-            with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-                yaml.dump(
-                    config_data, f, default_flow_style=False, allow_unicode=True, sort_keys=False
-                )
-
-        await asyncio.to_thread(_write_config)
+    # 写回 config.yaml：只改命中的标量行，保留注释与排版
+    if updates:
+        await asyncio.to_thread(_write_scalar_updates, updates)
 
         # 重新加载内存中的配置对象
         reload_yaml_config()

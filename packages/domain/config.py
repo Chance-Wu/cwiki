@@ -193,6 +193,9 @@ class Settings:
         # 生产检索链路保持关闭，负例拦截依赖检索器排序质量本身
         self.relevance_floor_mode: str = retrieval_cfg.get("relevance_floor_mode", "none")
         self.relevance_floor: float = retrieval_cfg.get("relevance_floor", 0.5)
+        # 自动召回总闸：关闭 hook 的 UserPromptSubmit 检索召回与 SessionStart
+        # 常驻记忆注入。默认开启；memory_search 主动检索与会话采集不受影响
+        self.auto_recall_enabled: bool = bool(retrieval_cfg.get("auto_recall_enabled", True))
 
         memory_cfg = _yaml_config.get("memory", {})
         self.memory_title_max_length = memory_cfg.get(
