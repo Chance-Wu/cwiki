@@ -27,7 +27,8 @@ benchmarks/
 ├── failures/                   # 失败案例库（JSONL，修复后保留作回归参照）
 ├── labeling/                   # 真实查询导出中间产物（.gitignore，不入库）
 ├── performance/
-│   └── perf_runner.py          # 大规模延迟基准（10K-1M 规模）
+│   ├── perf_runner.py          # 大规模延迟基准（10K-1M 规模，纯内存计算阶段）
+│   └── engine_runner.py        # 引擎级基准（真实引擎 + SQLite：指纹/重建尖峰/trace 写路径）
 ├── runners/
 │   ├── retrieval_runner.py     # 检索 Pipeline 对比运行器
 │   ├── context_runner.py       # 上下文组装运行器
@@ -109,6 +110,11 @@ python -m benchmarks.runners.calibrate_reranker \
 
 # 性能基准（10K 规模 100 查询；--corpus en|zh|mixed，CJK 走 jieba 分词）
 python -m benchmarks.performance.perf_runner --scale 10000 --queries 100 --corpus mixed
+
+# 引擎级基准（真实 RetrievalEngine + 真实 SQLite：指纹聚合、写后尖峰、
+# trace 写路径；perf_runner 不覆盖这些结构性成本）
+python -m benchmarks.performance.engine_runner --scale 10000 --queries 20 --corpus zh \
+  --label baseline   # 改动前基线，之后用 --label optimized 对比
 ```
 
 ### 真实查询导出（人工标注）
@@ -149,7 +155,10 @@ CI 的 `benchmark` job（.github/workflows/ci.yml）每次推送自动执行：�
 ```
 Recall@10 >= 0.80
 Useful@10 达成率 >= 0.75（full_pipeline 实测 0.79；原始 Useful@10 上限 0.2386，不作为绝对目标）
-p95 retrieval < 700ms（10K 规模 SLA；实测全管线 p95 约 4ms）
+p95 retrieval < 700ms（10K 规模 SLA；perf_runner 纯计算阶段实测 p95 约 4ms。
+注意：该数字不含引擎层结构成本——指纹聚合、写后重建、trace 写路径见
+engine_runner 的分阶段实测，曾存在 traced 检索每次全量重建的结构性问题，
+2026-11 修复后稳态查询与缓存命中路径一致）
 ```
 
 ## 数据集格式

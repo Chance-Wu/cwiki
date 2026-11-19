@@ -105,6 +105,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             "prune_stale_relations",
             scheduler_config.relation_ttl_check_interval_hours * 3600,
         )
+    # 检索 trace 保留巡检：90 天前的诊断数据按 24h 周期清理（保留期常量
+    # 在 maintenance.py，效用分所依赖的 memory_usage 不在清理范围）
+    _scheduler.add("prune_retrieval_traces", 24 * 3600)
     await _scheduler.start()
 
     file_store = FileStore(storage_config.memory_dir)

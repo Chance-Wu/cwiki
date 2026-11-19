@@ -1,9 +1,11 @@
 """apps/worker/tasks.py 测试 — 辅助函数、注册、embedding 任务。"""
 
 import uuid
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+import pytest_asyncio
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -43,7 +45,7 @@ class TestRegisterTasks:
     def test_registers_all_tasks(self):
         queue = MagicMock()
         register_tasks(queue)
-        assert queue.register.call_count == 10
+        assert queue.register.call_count == 11
 
     def test_registers_expected_task_names(self):
         queue = MagicMock()
@@ -60,6 +62,7 @@ class TestRegisterTasks:
             "periodic_meta_export",
             "auto_discover_relations",
             "prune_stale_relations",
+            "prune_retrieval_traces",
         ]
         assert registered_names == expected
 
@@ -243,3 +246,79 @@ class TestPruneStaleRelations:
         )
         result = await maintenance.task_prune_stale_relations({})
         assert result["status"] == "disabled"
+
+
+class TestPruneRetrievalTraces:
+    """检索 trace 保留巡检：只清诊断数据，不碰 memory_usage 行为数据。"""
+
+    @pytest_asyncio.fixture
+    async def env(self, tmp_path, monkeypatch):
+        from apps.worker.tasks import maintenance
+        from packages.domain.models import RetrievalTrace, RetrievalTraceItem
+
+        engine = create_async_engine(f"sqlite+aiosqlite:///{(tmp_path / 'trace.db').as_posix()}")
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        sessions = async_sessionmaker(engine, expire_on_commit=False)
+        monkeypatch.setattr(maintenance, "async_session_maker", sessions)
+
+        async with sessions() as db:
+            ws = Workspace(name="trace-ws")
+            db.add(ws)
+            await db.flush()
+            now = datetime.now(UTC).replace(tzinfo=None)
+            old = now - timedelta(days=120)
+            old_trace = RetrievalTrace(
+                id=uuid.uuid4(),
+                workspace_id=ws.id,
+                keyword="旧查询",
+                candidate_count=1,
+                returned_count=1,
+                latency_ms=10,
+                created_at=old,
+            )
+            fresh_trace = RetrievalTrace(
+                id=uuid.uuid4(),
+                workspace_id=ws.id,
+                keyword="新查询",
+                candidate_count=1,
+                returned_count=1,
+                latency_ms=10,
+                created_at=now,
+            )
+            db.add_all([old_trace, fresh_trace])
+            db.add_all(
+                [
+                    RetrievalTraceItem(
+                        trace_id=old_trace.id, memory_id=ws.id, stage="final", rank=1
+                    ),
+                    RetrievalTraceItem(
+                        trace_id=fresh_trace.id, memory_id=ws.id, stage="final", rank=1
+                    ),
+                ]
+            )
+            await db.commit()
+
+        yield maintenance, sessions, select, RetrievalTrace, RetrievalTraceItem
+        await engine.dispose()
+
+    async def test_deletes_only_traces_past_retention(self, env):
+        maintenance, sessions, select, RetrievalTrace, RetrievalTraceItem = env
+        result = await maintenance.task_prune_retrieval_traces({})
+
+        assert result["status"] == "completed"
+        assert result["traces_deleted"] == 1
+        async with sessions() as db:
+            traces = (await db.execute(select(RetrievalTrace))).scalars().all()
+            items = (await db.execute(select(RetrievalTraceItem))).scalars().all()
+        assert len(traces) == 1
+        assert traces[0].keyword == "新查询"
+        assert len(items) == 1  # 仅剩保留 trace 的明细
+
+    async def test_no_old_traces_is_noop(self, env):
+        maintenance, _sessions, _select, _trace, _items = env
+        # 第一轮已清理旧 trace，第二轮应为 no-op
+        await maintenance.task_prune_retrieval_traces({})
+        result = await maintenance.task_prune_retrieval_traces({})
+        assert result["status"] == "completed"
+        assert result["traces_deleted"] == 0

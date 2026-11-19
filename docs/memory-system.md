@@ -477,4 +477,5 @@ utility = 0.30 × retrieval_success   # 上下文采用启发信号（used / ret
 
 - `python tasks.py doctor`：DB / Markdown / `_meta` / 索引 / 向量一致性巡检（内容漂移、`_meta` 可解析性、向量维度/模型/配对）；`--fix-drift` 以 MD 为准修复单条内容漂移（见开发指南）；`--prune-meta` 删除 DB 已无对应行的孤儿 `_meta` 快照（重建本来就会跳过它们，清理避免被 Git 同步传播）。
 - 检索模式语义（`/v1/search` 与 `/v1/context` 的 `mode`）：`hybrid`=BM25+向量双路召回（默认，`/v1/context` 的 hybrid 额外并入 episode），`semantic`=仅向量路（过滤/重排与其余阶段一致生效），`episodic`=纯情节检索（仅 `/v1/context`）。`retrieve()` 已把 mode 原样透传给排序管线；`curated=true` 的 limit 超过 50 会夹紧到 50。
+- 引擎缓存与失效：内容指纹按写入世代缓存（SQLAlchemy 事件实时失效，零过期窗口），稳态查询不再做 O(N) 聚合扫描；BM25 索引失配时按 `id→(updated_at, 长度)` 签名差分增量更新（变更占比 >30% 才全量重建）；usage 回写显式固定 `updated_at`，检索自身不触发失效。分阶段实测见 `benchmarks.performance.engine_runner`。`retrieval_trace` 按 90 天保留巡检清理（效用分所依赖的 `memory_usage` 不在清理范围）。
 - 质量分布页分箱可下钻：`/memories?usage=…&decay=…&min_confidence=…&min_importance=…`。

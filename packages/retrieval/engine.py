@@ -13,8 +13,9 @@ from datetime import UTC, datetime
 from typing import Any
 
 import numpy as np
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import event, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session
 
 from packages.domain.config import settings
 from packages.domain.models import (
@@ -52,14 +53,43 @@ _GRAPH_BOOST_MAX = 0.25
 # 向量矩阵缓存的生效指纹：DB 内容指纹，使用文件向量索引时再并入其大小。
 _VecFingerprint = tuple[int, datetime | None, int] | tuple[int, datetime | None, int, int]
 
-# 内容指纹不变时复用缓存的 BM25 索引。
-# SQLite CURRENT_TIMESTAMP 只有秒级精度，同一秒内总长度不变的原地编辑
-# 可能逃过指纹检测；TTL 用于限制这类编辑最长的不可见时间。
+# 向量矩阵缓存与文件索引失效判定仍用时间上限；BM25 索引已改为
+# 按差分增量更新，不再需要全量重建式的 TTL（见 _ensure_index）。
 _INDEX_MAX_AGE_SECONDS = 60.0
 # LRU 缓存容量（warm_up 会按 workspace 数上调，见 warm_up 文档）
 _INDEX_CACHE_SIZE = 4
 _VEC_CACHE_SIZE = 2
 _VEC_CACHE_SIZE_MAX = 8  # 向量矩阵内存开销大（每份可达数十 MB），只允许有限上调
+
+# 内容指纹的进程内失效信号：任何 Memory 行的 ORM 变更或 Core 删除都会使
+# 世代 +1。引擎缓存的指纹只在世代不变期间复用，从而跳过每次请求的
+# O(N) 聚合扫描；写入与引擎同进程（API 单进程架构，worker/task queue
+# 亦在进程内），世代由 SQLAlchemy 事件监听器实时维护。
+# 注意：engine 自身的 usage 回写是 Core update 且不入 ORM dirty，不会自触发。
+_fingerprint_epoch = 0
+
+
+def _bump_fingerprint_epoch() -> None:
+    global _fingerprint_epoch
+    _fingerprint_epoch += 1
+
+
+def _on_session_memory_flush(session: Session, flush_context: Any) -> None:
+    for obj in (*session.new, *session.dirty, *session.deleted):
+        if isinstance(obj, Memory):
+            _bump_fingerprint_epoch()
+            return
+
+
+def _on_core_memory_delete(state: Any) -> None:
+    # Core 式批量删除绕过 ORM dirty 跟踪（file_memories/crud 等路由），
+    # 必须在 do_orm_execute 阶段识别并失效指纹缓存。
+    if state.is_delete and state.bind_mapper is not None and state.bind_mapper.class_ is Memory:
+        _bump_fingerprint_epoch()
+
+
+event.listens_for(Session, "after_flush")(_on_session_memory_flush)
+event.listens_for(Session, "do_orm_execute")(_on_core_memory_delete)
 
 
 @dataclass
@@ -123,6 +153,29 @@ class _LRUCache(OrderedDict[Any, Any]):
             self.popitem(last=False)
 
 
+class _IndexEntry:
+    """BM25 索引缓存条目：携带每记忆签名，支撑差分增量更新。
+
+    ``ids`` 记录构建（或上次差分）时每条 active 记忆的
+    ``(updated_at, 标题+内容长度和)``——比对指纹更细的粒度：
+    同一秒内的编辑只要改变了长度就能被差分捕获（指纹的 SUM 会变）。
+    """
+
+    __slots__ = ("built_at", "fingerprint", "ids", "index")
+
+    def __init__(
+        self,
+        fingerprint: tuple[int, datetime | None, int],
+        built_at: float,
+        index: BM25Index,
+        ids: dict[str, tuple[datetime | None, int]],
+    ) -> None:
+        self.fingerprint = fingerprint
+        self.built_at = built_at
+        self.index = index
+        self.ids = ids
+
+
 class RetrievalEngine:
     """混合检索引擎：BM25 + 向量 → RRF 融合 → 重排 → 多样性 → 上下文。
 
@@ -140,12 +193,17 @@ class RetrievalEngine:
     """
 
     def __init__(self) -> None:
-        # (workspace_id, project_id) -> (指纹, 构建时刻, BM25 索引)
+        # (workspace_id, project_id) -> _IndexEntry（差分增量维护的 BM25 索引）
         self._index_cache: _LRUCache = _LRUCache(_INDEX_CACHE_SIZE)
         # (workspace_id, project_id) -> (指纹, 构建时刻, ids, 向量矩阵, 范数)
         self._vec_cache: _LRUCache = _LRUCache(_VEC_CACHE_SIZE)
         # workspace_id -> (episode 指纹, BM25Index)；episodic 检索的轻量缓存
         self._episodic_index_cache: _LRUCache = _LRUCache(_INDEX_CACHE_SIZE)
+        # (workspace_id, project_id) -> (指纹, 计算时的写入世代)
+        self._fingerprint_cache: dict[
+            tuple[uuid.UUID | None, uuid.UUID | None],
+            tuple[tuple[int, datetime | None, int], int],
+        ] = {}
         # 向量来源覆写：设置后向量取自该提供者（文件版 VectorIndex），
         # 而非遗留的 DB embedding 列。
         self._vector_source: Callable[[], Any] | None = None
@@ -160,50 +218,26 @@ class RetrievalEngine:
         self._vector_source = provider
         self._vec_cache.clear()
 
-    async def _ensure_index(
-        self,
-        db: AsyncSession,
-        workspace_id: uuid.UUID | None = None,
-        project_id: uuid.UUID | None = None,
-        fingerprint: tuple[int, datetime | None, int] | None = None,
-    ) -> BM25Index:
-        """返回该范围的 BM25 索引，仅在内容变化时重建。
-
-        指纹（active 数量、最大 updated_at、标题+内容总长度）在数据库侧
-        一次性计算；指纹命中即复用缓存索引，避免每次请求重新拉取并分词
-        全部记忆。任何写入都会更新 updated_at（onupdate）或改变数量，
-        过期索引会在下一次请求时自愈；TTL 只兜底同一秒内的编辑窗口。
-        返回的索引在异步交错期间归当前请求独享；并发重建也安全，
-        因为缓存条目在完整构建完成后才被整体原子替换。
-        """
-        key = (workspace_id, project_id)
-        if fingerprint is None:
-            fingerprint = await self._content_fingerprint(db, workspace_id, project_id)
-        cached = self._index_cache.get(key)
-        if (
-            cached is not None
-            and cached[0] == fingerprint
-            and time.monotonic() - cached[1] < _INDEX_MAX_AGE_SECONDS
-        ):
-            cached_index: BM25Index = cached[2]
-            return cached_index
-
-        index = await self._build_index(db, workspace_id, project_id)
-        self._index_cache.put(key, (fingerprint, time.monotonic(), index))
-        return index
-
     async def _content_fingerprint(
         self,
         db: AsyncSession,
         workspace_id: uuid.UUID | None,
         project_id: uuid.UUID | None,
     ) -> tuple[int, datetime | None, int]:
-        """用一次廉价的 DB 聚合查询标识该范围的 active 内容。
+        """用一次 DB 聚合查询标识该范围的 active 内容，并按写穿失效缓存。
 
-        不做跨请求缓存：曾设 5s 短 TTL，但该时间窗会让过期指纹掩盖新写入、
-        连带 BM25 索引缓存一起滞后。聚合查询本身是 ms 级，且同一次
-        retrieve() 内的多次取用共享同一指纹值，足够。
+        缓存有效性 = 计算以来无任何 Memory 写入（世代计数不变）。命中时
+        完全跳过聚合扫描；写入后的首次查询重算一次并更新缓存——失效窗口
+        为零（与曾尝试过的 TTL 方案不同，不存在「新写入被掩盖」的时间窗）。
+        世代只覆盖本进程内写入：外部替换 DB 文件（rebuild-db 等）按既有
+        约定需要 restart 生效，不在此处兜底。
         """
+        key = (workspace_id, project_id)
+        epoch = _fingerprint_epoch
+        cached = self._fingerprint_cache.get(key)
+        if cached is not None and cached[1] == epoch:
+            return cached[0]
+
         stmt = select(
             func.count(),
             func.max(Memory.updated_at),
@@ -214,17 +248,33 @@ class RetrievalEngine:
         if project_id:
             stmt = stmt.where(Memory.project_id == project_id)
         row = (await db.execute(stmt)).one()
-        return (row[0], row[1], row[2])
+        fingerprint = (row[0], row[1], row[2])
+        self._fingerprint_cache[key] = (fingerprint, epoch)
+        return fingerprint
+
+    @staticmethod
+    def _index_text(content: str, metadata_: Any) -> str:
+        """参与 BM25 的索引文本：正文 + metadata 实体列表。"""
+        if metadata_ and isinstance(metadata_, dict):
+            entities = metadata_.get("entities")
+            if entities and isinstance(entities, list):
+                return content + " " + " ".join(str(e) for e in entities)
+        return content
 
     async def _build_index(
         self,
         db: AsyncSession,
         workspace_id: uuid.UUID | None,
         project_id: uuid.UUID | None,
-    ) -> BM25Index:
-        stmt = select(Memory.id, Memory.title, Memory.content, Memory.metadata_).where(
-            Memory.status == "active"
-        )
+    ) -> tuple[BM25Index, dict[str, tuple[datetime | None, int]]]:
+        """全量构建 BM25 索引，返回 (索引, 每记忆签名)。"""
+        stmt = select(
+            Memory.id,
+            Memory.title,
+            Memory.content,
+            Memory.metadata_,
+            Memory.updated_at,
+        ).where(Memory.status == "active")
         if workspace_id:
             stmt = stmt.where(Memory.workspace_id == workspace_id)
         if project_id:
@@ -233,14 +283,89 @@ class RetrievalEngine:
         memories = result.all()
 
         index = BM25Index()
+        ids: dict[str, tuple[datetime | None, int]] = {}
         for mem in memories:
-            text = mem.content
-            if mem.metadata_ and isinstance(mem.metadata_, dict):
-                entities = mem.metadata_.get("entities")
-                if entities and isinstance(entities, list):
-                    text = text + " " + " ".join(str(e) for e in entities)
-            index.add(str(mem.id), text, title=mem.title)
+            index.add(str(mem.id), self._index_text(mem.content, mem.metadata_), title=mem.title)
+            # 签名与索引同源构建，保证差分基准一致
+            ids[str(mem.id)] = (mem.updated_at, len(mem.title) + len(mem.content))
         # 无需再调 build()——add() 已增量维护索引有效性
+        return index, ids
+
+    async def _build_or_diff_index(
+        self,
+        db: AsyncSession,
+        workspace_id: uuid.UUID | None,
+        project_id: uuid.UUID | None,
+        cached: _IndexEntry | None,
+    ) -> tuple[BM25Index, dict[str, tuple[datetime | None, int]]]:
+        """指纹失配时的索引更新：差分增量优先，大比例变更回退全量。
+
+        差分成本是一次 id+updated_at+长度 的轻量清单查询（走
+        ``ix_memory_workspace_status``/``ix_memory_updated_at``，不拉正文），
+        变更行才按需拉取正文并 ``index.add()``（自带旧版本替换），
+        删除的行 ``index.remove()``。变更占比超过阈值时全量重建更划算。
+        """
+        stmt = select(
+            Memory.id,
+            Memory.updated_at,
+            func.length(Memory.title) + func.length(Memory.content),
+        ).where(Memory.status == "active")
+        if workspace_id:
+            stmt = stmt.where(Memory.workspace_id == workspace_id)
+        if project_id:
+            stmt = stmt.where(Memory.project_id == project_id)
+        current: dict[str, tuple[datetime | None, int]] = {
+            str(row[0]): (row[1], int(row[2] or 0)) for row in (await db.execute(stmt)).all()
+        }
+
+        if cached is None:
+            return await self._build_index(db, workspace_id, project_id)
+
+        to_remove = [mid for mid in cached.ids if mid not in current]
+        to_upsert = [mid for mid, sig in current.items() if cached.ids.get(mid) != sig]
+        changed = len(to_remove) + len(to_upsert)
+        if changed > 0.3 * max(len(current), 1):
+            return await self._build_index(db, workspace_id, project_id)
+
+        index = cached.index
+        for mid in to_remove:
+            index.remove(mid)
+        if to_upsert:
+            upsert_stmt = select(Memory.id, Memory.title, Memory.content, Memory.metadata_).where(
+                Memory.id.in_([uuid.UUID(mid) for mid in to_upsert])
+            )
+            for mem in (await db.execute(upsert_stmt)).all():
+                index.add(
+                    str(mem.id), self._index_text(mem.content, mem.metadata_), title=mem.title
+                )
+        return index, current
+
+    async def _ensure_index(
+        self,
+        db: AsyncSession,
+        workspace_id: uuid.UUID | None = None,
+        project_id: uuid.UUID | None = None,
+        fingerprint: tuple[int, datetime | None, int] | None = None,
+    ) -> BM25Index:
+        """返回该范围的 BM25 索引：命中复用，失配时差分增量更新。
+
+        指纹由 ``_content_fingerprint`` 提供并按写入世代缓存；失配时
+        ``_build_or_diff_index`` 只拉取变更行的正文（差分），小变更不再
+        触发全量拉取 + jieba 分词。差分在单线程事件循环内同步执行，
+        与并发查询不会交错；差分过程中另一查询可能读到移除后尚未补回
+        的瞬态索引（毫秒级窗口），与旧的"全量重建期间继续用旧索引"一样
+        属于可接受的短暂陈旧。
+        """
+        key = (workspace_id, project_id)
+        if fingerprint is None:
+            fingerprint = await self._content_fingerprint(db, workspace_id, project_id)
+        cached = self._index_cache.get(key)
+        if cached is not None and cached.fingerprint == fingerprint:
+            cached_index: BM25Index = cached.index
+            return cached_index
+
+        index, ids = await self._build_or_diff_index(db, workspace_id, project_id, cached)
+        self._index_cache.put(key, _IndexEntry(fingerprint, time.monotonic(), index, ids))
         return index
 
     async def _episodic_search(
@@ -1196,7 +1321,14 @@ class RetrievalEngine:
                 .values(
                     usage_count=Memory.usage_count + 1,
                     last_used_at=now.replace(tzinfo=None),
+                    # 显式固定 updated_at：阻止列级 onupdate 把检索回写当成
+                    # 内容更新——否则每次 traced 检索都会改写命中行的
+                    # updated_at，内容指纹必然失配，下一次检索触发全量
+                    # BM25 重建（记忆规模线性放大）。新鲜度评分用的是
+                    # last_used_at 独立列，不受影响。
+                    updated_at=Memory.updated_at,
                 )
+                .execution_options(synchronize_session=False)
             )
             try:
                 from packages.domain.config import parasitic_evolution_config

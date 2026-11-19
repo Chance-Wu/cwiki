@@ -40,6 +40,7 @@ from apps.worker.tasks.maintenance import (
     task_auto_discover_relations,
     task_check_review_reminders,
     task_periodic_meta_export,
+    task_prune_retrieval_traces,
     task_prune_stale_relations,
 )
 from packages.domain.models import CandidateMemory, Memory
@@ -66,6 +67,7 @@ __all__ = [
     "task_generate_candidate_embedding",
     "task_generate_embedding",
     "task_periodic_meta_export",
+    "task_prune_retrieval_traces",
     "task_prune_stale_relations",
     "task_score_candidate",
 ]
@@ -83,6 +85,7 @@ def register_tasks(queue: TaskQueue) -> None:
     queue.register("periodic_meta_export", task_periodic_meta_export)
     queue.register("auto_discover_relations", task_auto_discover_relations)
     queue.register("prune_stale_relations", task_prune_stale_relations)
+    queue.register("prune_retrieval_traces", task_prune_retrieval_traces)
 
 
 async def recover_orphaned_candidates(queue: TaskQueue) -> None:

@@ -241,3 +241,51 @@ async def task_prune_stale_relations(ctx: dict[str, Any]) -> dict[str, Any]:
         "ttl_days": ttl_days,
         "threshold": threshold,
     }
+
+
+# retrieval_trace / retrieval_trace_item 的保留天数：trace 是可解释性诊断
+# 数据（filter_reasons/信号分项），高召回量下无限增长会拖慢备份与同步。
+# memory_usage 不在此清理——它参与效用分聚合，属于行为数据而非诊断数据。
+_TRACE_RETENTION_DAYS = 90
+
+
+async def task_prune_retrieval_traces(ctx: dict[str, Any]) -> dict[str, Any]:
+    """定期清理超过保留期的检索 trace 及其明细行。
+
+    由周期调度器每 24h 触发；分两步删除（先 items 后 trace），
+    都按 created_at 截止时间批量执行，单批可承受，无需分页。
+    """
+    from packages.domain.models import RetrievalTrace, RetrievalTraceItem
+
+    cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=_TRACE_RETENTION_DAYS)
+    async with async_session_maker() as db_session:
+        old_ids = (
+            await db_session.scalars(
+                select(RetrievalTrace.id).where(RetrievalTrace.created_at < cutoff).limit(5000)
+            )
+        ).all()
+        if not old_ids:
+            return {"status": "completed", "traces_deleted": 0, "cutoff": cutoff.isoformat()}
+
+        items_result = await db_session.execute(
+            delete(RetrievalTraceItem).where(RetrievalTraceItem.trace_id.in_(old_ids))
+        )
+        traces_result = await db_session.execute(
+            delete(RetrievalTrace).where(RetrievalTrace.id.in_(old_ids))
+        )
+        await db_session.commit()
+
+    items_deleted = int(getattr(items_result, "rowcount", 0) or 0)
+    traces_deleted = int(getattr(traces_result, "rowcount", 0) or 0)
+    logger.info(
+        "Trace retention: pruned %d traces (%d items) older than %d days",
+        traces_deleted,
+        items_deleted,
+        _TRACE_RETENTION_DAYS,
+    )
+    return {
+        "status": "completed",
+        "traces_deleted": traces_deleted,
+        "items_deleted": items_deleted,
+        "cutoff": cutoff.isoformat(),
+    }

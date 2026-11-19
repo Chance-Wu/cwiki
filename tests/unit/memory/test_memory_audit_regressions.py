@@ -8,10 +8,12 @@ from unittest.mock import AsyncMock
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import delete as sqlalchemy_delete
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import selectinload
 
+import packages.retrieval.engine as engine_module
 from packages.domain.database import Base
 from packages.domain.models import (
     CandidateMemory,
@@ -259,7 +261,10 @@ async def test_index_cache_skips_rebuild_when_content_unchanged(sessions, retrie
     assert second["memories"][0]["id"] == first["memories"][0]["id"]
 
 
-async def test_index_cache_rebuilds_after_content_edit(sessions, retrieval, monkeypatch):
+async def test_index_cache_updates_incrementally_after_content_edit(
+    sessions, retrieval, monkeypatch
+):
+    """内容编辑后走差分增量更新：不再全量重建，编辑内容立即可检索。"""
     engine, _ = retrieval
     ws, mid = await searchable_workspace(sessions)
     counter = {"builds": 0}
@@ -275,24 +280,141 @@ async def test_index_cache_rebuilds_after_content_edit(sessions, retrieval, monk
         memory.content = "pulsar edited information"
         await db.commit()
     result = await search("pulsar")
-    assert counter["builds"] == 2
+    # 差分只补拉变更行，全量构建只发生在冷缓存
+    assert counter["builds"] == 1
     assert result["memories"][0]["id"] == str(mid)
 
 
-async def test_index_cache_ttl_forces_rebuild(sessions, retrieval, monkeypatch):
+async def test_fingerprint_cache_skips_aggregate_on_steady_state(sessions, retrieval, monkeypatch):
+    """无写入期间指纹聚合只算一次：稳态查询不再每请求全段扫描。
+
+    计数口径是「缓存 miss（真实聚合查询）」而非函数调用次数——
+    search_ranked 与 _ensure_embedding_matrix 是两个调用点，第二处
+    命中缓存属于预期。
+    """
     engine, _ = retrieval
     ws, _mid = await searchable_workspace(sessions)
-    monkeypatch.setattr("packages.retrieval.engine._INDEX_MAX_AGE_SECONDS", -1.0)
-    counter = {"builds": 0}
-    monkeypatch.setattr(engine, "_build_index", _counting_build(engine, counter))
+    counter = {"misses": 0}
+    original_fingerprint = engine._content_fingerprint
+
+    async def counting_fingerprint(db, workspace_id, project_id):
+        key = (workspace_id, project_id)
+        cached = engine._fingerprint_cache.get(key)
+        if cached is None or cached[1] != engine_module._fingerprint_epoch:
+            counter["misses"] += 1
+        return await original_fingerprint(db, workspace_id, project_id)
+
+    monkeypatch.setattr(engine, "_content_fingerprint", counting_fingerprint)
 
     async def search(term):
         async with sessions() as db:
             return await engine.retrieve(term, ws, db)
 
     await search("quasar")
+    assert counter["misses"] == 1  # 首次：真实聚合
+    for _ in range(3):
+        await search("quasar")
+    assert counter["misses"] == 1  # 稳态命中缓存，零聚合查询
+
+
+async def test_memory_write_invalidates_fingerprint_without_staleness(
+    sessions, retrieval, monkeypatch
+):
+    """写入立即失效指纹缓存：新记忆当次即可检索，无时间窗口。"""
+    engine, _ = retrieval
+    ws, _mid = await searchable_workspace(sessions)
+    counter = {"calls": 0}
+    original_fingerprint = engine._content_fingerprint
+
+    async def counting_fingerprint(db, workspace_id, project_id):
+        counter["calls"] += 1
+        return await original_fingerprint(db, workspace_id, project_id)
+
+    monkeypatch.setattr(engine, "_content_fingerprint", counting_fingerprint)
+
+    async def search(term):
+        async with sessions() as db:
+            return await engine.retrieve(term, ws, db)
+
     await search("quasar")
-    assert counter["builds"] == 2
+    assert counter["calls"] == 1
+
+    new_id = uuid.uuid4()
+    async with sessions() as db:
+        db.add(
+            Memory(
+                id=new_id,
+                workspace_id=ws,
+                title="comet 写入即达",
+                content="comet fresh write visible immediately",
+                type="fact",
+                status="active",
+            )
+        )
+        await db.commit()
+
+    result = await search("comet")
+    assert counter["calls"] == 2  # 写入使世代失效，聚合重算一次
+    assert result["memories"][0]["id"] == str(new_id)  # 零过期窗口
+
+
+async def test_traced_search_does_not_invalidate_fingerprint(sessions, retrieval, monkeypatch):
+    """usage 回写显式固定 updated_at：检索自身不得触发指纹失效（自我失效回归门）。"""
+    engine, _ = retrieval
+    ws, _mid = await searchable_workspace(sessions)
+    counter = {"misses": 0}
+    original_fingerprint = engine._content_fingerprint
+
+    async def counting_fingerprint(db, workspace_id, project_id):
+        key = (workspace_id, project_id)
+        cached = engine._fingerprint_cache.get(key)
+        if cached is None or cached[1] != engine_module._fingerprint_epoch:
+            counter["misses"] += 1
+        return await original_fingerprint(db, workspace_id, project_id)
+
+    monkeypatch.setattr(engine, "_content_fingerprint", counting_fingerprint)
+
+    async def search(term):
+        async with sessions() as db:
+            return await engine.retrieve(term, ws, db)
+
+    await search("quasar")
+    assert counter["misses"] == 1
+    # 多次带 trace 的检索（含 usage 回写）不增加指纹计算次数
+    for _ in range(3):
+        await search("quasar")
+    assert counter["misses"] == 1
+
+
+async def test_core_delete_invalidates_fingerprint_cache(sessions, retrieval, monkeypatch):
+    """Core 式批量删除也必须失效指纹缓存（do_orm_execute 识别 DELETE）。"""
+    engine, _ = retrieval
+    ws, mid = await searchable_workspace(sessions)
+    counter = {"misses": 0}
+    original_fingerprint = engine._content_fingerprint
+
+    async def counting_fingerprint(db, workspace_id, project_id):
+        key = (workspace_id, project_id)
+        cached = engine._fingerprint_cache.get(key)
+        if cached is None or cached[1] != engine_module._fingerprint_epoch:
+            counter["misses"] += 1
+        return await original_fingerprint(db, workspace_id, project_id)
+
+    monkeypatch.setattr(engine, "_content_fingerprint", counting_fingerprint)
+
+    async def search(term):
+        async with sessions() as db:
+            return await engine.retrieve(term, ws, db)
+
+    await search("quasar")
+    assert counter["misses"] == 1
+    async with sessions() as db:
+        await db.execute(sqlalchemy_delete(Memory).where(Memory.id == mid))
+        await db.commit()
+    result = await search("quasar")
+    assert counter["misses"] == 2  # Core 删除使世代失效，聚合重算一次
+    # 工作区仍有其他记忆走 fallback，但被删记忆必须从索引移除
+    assert str(mid) not in {m["id"] for m in result["memories"]}
 
 
 async def test_interleaved_workspace_requests_keep_request_local_indexes(
