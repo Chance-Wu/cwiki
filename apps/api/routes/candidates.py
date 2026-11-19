@@ -149,11 +149,15 @@ async def list_candidates(
         conditions.append(CandidateMemory.duplicate_probability <= max_duplicate)
     stmt, count_stmt = apply_optional_filters(stmt, count_stmt, conditions)
 
-    # 收件箱按审核优先级排序（低分 = 高优先级），未评分的排在后面，
-    # 同优先级按提交时间倒序；旧行为纯 created_at 会让高分垃圾堵住低分重要候选
+    # 收件箱按审核优先级排序（低分 = 高优先级），未评分的排在后面；
+    # 同优先级内按 value_score 高→低（高价值候选先被审核），value 未评分的
+    # 在 DESC 下自然排后（评分任务秒级补上），同分按提交时间倒序。
+    # 旧行为纯 created_at 会让低价值候选与高价值候选在同档混杂。
     order_by = (
         case((CandidateMemory.review_priority.is_(None), 1), else_=0),
         CandidateMemory.review_priority.asc(),
+        case((CandidateMemory.value_score.is_(None), 1), else_=0),
+        CandidateMemory.value_score.desc(),
         CandidateMemory.created_at.desc(),
     )
     total, candidates = await execute_paginated(db, stmt, count_stmt, order_by, offset, limit)

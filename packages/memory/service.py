@@ -640,6 +640,9 @@ async def create_candidate(
     candidate.quality_gate_score = qg.score
     candidate.quality_gate_reason = qg.reason
     candidate.review_priority = qg.review_priority
+    # 五维明细持久化（stable/reusable/actionable/scoped/evidence_backed），
+    # 供审核 UI tooltip 展示；评分任务会在候选被编辑后重算并覆盖
+    candidate.quality_report = {"quality_gate": qg.to_dict()}
 
     if client_write_id:
         # 先将 INSERT 放入 savepoint，避免 add 后的隐式预 flush 绕过冲突隔离。

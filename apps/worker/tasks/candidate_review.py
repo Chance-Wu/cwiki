@@ -15,10 +15,11 @@ from apps.worker.scoring import score_candidate
 from apps.worker.tasks._shared import _resolve_embedding_service
 from packages.domain.config import parasitic_evolution_config, settings
 from packages.domain.database import async_session_maker
-from packages.domain.models import CandidateMemory, Memory
+from packages.domain.models import CandidateMemory, Evidence, Memory
 from packages.domain.models.memory import MemoryConflict, Review
 from packages.domain.task_queue import TaskQueue
 from packages.memory.conflict_detection import detect_write_time_conflicts
+from packages.memory.quality_gate import compute_quality_gate
 from packages.memory.service import (
     CandidateStateError,
     DuplicateMemoryError,
@@ -109,6 +110,24 @@ async def task_score_candidate(
         if similar_index is not None and similar_index < len(memory_ids):
             candidate.similar_memory_id = memory_ids[similar_index]
             candidate.similar_memory_source = "memory"
+
+        # 评分时重算质量门：gate 只在提交时算过一次，候选内容此后被编辑
+        # （edit 动作/needs_enrichment 回流）即过期。gate_input 与提交侧
+        # （service.create_candidate）对齐：type/content + episode 证据数。
+        gate_input: dict[str, Any] = {"type": candidate.type, "content": candidate.content}
+        if candidate.episode_id is not None:
+            episode_evidence = await db_session.scalar(
+                select(func.count(Evidence.id)).where(Evidence.episode_id == candidate.episode_id)
+            )
+            if episode_evidence:
+                gate_input["evidence_count"] = int(episode_evidence)
+        qg = compute_quality_gate(gate_input)
+        candidate.quality_gate_score = qg.score
+        candidate.quality_gate_reason = qg.reason
+        candidate.review_priority = qg.review_priority
+        report = dict(candidate.quality_report or {})
+        report["quality_gate"] = qg.to_dict()
+        candidate.quality_report = report
 
         decision_review = candidate.decision_action == "review"
 

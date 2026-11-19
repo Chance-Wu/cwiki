@@ -812,3 +812,47 @@ class TestCitationExposure:
         assert citation["evidence_count"] == 1
         assert 'source="mcp"' in body["context"]
         assert 'evidence="1"' in body["context"]
+
+
+async def test_inbox_orders_by_gate_tier_then_value_then_time(
+    review_client, review_env, review_engine
+):
+    """收件箱排序契约：gate 档位优先，档内按 value_score 高→低，未评分排后。
+
+    value_score 由评分任务异步写入；此处直接改库模拟三种状态
+    （已评高分/已评低分/未评分），验证排序契约而非评分流程。
+    """
+    from sqlalchemy import update
+
+    ws = review_env
+    ids = [
+        await make_candidate(review_client, ws, f"排序契约 {i} 高价值素材")
+        for i in range(3)
+    ]
+    now_scores = {"high": 0.9, "low": 0.4, "unscored": None}
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    maker = async_sessionmaker(review_engine, expire_on_commit=False)
+    async with maker() as db:
+        await db.execute(
+            update(CandidateMemory)
+            .where(CandidateMemory.id == uuid.UUID(ids[0]))
+            .values(review_priority=0.5, value_score=now_scores["low"])
+        )
+        await db.execute(
+            update(CandidateMemory)
+            .where(CandidateMemory.id == uuid.UUID(ids[1]))
+            .values(review_priority=0.5, value_score=now_scores["high"])
+        )
+        await db.execute(
+            update(CandidateMemory)
+            .where(CandidateMemory.id == uuid.UUID(ids[2]))
+            .values(review_priority=0.5, value_score=None)
+        )
+        await db.commit()
+
+    r = await review_client.get(f"/v1/candidates?workspace_id={ws}")
+    assert r.status_code == 200
+    items = [item["id"] for item in r.json()["items"] if item["id"] in ids]
+    # 同 gate 档内：高价值 → 低价值 → 未评分
+    assert items == [ids[1], ids[0], ids[2]]

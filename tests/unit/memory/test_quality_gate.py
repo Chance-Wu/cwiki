@@ -182,3 +182,74 @@ class TestComputeQualityGate:
         r_bal = compute_quality_gate(balanced)
         r_unbal = compute_quality_gate(unbalanced)
         assert r_bal.criteria["stable"] > r_unbal.criteria["stable"]
+
+
+async def test_score_task_recomputes_gate_and_persists_criteria(tmp_path, monkeypatch):
+    """评分任务重算质量门并持久化五维明细：提交后编辑内容不再让 gate 过期。"""
+    import uuid
+
+    from sqlalchemy import select
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    from apps.worker.tasks.candidate_review import task_score_candidate
+    from packages.domain.database import Base
+    from packages.domain.models import CandidateMemory, Workspace
+
+    engine = create_async_engine(f"sqlite+aiosqlite:///{(tmp_path / 'gate.db').as_posix()}")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    monkeypatch.setattr(
+        "apps.worker.tasks.candidate_review.async_session_maker", sessions
+    )
+
+    async with sessions() as db:
+        ws = Workspace(name="gate-rescore")
+        db.add(ws)
+        await db.flush()
+        cand = CandidateMemory(
+            workspace_id=ws.id,
+            title="旧标题占位",
+            content="被编辑前的旧内容，足够长以通过排除过滤。" * 3,
+            type="fact",
+            status="pending_review",
+            confidence=0.9,
+            importance=0.9,
+            reusability=0.9,
+            stability=0.9,
+            evidence_strength=0.9,
+        )
+        # 提交侧初始写入五维明细
+        cand.quality_report = {
+            "quality_gate": {"criteria": {"stable": 0.1, "reusable": 0.1}}
+        }
+        db.add(cand)
+        await db.commit()
+        cand_id = cand.id
+        ws_id = ws.id
+
+    class _EmbeddingSvc:
+        is_fallback = True
+
+        async def generate_embedding(self, text):
+            return None
+
+    await task_score_candidate(
+        {"embedding_service": _EmbeddingSvc()}, str(cand_id), str(ws_id)
+    )
+
+    async with sessions() as db:
+        row = (
+            await db.execute(select(CandidateMemory).where(CandidateMemory.id == cand_id))
+        ).scalar_one()
+        gate = (row.quality_report or {}).get("quality_gate", {})
+        # 重算后明细被覆盖为完整五维，且 reason 与新内容一致
+        assert set(gate.get("criteria", {})) == {
+            "stable",
+            "reusable",
+            "actionable",
+            "scoped",
+            "evidence_backed",
+        }
+        assert row.quality_gate_score is not None
+        _ = ws_id

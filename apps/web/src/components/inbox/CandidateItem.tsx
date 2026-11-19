@@ -17,6 +17,17 @@ function qualityTier(score: number | null): 'high' | 'mid' | 'low' | null {
   return 'low'
 }
 
+/** 质量门五维明细（quality_report.quality_gate.criteria），未写入时返回 null。 */
+function gateCriteria(candidate: Candidate): Record<string, number> | null {
+  const report = candidate.quality_report as
+    | { quality_gate?: { criteria?: Record<string, number> } }
+    | null
+  const criteria = report?.quality_gate?.criteria
+  if (!criteria || typeof criteria !== 'object') return null
+  const entries = Object.entries(criteria).filter(([, v]) => typeof v === 'number')
+  return entries.length > 0 ? Object.fromEntries(entries) : null
+}
+
 export interface CandidateItemProps {
   candidate: Candidate
   idx: number
@@ -98,6 +109,18 @@ const CandidateItem = memo(function CandidateItem({
                         : 'danger'
                   }
                   className="tabular-nums px-1.5"
+                  title={
+                    [
+                      `${t.inbox.gateScore} ${Math.round(c.quality_gate_score * 100)}`,
+                      c.quality_gate_reason ?? '',
+                      ...Object.entries(gateCriteria(c) ?? {}).map(([k, v]) => {
+                        const labels = t.inbox as unknown as Record<string, string>
+                        return `${labels[`gateCriteria_${k}`] ?? k}: ${Math.round(v * 100)}`
+                      }),
+                    ]
+                      .filter(Boolean)
+                      .join('｜')
+                  }
                 >
                   {t.inbox.gateScore} {(c.quality_gate_score * 100).toFixed(0)}
                 </Badge>

@@ -129,6 +129,27 @@ def _enable_auto_approve(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "auto_approve_enabled", True)
 
 
+def _pin_quality_gate(monkeypatch: pytest.MonkeyPatch, score: float) -> None:
+    """把评分时的质量门重算钉在固定分值。
+
+    task_score_candidate 现在会按候选内容重算质量门（防过期）；本文件
+    测的是自动生效状态机而非 gate 公式，用固定分值隔离该依赖。
+    """
+    from packages.memory.quality_gate import QualityGateResult
+
+    criteria = {k: score for k in ("stable", "reusable", "actionable", "scoped", "evidence_backed")}
+
+    def fake_gate(gate_input: dict) -> QualityGateResult:
+        return QualityGateResult(
+            score=score,
+            reason="patched",
+            review_priority=min(score, 0.5),
+            criteria=criteria,
+        )
+
+    monkeypatch.setattr("apps.worker.tasks.candidate_review.compute_quality_gate", fake_gate)
+
+
 class TestAutoApprove:
     async def test_default_off_keeps_human_review(
         self, db: AsyncSession, ctx: dict, engine
@@ -148,6 +169,7 @@ class TestAutoApprove:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         _enable_auto_approve(monkeypatch)
+        _pin_quality_gate(monkeypatch, 0.9)
         cand, cid = await _make_candidate(db)
 
         result = await _run_score(ctx, engine, cid, str(cand.workspace_id))
@@ -207,6 +229,7 @@ class TestAutoApprove:
         self, db: AsyncSession, ctx: dict, engine, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         _enable_auto_approve(monkeypatch)
+        _pin_quality_gate(monkeypatch, 0.5)
         cand, cid = await _make_candidate(db, quality_gate_score=0.5)
         result = await _run_score(ctx, engine, cid, str(cand.workspace_id))
         assert result["status"] == "completed"
