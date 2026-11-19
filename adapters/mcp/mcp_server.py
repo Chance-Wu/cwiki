@@ -613,7 +613,6 @@ class MCPServer:
 
     def __init__(self, client: CwikiClient):
         self.client = client
-        self.tools = build_tool_definitions()
         self.outbox = WriteAheadOutbox()
         self.session_workspace: str | None = None
         # 宿主经 roots/list 声明的项目工作区（与 hook 注册表互补）
@@ -639,6 +638,9 @@ class MCPServer:
         )
         self._config_stamp = self._config_disk_stamp()
         self._config_error: str | None = None
+        # tools/list 的定义缓存：配置世代（_config_stamp）变化时由
+        # _refresh_config 置空，避免每次调用全量重建 JSON Schema
+        self._tools_cache: list[dict[str, Any]] | None = None
         self._drain_task: asyncio.Task[None] | None = None
 
     def _resolved_workspace(self, arguments: dict[str, Any]) -> str:
@@ -689,6 +691,8 @@ class MCPServer:
         stamp = self._config_disk_stamp()
         if stamp != self._config_stamp:
             self._config_stamp = stamp
+            # 工具定义嵌有运行时配置值（如 title 长度上限），配置重载后失效
+            self._tools_cache = None
             try:
                 domain_config.reload_yaml_config()
                 settings.reload()
@@ -1940,11 +1944,12 @@ class MCPServer:
 
         if method == "tools/list":
             self._refresh_config()
-            self.tools = build_tool_definitions()
+            if self._tools_cache is None:
+                self._tools_cache = build_tool_definitions()
             return {
                 "jsonrpc": "2.0",
                 "id": req_id,
-                "result": {"tools": self.tools},
+                "result": {"tools": self._tools_cache},
             }
 
         if method == "roots/list":

@@ -1141,12 +1141,20 @@ async def test_tools_list_reloads_only_when_disk_changes_and_status_is_safe(
         ]["properties"]["title"]["maxLength"]
 
     assert title_limit(first) == 9
+    # 运行时配置值（title 上限）只随磁盘配置变化：直接改 settings 内存值
+    # 不换磁盘世代时，tools/list 的定义缓存保持命中（缓存语义与生产一致——
+    # MCP 进程的配置变化必经 config.yaml 磁盘变更触发 _refresh_config）。
     monkeypatch.setattr(mcp_server.settings, "memory_title_max_length", 17)
-    assert title_limit(await memory_server.handle_message({"id": 2, "method": "tools/list"})) == 17
+    assert title_limit(await memory_server.handle_message({"id": 2, "method": "tools/list"})) == 9
+    old_mtime = path.stat().st_mtime_ns
+    path.write_text("memory:\n  title_max_length: 17\n", encoding="utf-8")
+    os.utime(path, ns=(old_mtime + 1_000_000, old_mtime + 1_000_000))
+    # 磁盘世代变化 → 配置重载 + 工具定义缓存失效 → 新值生效
+    assert title_limit(await memory_server.handle_message({"id": 3, "method": "tools/list"})) == 17
     old_mtime = path.stat().st_mtime_ns
     path.write_text("memory:\n  title_max_length: 7\n", encoding="utf-8")
     os.utime(path, ns=(old_mtime + 1_000_000, old_mtime + 1_000_000))
-    assert title_limit(await memory_server.handle_message({"id": 3, "method": "tools/list"})) == 7
+    assert title_limit(await memory_server.handle_message({"id": 4, "method": "tools/list"})) == 7
     result = await memory_server._handle_tool("memory_status", {"workspace_name": "offline"})
     assert result["effective_config"]["title_max_length"] == 7
     assert result["effective_config"]["config_file"] == str(path.resolve())

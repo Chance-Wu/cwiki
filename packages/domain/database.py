@@ -14,7 +14,6 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 from sqlalchemy.orm import DeclarativeBase
-from sqlalchemy.pool import StaticPool
 
 from packages.domain.config import settings
 
@@ -26,13 +25,21 @@ class Base(DeclarativeBase):
 
 
 def _create_engine() -> AsyncEngine:
-    """按数据库类型创建异步引擎（SQLite 用 StaticPool + WAL PRAGMA，其他用常规连接池）。"""
+    """按数据库类型创建异步引擎。
+
+    SQLite 使用 QueuePool（连接按会话独立）：WAL 模式下并发读互不阻塞，
+    并发写靠 busy_timeout 忙等；每个会话独立事务，请求 A 的 commit 不再
+    连带请求 B 已 flush 的语句（旧 StaticPool 单连接的交叉提交隐患）。
+    """
     if settings.is_sqlite:
         engine = create_async_engine(
             settings.database_url,
             echo=settings.debug,
             connect_args={"check_same_thread": False},
-            poolclass=StaticPool,
+            pool_size=10,
+            max_overflow=20,
+            pool_timeout=30,
+            pool_pre_ping=True,
         )
 
         @event.listens_for(engine.sync_engine, "connect")
@@ -45,6 +52,8 @@ def _create_engine() -> AsyncEngine:
             cursor.execute(
                 "PRAGMA wal_autocheckpoint=100"
             )  # 优化：自动 checkpoint，减少 WAL 文件堆积
+            # 多连接后并发写靠 SQLite 锁串行化；5s 忙等吸收毫秒级写事务竞争
+            cursor.execute("PRAGMA busy_timeout=5000")
             # SQLite 默认关闭外键约束；开启后 DDL 里的 ON DELETE CASCADE
             # 才会在删除 memory/workspace 时自动清理关系行。
             cursor.execute("PRAGMA foreign_keys=ON")

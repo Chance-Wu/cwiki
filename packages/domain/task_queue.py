@@ -276,11 +276,15 @@ class TaskQueue:
         await self._queue.put(task)
 
     async def _persist_loop(self) -> None:
-        """定期把脏状态刷盘（每 2 秒）。"""
+        """定期把脏状态刷盘（每 2 秒）。
+
+        快照写盘是同步 mkstemp+json.dump+os.replace，放线程池执行，
+        不阻塞事件循环；脏标记门控保证稳态零写入。
+        """
         while self._running:
             await asyncio.sleep(2.0)
             if self._persist_dirty:
-                self._persist_snapshot()
+                await asyncio.to_thread(self._persist_snapshot)
 
     def _cleanup_completed_tasks(self) -> None:
         """清理超过保留期的已完成任务。
@@ -535,7 +539,7 @@ class TaskQueue:
         return restored_pending, restored_failed
 
 
-queue = TaskQueue(max_workers=2)  # 优化：从 4 减少到 2，降低空闲时资源占用
+queue = TaskQueue(max_workers=4)  # worker 为 asyncio 协程，embedding 生成是 IO 型，4 并发合理
 
 
 async def startup() -> None:
