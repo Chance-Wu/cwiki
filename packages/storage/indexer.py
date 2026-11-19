@@ -7,6 +7,7 @@ import logging
 import os
 import sqlite3
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -290,9 +291,88 @@ class MemoryIndexer:
         row = await cursor.fetchone()
         return row[0] if row else 0
 
+    async def _main_db_active_ids(self) -> set[str] | None:
+        """主库中 active 的记忆 id 集合；读取失败返回 None（调用方保守跳过清理）。
+
+        孤儿清理不能用「MD 清单」单边判定：清单可能因目录异常、git 操作
+        中途的文件替换、或与 rebuild-db 的竞态而暂时为空/不完整。删除必须
+        同时被 MD 与主库缺席证实，否则宁可留下陈旧行等下次同步自愈。
+        """
+        try:
+            from sqlalchemy import select as sa_select
+
+            from packages.domain.database import async_session_maker
+            from packages.domain.models import Memory
+
+            async with async_session_maker() as session:
+                rows = (
+                    await session.execute(sa_select(Memory.id).where(Memory.status == "active"))
+                ).all()
+            return {str(row[0]) for row in rows}
+        except Exception:
+            logger.warning("无法读取主库 active 集合，跳过本轮孤儿清理", exc_info=True)
+            return None
+
+    async def _restore_vectors_from_main_db(self, memory_ids: list[str]) -> int:
+        """从主库 embedding 列补齐向量索引中缺失的条目，返回补回条数。
+
+        只补 active 且有 embedding 的记忆；维度不符的跳过（需重建索引）。
+        """
+        if not memory_ids:
+            return 0
+        try:
+            from sqlalchemy import select as sa_select
+
+            from packages.domain.database import async_session_maker
+            from packages.domain.models import Memory
+
+            parsed = []
+            for mid in memory_ids:
+                try:
+                    parsed.append(uuid.UUID(mid))
+                except (ValueError, TypeError):
+                    continue
+            if not parsed:
+                return 0
+            async with async_session_maker() as session:
+                rows = (
+                    await session.execute(
+                        sa_select(Memory.id, Memory.type, Memory.tags, Memory.embedding).where(
+                            Memory.id.in_(parsed),
+                            Memory.status == "active",
+                            Memory.embedding.isnot(None),
+                        )
+                    )
+                ).all()
+        except Exception:
+            logger.warning("无法从主库补齐向量，跳过", exc_info=True)
+            return 0
+
+        restored = 0
+        expected_dims = self.vector_index.dimensions
+        for row in rows:
+            vector = row[3]
+            if not vector:
+                continue
+            if len(vector) != expected_dims:
+                logger.warning(
+                    "跳过向量补齐 %s：维度 %d 与索引 %d 不符", row[0], len(vector), expected_dims
+                )
+                continue
+            self.vector_index.add(
+                str(row[0]), list(vector), metadata={"type": row[1], "tags": row[2] or []}
+            )
+            restored += 1
+        return restored
+
     async def sync_all(self) -> None:
-        """将全部 Markdown 文件同步到 SQLite 索引。"""
-        memories = await asyncio.to_thread(self.file_store.list)
+        """将全部 Markdown 文件同步到 SQLite 索引。
+
+        清理策略（用得稳优先）：索引/向量中的「孤儿」只有在 MD 与主库
+        都缺席、且 MD 清单可解析时才删除。MD 清单为空、存在无法解析的文件、
+        或主库不可读时，只做增量补齐，不做任何删除。
+        """
+        memories, skipped_files = await asyncio.to_thread(self.file_store.list_with_skipped)
         valid_ids = {m.id for m in memories}
         # 只有 active 记忆才允许持有向量；非 active 记忆不得重新入索引。
         active_ids = {m.id for m in memories if m.status == "active"}
@@ -338,29 +418,66 @@ class MemoryIndexer:
         db = await self._get_db()
         await db.commit()
 
-        # 清理向量索引中的孤儿/过期向量：MD 已删除或已非 active 的
-        # 记忆不应再参与语义检索（MD 与 SQLite/索引双轨保持一致）。
-        orphan_ids = set(self.vector_index.vectors.keys()) - active_ids
-        for oid in orphan_ids:
-            self.vector_index.remove(oid)
-        if orphan_ids:
-            logger.info("Removed %d orphan/stale vectors", len(orphan_ids))
+        # 补齐丢失向量：mtime 跳过路径不会重新落向量，若 vectors.npz 曾因
+        # 外部覆写/中断丢失条目，仅靠 mtime 增量永远补不回来（doctor 的
+        # missing_vectors 会反复出现）。这里对 active 且索引行已就绪、
+        # 但内存向量缺失的记忆，按主库 embedding 列一次批量补回。
+        missing_vector_ids = [mid for mid in active_ids if mid not in self.vector_index.vectors]
+        if missing_vector_ids:
+            restored = await self._restore_vectors_from_main_db(missing_vector_ids)
+            if restored:
+                logger.info("Restored %d missing vectors from main DB", restored)
 
-        # 清理 SQLite 中的孤儿行（MD 已删除的记忆），保持双轨一致
-        db = await self._get_db()
-        cursor = await db.execute("SELECT id FROM memory_index")
-        rows = await cursor.fetchall()
-        sqlite_ids = {row[0] for row in rows}
-        orphan_sqlite_ids = sqlite_ids - valid_ids
-        if orphan_sqlite_ids:
-            # 批量删除而非逐个删除
-            placeholders = ",".join("?" * len(orphan_sqlite_ids))
-            await db.execute(
-                f"DELETE FROM memory_index WHERE id IN ({placeholders})",
-                tuple(orphan_sqlite_ids),
+        # === 孤儿清理（带安全闸门）===
+        # 单边判定（只看 MD）在清单不完整时会误删整批索引，见 _main_db_active_ids
+        # 文档。删除条件：目标在 MD 与主库**双方**都缺席，且 MD 清单完整可解析。
+        # 清单为空本身不触发删除——只有主库也确认缺席的行才会被清掉，
+        # 因此「目录/挂载异常导致的空清单」不会造成任何数据丢失。
+        db_active = await self._main_db_active_ids()
+        listing_trusted = not skipped_files
+        if not listing_trusted:
+            logger.error(
+                "MD 清单不完整（%d 个文件无法解析/读取），跳过索引与向量孤儿清理：%s",
+                len(skipped_files),
+                skipped_files[:5],
             )
-            await db.commit()
-            logger.info("Removed %d orphan SQLite index rows", len(orphan_sqlite_ids))
+
+        cursor = await db.execute("SELECT id FROM memory_index")
+        sqlite_ids = {row[0] for row in await cursor.fetchall()}
+
+        if db_active is not None:
+            # 向量清理：仅删除「MD 与主库都不再 active」的向量
+            vector_orphans = {
+                vid for vid in set(self.vector_index.vectors) - active_ids if vid not in db_active
+            }
+            stale_only = set(self.vector_index.vectors) - active_ids - vector_orphans
+            if stale_only:
+                logger.warning(
+                    "保留 %d 条仅 MD 非 active、主库仍 active 的向量（待主库确认后清理）",
+                    len(stale_only),
+                )
+            if listing_trusted:
+                for oid in vector_orphans:
+                    self.vector_index.remove(oid)
+                if vector_orphans:
+                    logger.info("Removed %d orphan vectors", len(vector_orphans))
+
+            # 索引行清理：仅删除「MD 与主库都缺席」的行
+            prune_ids = {oid for oid in sqlite_ids - valid_ids if oid not in db_active}
+            if listing_trusted and prune_ids:
+                placeholders = ",".join("?" * len(prune_ids))
+                await db.execute(
+                    f"DELETE FROM memory_index WHERE id IN ({placeholders})",
+                    tuple(prune_ids),
+                )
+                await db.commit()
+                logger.info("Removed %d orphan SQLite index rows", len(prune_ids))
+            elif not listing_trusted and prune_ids:
+                logger.error(
+                    "跳过删除 %d 行疑似孤儿索引（MD 清单不可信，主库亦缺席）；"
+                    "确认后执行 python tasks.py rebuild-db --index-only",
+                    len(prune_ids),
+                )
 
         await asyncio.to_thread(self.vector_index.save)
 
@@ -404,9 +521,18 @@ class MemoryIndexer:
                 )
         return result.status
 
-    async def save_vector_index(self) -> None:
-        """将向量索引写入磁盘（异步封装）。"""
+    async def save_vector_index(self, *, only_if_unchanged: bool = False) -> bool:
+        """将向量索引写入磁盘（异步封装）。
+
+        *only_if_unchanged* 为 True 时，若磁盘已被外部进程改写则跳过
+        保存（供关闭流程使用：不能覆盖 rebuild-db 的权威结果）。
+        返回是否实际执行了落盘。
+        """
+        if only_if_unchanged and self.vector_index.disk_changed_externally():
+            logger.warning("向量索引被外部进程更新，跳过本次落盘（建议 restart 加载新索引）")
+            return False
         await asyncio.to_thread(self.vector_index.save)
+        return True
 
     async def semantic_search(
         self,
@@ -564,8 +690,19 @@ class MemoryIndexer:
                         (_normalize_path(file_path),),
                     )
                     row = await cursor.fetchone()
-                    if row:
-                        await self.indexer.remove_from_index(row["id"])
+                    if not row:
+                        return
+                    # git 操作（pull/checkout）会以删除+重建实现文件替换，
+                    # 此时 MD 删除事件不代表记忆已删除。只有主库也确认该记忆
+                    # 不是 active 时才移除索引行，避免瞬时事件造成索引漂移。
+                    db_active = await self.indexer._main_db_active_ids()
+                    if db_active is None:
+                        logger.warning("主库不可读，保留索引行 %s（MD 文件删除事件）", file_path)
+                        return
+                    if row["id"] in db_active:
+                        logger.info("保留索引行 %s：主库仍为 active（疑似文件替换事件）", row["id"])
+                        return
+                    await self.indexer.remove_from_index(row["id"])
                 except Exception as e:
                     logger.error("Error removing %s: %s", file_path, e)
 

@@ -6,10 +6,12 @@ import asyncio
 import ntpath
 import os
 import posixpath
+import uuid
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+from sqlalchemy import select
 
 from packages.storage import indexer as indexer_module
 from packages.storage.file_store import FileStore, MemoryFile
@@ -27,6 +29,9 @@ async def indexer(tmp_path, monkeypatch):
         vector_index_path=str(tmp_path / "vectors.npz"),
         embedding_dimensions=3,
     )
+    # 孤儿清理会交叉校验主库 active 集合；单测不连真实主库，
+    # 默认「主库为空」保持既有清理语义，需要时由用例覆盖返回值。
+    instance._main_db_active_ids = AsyncMock(return_value=set())  # type: ignore[method-assign]
     try:
         await instance.init_db()
         yield instance
@@ -427,3 +432,170 @@ async def test_loaded_paths_are_not_serialized(indexer, memory, loader):
     assert loaded.file_path == path
     assert "file_path" not in loaded.to_dict()
     assert "file_path" not in indexer.file_store._serialize(loaded)
+
+
+async def test_sync_never_prunes_index_when_markdown_listing_is_empty(indexer, memory):
+    """清单为空但主库仍有 active 记忆时，必须保留索引行与向量。
+
+    这正是「重启后索引整批消失」的复现路径：sync_all 若以单边 MD 清单
+    判定孤儿，任何暂时的空清单都会把索引删光。
+    """
+    path = save_as(indexer, memory, "Keep.MD")
+    await indexer.index_memory(memory, [1.0, 0.0, 0.0], file_path=path)
+    await indexer.save_vector_index()
+    # 模拟清单读取异常：文件还在盘上，但 list_with_skipped 返回空
+    indexer.file_store.list_with_skipped = lambda *a, **k: ([], [])  # type: ignore[method-assign]
+    indexer._main_db_active_ids = AsyncMock(return_value={memory.id})  # type: ignore[method-assign]
+
+    await indexer.sync_all()
+
+    assert await indexer.get_memory(memory.id) is not None
+    assert memory.id in indexer.vector_index.vectors
+    reloaded = VectorIndex(dimensions=3, index_path=str(indexer.vector_index.index_path))
+    assert memory.id in reloaded.vectors
+
+
+async def test_sync_skips_pruning_when_files_unreadable(indexer, memory):
+    """存在无法解析的 MD 文件时清单不可信，跳过孤儿清理。"""
+    path = save_as(indexer, memory, "Keep.MD")
+    await indexer.index_memory(memory, [1.0, 0.0, 0.0], file_path=path)
+    indexer.file_store.list_with_skipped = lambda *a, **k: (
+        [],
+        [(str(path), "read_error: PermissionError")],
+    )  # type: ignore[method-assign]
+    indexer._main_db_active_ids = AsyncMock(return_value=set())  # type: ignore[method-assign]
+
+    await indexer.sync_all()
+
+    assert await indexer.get_memory(memory.id) is not None
+
+
+async def test_sync_skips_pruning_when_main_db_unreadable(indexer, memory):
+    """主库不可读时宁可保留陈旧行，也不做破坏性清理。"""
+    path = save_as(indexer, memory, "Keep.MD")
+    await indexer.index_memory(memory, [1.0, 0.0, 0.0], file_path=path)
+    indexer.file_store.list_with_skipped = lambda *a, **k: ([], [])  # type: ignore[method-assign]
+    indexer._main_db_active_ids = AsyncMock(return_value=None)  # type: ignore[method-assign]
+
+    await indexer.sync_all()
+
+    assert await indexer.get_memory(memory.id) is not None
+
+
+async def test_sync_still_prunes_rows_absent_from_both_carriers(indexer, memory):
+    """MD 与主库都缺席的行仍会被正常清理（安全闸门不阻断真实孤儿）。"""
+    orphan = MemoryFile(id="gone-everywhere", title="Gone", content="Gone body.")
+    await indexer.index_memory(orphan, update_vector=False)
+
+    # 清单为空但主库仍 active：单边清单不构成删除依据，保留
+    indexer.file_store.list_with_skipped = lambda *a, **k: ([], [])  # type: ignore[method-assign]
+    indexer._main_db_active_ids = AsyncMock(return_value={orphan.id})  # type: ignore[method-assign]
+    await indexer.sync_all()
+    assert await indexer.get_memory(orphan.id) is not None
+
+    # 双载体都缺席：正常清理
+    indexer._main_db_active_ids = AsyncMock(return_value=set())  # type: ignore[method-assign]
+    await indexer.sync_all()
+    assert await indexer.get_memory(orphan.id) is None
+
+
+async def test_watcher_delete_keeps_row_when_main_db_still_active(indexer, watcher, memory):
+    """git 式文件替换（删除+重建）不得误删仍 active 记忆的索引行。"""
+    path = save_as(indexer, memory, "Replaced.MD")
+    await indexer.index_memory(memory, [1.0, 0.0, 0.0], file_path=path)
+    indexer._main_db_active_ids = AsyncMock(return_value={memory.id})  # type: ignore[method-assign]
+
+    await watcher.handler._handle_delete(path)
+
+    assert await indexer.get_memory(memory.id) is not None
+    assert memory.id in indexer.vector_index.vectors
+
+
+def test_vector_save_skips_when_disk_changed_externally(tmp_path):
+    """另一进程重建过 vectors.npz 后，本实例不得用旧内存状态覆盖。"""
+    index_path = tmp_path / "vectors.npz"
+    vi = VectorIndex(dimensions=3, index_path=str(index_path))
+    vi.add("a", [1.0, 0.0, 0.0])
+    vi.save()
+
+    # 模拟外部进程（rebuild-db）改写文件
+    other = VectorIndex(dimensions=3, index_path=str(index_path))
+    other.add("b", [0.0, 1.0, 0.0])
+    other.save()
+    assert vi.disk_changed_externally()
+
+    vi.add("c", [0.0, 0.0, 1.0])
+    vi.save()  # 检测到外部改写 -> 跳过
+
+    reloaded = VectorIndex(dimensions=3, index_path=str(index_path))
+    assert set(reloaded.vectors) == {"a", "b"}  # 保留外部权威版本，未被覆盖
+
+    # 显式 force 才允许覆盖（重建语义）：以本实例内存状态整体替换磁盘内容
+    vi.save(force=True)
+    assert set(VectorIndex(dimensions=3, index_path=str(index_path)).vectors) == {"a", "c"}
+
+
+async def test_indexer_save_vector_index_only_if_unchanged(indexer):
+    indexer.vector_index.add("x", [1.0, 0.0, 0.0])
+    await indexer.save_vector_index()
+    # 外部改写
+    external = VectorIndex(dimensions=3, index_path=str(indexer.vector_index.index_path))
+    external.add("y", [0.0, 1.0, 0.0])
+    external.save()
+
+    saved = await indexer.save_vector_index(only_if_unchanged=True)
+    assert saved is False
+    reloaded = VectorIndex(dimensions=3, index_path=str(indexer.vector_index.index_path))
+    assert set(reloaded.vectors) == {"x", "y"}
+
+
+async def test_sync_restores_missing_vectors_from_main_db(indexer, tmp_path, monkeypatch):
+    """mtime 跳过路径也要补齐缺失向量：否则启动同步永远修不好 missing_vectors。"""
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    from packages.domain import database as database_module
+    from packages.domain.models import Memory as DbMemory
+    from packages.domain.models import Workspace
+    from packages.domain.models.base import Base as ModelsBase
+
+    memory = MemoryFile(
+        id=str(uuid.uuid4()),
+        title="Restore memory",
+        content="Restore this vector body.",
+        workspace="chat",
+    )
+    path = save_as(indexer, memory, "Keep.MD")
+    await indexer.index_memory(memory, [1.0, 0.0, 0.0], file_path=path)
+    # 模拟 vectors.npz 曾丢失该条目（索引行仍是最新，mtime 会走跳过路径）
+    indexer.vector_index.remove(memory.id)
+    await indexer.save_vector_index()
+
+    engine = create_async_engine(f"sqlite+aiosqlite:///{(tmp_path / 'main.db').as_posix()}")
+    async with engine.begin() as conn:
+        await conn.run_sync(ModelsBase.metadata.create_all)
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    async with sessions() as db:
+        db.add(Workspace(id=uuid.uuid4(), name=memory.workspace or "chat"))
+        ws_id = (await db.execute(select(Workspace.id))).scalar_one()
+        db.add(
+            DbMemory(
+                id=uuid.UUID(memory.id),
+                workspace_id=ws_id,
+                title=memory.title,
+                content=memory.content,
+                type=memory.type,
+                status="active",
+                source="mcp",
+                embedding=[1.0, 0.0, 0.0],
+            )
+        )
+        await db.commit()
+    monkeypatch.setattr(database_module, "async_session_maker", sessions)
+    indexer._main_db_active_ids = AsyncMock(return_value={memory.id})  # type: ignore[method-assign]
+
+    await indexer.sync_all()
+    await engine.dispose()
+
+    assert memory.id in indexer.vector_index.vectors
+    reloaded = VectorIndex(dimensions=3, index_path=str(indexer.vector_index.index_path))
+    assert memory.id in reloaded.vectors

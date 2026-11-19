@@ -31,6 +31,15 @@ def _atomic_replace(src: str, dst: Path) -> None:
     os.replace(src, dst)
 
 
+def _disk_signature(path: Path) -> tuple[int, int] | None:
+    """文件 (size, mtime_ns) 指纹；不存在时返回 None。"""
+    try:
+        st = path.stat()
+    except OSError:
+        return None
+    return (st.st_size, st.st_mtime_ns)
+
+
 class VectorIndex:
     """基于 numpy 余弦相似度检索的简易向量索引。"""
 
@@ -56,7 +65,15 @@ class VectorIndex:
         # 磁盘内容是否落后于内存：save() 依据它跳过与磁盘一致的重复整写
         # （同步/重放路径常在索引未变时再次 save，全量 O(N) 重写是纯浪费）
         self._unsaved = False
+        # 上次加载/落盘时的磁盘指纹：另一进程（rebuild-db 等）改写文件后，
+        # 本实例的内存状态已过期，保存时会覆盖对方结果，需检测并放弃。
+        # 必须在 _load() 之前取值：旧格式升级路径会在 load 内调用 save()。
+        self._disk_sig: tuple[int, int] | None = _disk_signature(self.index_path)
         self._load()
+
+    def disk_changed_externally(self) -> bool:
+        """磁盘文件是否被其他进程改写（与上次加载/保存时不一致）。"""
+        return _disk_signature(self.index_path) != self._disk_sig
 
     def _load(self) -> None:
         """从磁盘加载索引，并检测文件损坏。"""
@@ -149,15 +166,27 @@ class VectorIndex:
         采用先写临时文件再重命名的模式，防止写入中途崩溃导致索引损坏。
         自上次落盘后内容未变时跳过（索引是整份 O(N) 重写）；*force* 用于
         旧格式升级等必须写盘的场景。
+
+        磁盘文件若已被另一进程改写（如 rebuild-db 在本服务运行期间重建），
+        本实例内存状态已过期，直接覆盖会抹掉对方结果——此时放弃保存并
+        告警，磁盘保留权威版本。*force* 跳过该保护（显式重建语义）。
         """
         if not force and not self._unsaved:
             logger.debug("Vector index unchanged since last save; skipping rewrite")
+            return
+        if not force and self.disk_changed_externally():
+            logger.warning(
+                "Vector index %s changed by another process; skipping in-memory save "
+                "(restart to load the new index, or run rebuild-db --index-only)",
+                self.index_path,
+            )
             return
         try:
             if not self.vectors:
                 self.index_path.unlink(missing_ok=True)
                 self._meta_path.unlink(missing_ok=True)
                 self._unsaved = False
+                self._disk_sig = _disk_signature(self.index_path)
                 return
 
             self.index_path.parent.mkdir(parents=True, exist_ok=True)
@@ -201,6 +230,7 @@ class VectorIndex:
                 raise
 
             self._unsaved = False
+            self._disk_sig = _disk_signature(self.index_path)
             logger.info("Saved %d vectors to index", len(self.vectors))
         except OSError as e:
             # 保存失败必须向调用方传播，避免 outbox 将未持久化状态视为成功

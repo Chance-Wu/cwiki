@@ -49,8 +49,8 @@ class _FakeIndexer:
     def stop_watching(self) -> None:
         pass
 
-    async def save_vector_index(self) -> None:
-        pass
+    async def save_vector_index(self, *, only_if_unchanged: bool = False) -> bool:
+        return True
 
     async def close(self) -> None:
         pass

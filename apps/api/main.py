@@ -141,7 +141,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await task_queue_shutdown()
     if _indexer:
         _indexer.stop_watching()
-        await _indexer.save_vector_index()
+        # 仅当磁盘文件未被其他进程（rebuild-db 等）改写时落盘：
+        # 否则关闭时会把内存中的旧向量覆盖掉对方的权威重建结果。
+        await _indexer.save_vector_index(only_if_unchanged=True)
         await _indexer.close()
     await close_db()
     logger.info("cwiki API shut down")
