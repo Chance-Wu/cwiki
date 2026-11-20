@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { EmptyVersions } from '../EmptyIllustrations'
+import { EmptyVersions } from '../empty-illustrations'
 import { Button } from '../ui/Button'
 import { Badge } from '../ui/Badge'
 import { api, type MemoryVersion } from '../../lib/api'

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { BookOpenCheck, Download } from 'lucide-react'
 import { useTranslation } from '../../i18n/I18nProvider'
 import { api } from '../../lib/api'
+import { downloadBlob } from '../../lib/download'
 import { Card } from '../ui/Card'
 import { Button } from '../ui/Button'
 import { Skeleton } from '../Skeleton'
@@ -45,8 +46,7 @@ export default function WeeklyReview({ workspaceId }: Props) {
       ),
       `- ${t.weekly.duplicatePairs}: ${data.actions.duplicate_pairs.length}`,
       ...data.actions.duplicate_pairs.map(
-        (pair) =>
-          `  - ${pair.left.title} ↔ ${pair.right.title} (${pair.similarity.toFixed(2)})`,
+        (pair) => `  - ${pair.left.title} ↔ ${pair.right.title} (${pair.similarity.toFixed(2)})`,
       ),
       `- ${t.weekly.retrievalGaps}: ${data.actions.retrieval_gaps.length}`,
       ...data.actions.retrieval_gaps.map(
@@ -60,12 +60,7 @@ export default function WeeklyReview({ workspaceId }: Props) {
       '',
     ]
     const blob = new Blob([lines.join('\n')], { type: 'text/markdown;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `cwiki-weekly-${data.period_end}.md`
-    a.click()
-    URL.revokeObjectURL(url)
+    downloadBlob(blob, `cwiki-weekly-${data.period_end}.md`)
   }
 
   if (!isLoading && !data) return null
@@ -193,10 +188,7 @@ export default function WeeklyReview({ workspaceId }: Props) {
                   </li>
                 ))}
                 {data.actions.duplicate_pairs.map((pair) => (
-                  <li
-                    key={`${pair.left.id}-${pair.right.id}`}
-                    className="flex items-center gap-2"
-                  >
+                  <li key={`${pair.left.id}-${pair.right.id}`} className="flex items-center gap-2">
                     <span className="rounded bg-warning/15 px-1.5 py-0.5 text-warning-fg">
                       {t.weekly.duplicatePairs}
                     </span>

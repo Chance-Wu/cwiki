@@ -49,3 +49,32 @@ export function formatRelativeTime(
   if (days < 7) return strings.daysAgo.replace('{n}', String(days))
   return date.toLocaleDateString(locale === 'zh' ? 'zh-CN' : 'en-US')
 }
+
+export type Freshness = 'fresh' | 'aging' | 'stale'
+
+// 按类型的时效阈值（天）：规则/决策类记忆比事实类"保质期"更长
+const FRESHNESS_THRESHOLDS: Record<string, { fresh: number; aging: number }> = {
+  fact: { fresh: 30, aging: 90 },
+  reference: { fresh: 30, aging: 90 },
+  decision: { fresh: 60, aging: 180 },
+  convention: { fresh: 60, aging: 180 },
+  pattern: { fresh: 60, aging: 180 },
+  issue: { fresh: 30, aging: 90 },
+  procedure: { fresh: 30, aging: 90 },
+  feedback: { fresh: 30, aging: 90 },
+}
+
+/** 记忆新鲜度：优先看 last_used_at，退回 updated_at；未知类型按 fact 阈值 */
+export function getFreshness(memory: {
+  type?: string | null
+  last_used_at?: string | null
+  updated_at?: string | null
+}): Freshness {
+  const t = FRESHNESS_THRESHOLDS[memory.type || 'fact'] || FRESHNESS_THRESHOLDS.fact
+  const dateStr = memory.last_used_at || memory.updated_at
+  if (!dateStr) return 'stale'
+  const days = (Date.now() - new Date(ensureUtc(dateStr)).getTime()) / 86400000
+  if (days < t.fresh) return 'fresh'
+  if (days < t.aging) return 'aging'
+  return 'stale'
+}

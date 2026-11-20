@@ -16,13 +16,14 @@ import { useTranslation, translate } from '../i18n/I18nProvider'
 import { api, type FileMemory } from '../lib/api'
 import { type MemoryListItem, type MemoryListRecord } from '../lib/api/memories'
 import { ensureUtc } from '../lib/format'
+import { downloadBlob } from '../lib/download'
 import { typeLabel, MEMORY_STATUSES } from '../lib/labels'
 import Pagination from '../components/Pagination'
 import { useToast } from '../components/Toast'
 import { ListSkeleton } from '../components/Skeleton'
 import ErrorAlert from '../components/ErrorAlert'
 import EmptyState from '../components/EmptyState'
-import { EmptyMemory } from '../components/EmptyIllustrations'
+import { EmptyMemory } from '../components/empty-illustrations'
 import PageShell from '../components/PageShell'
 import PageTitle from '../components/PageTitle'
 import { Button } from '../components/ui/Button'
@@ -109,7 +110,8 @@ export default function MemoriesPage() {
     qualityMaxImportance !== undefined,
   )
 
-  const [searchInput, setSearchInput] = useState('')
+  // 深链接：handleSearch 把 q/mode 写进 URL，这里对称地读回，分享/刷新可复现
+  const [searchInput, setSearchInput] = useState(() => searchParams.get('q') ?? '')
   const deferredQuery = useDeferredValue(searchInput)
   const [detailMemory, setDetailMemory] = useState<MemoryRecord | null>(null)
   const [preview, setPreview] = useState<OptimizePreview | null>(null)
@@ -144,7 +146,10 @@ export default function MemoriesPage() {
   const [batchDeleteLoading, setBatchDeleteLoading] = useState(false)
   const [batchUpdateLoading, setBatchUpdateLoading] = useState(false)
 
-  const [searchMode, setSearchMode] = useState<SearchMode>('text')
+  const [searchMode, setSearchMode] = useState<SearchMode>(() => {
+    const m = searchParams.get('mode')
+    return m === 'auto' || m === 'text' || m === 'semantic' || m === 'hybrid' ? m : 'text'
+  })
   const { history: searchHistory, addHistory, removeHistory, clearHistory } = useSearchHistory()
   const searchInputRef = useRef<SearchBoxHandle>(null)
 
@@ -364,12 +369,7 @@ export default function MemoriesPage() {
         Array.from(selectedIds),
       )
       const blob = await res.blob()
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `cwiki-selected-${new Date().toISOString().slice(0, 10)}.md`
-      a.click()
-      URL.revokeObjectURL(url)
+      downloadBlob(blob, `cwiki-selected-${new Date().toISOString().slice(0, 10)}.md`)
       toast(t.memories.exportSelectedSuccess, 'success')
     } catch {
       toast(t.memories.exportSelectedFailed, 'error')

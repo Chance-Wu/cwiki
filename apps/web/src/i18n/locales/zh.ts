@@ -775,6 +775,7 @@ const zh: TranslationKeys = {
     total: '共 {n} 条',
     pageInfo: '第 {current} / {total} 页',
     perPage: '{n} 条/页',
+    perPageLabel: '每页条数',
     first: '首页',
     prev: '上一页',
     next: '下一页',

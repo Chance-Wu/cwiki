@@ -212,6 +212,35 @@
   --ambient-orb-1: rgb(var(--brand-rgb) / 0.07);
   --ambient-orb-2: rgb(var(--brand-deep-rgb) / 0.045);
 
+  /* Chart & graph palette — 记忆类型 / 关系 / 掌握度 / 分布图。
+     SVG/DOM 可直接引用 var()；canvas 侧由 GraphPage 的 readThemeColors 读取，
+     lib/labels.ts 的 TYPE_HEX 仅作读取失败时的亮色 fallback。 */
+  --type-fact: #3b82f6;
+  --type-decision: #8b5cf6;
+  --type-issue: #ef4444;
+  --type-convention: #14b8a6;
+  --type-pattern: #22c55e;
+  --type-procedure: #06b6d4;
+  --type-feedback: #ec4899;
+  --type-reference: #0ea5e9;
+  --type-constraint: #f97316;
+  --type-lesson: #f59e0b;
+  --type-rule: #a855f7;
+  --rel-related: #8b5cf6;
+  --rel-supports: #22c55e;
+  --rel-contradicts: #ef4444;
+  --rel-supersedes: #f59e0b;
+  --rel-refines: #3b82f6;
+  --mastery-new: #94a3b8;
+  --mastery-learning: #f43f5e;
+  --mastery-familiar: #f59e0b;
+  --mastery-proficient: #3b82f6;
+  --mastery-mastered: #22c55e;
+  --chart-confidence: #3b82f6;
+  --chart-importance: #8b5cf6;
+  --chart-usage: #22c55e;
+  --chart-decay: #f59e0b;
+
   color-scheme: light;
 }
 
@@ -378,6 +407,33 @@
   /* Content zone glow — brand tint */
   --content-glow-1: rgb(var(--brand-rgb) / 0.04);
   --content-glow-2: rgb(var(--brand-rgb) / 0.03);
+
+  /* Chart & graph palette — dark 下换更亮的 400 系色保持对比 */
+  --type-fact: #60a5fa;
+  --type-decision: #a78bfa;
+  --type-issue: #f87171;
+  --type-convention: #2dd4bf;
+  --type-pattern: #4ade80;
+  --type-procedure: #22d3ee;
+  --type-feedback: #f472b6;
+  --type-reference: #38bdf8;
+  --type-constraint: #fb923c;
+  --type-lesson: #fbbf24;
+  --type-rule: #c084fc;
+  --rel-related: #a78bfa;
+  --rel-supports: #4ade80;
+  --rel-contradicts: #f87171;
+  --rel-supersedes: #fbbf24;
+  --rel-refines: #60a5fa;
+  --mastery-new: #cbd5e1;
+  --mastery-learning: #fb7185;
+  --mastery-familiar: #fbbf24;
+  --mastery-proficient: #60a5fa;
+  --mastery-mastered: #4ade80;
+  --chart-confidence: #60a5fa;
+  --chart-importance: #a78bfa;
+  --chart-usage: #4ade80;
+  --chart-decay: #fbbf24;
 
   color-scheme: dark;
 }
@@ -1692,6 +1748,30 @@ html.dark {
 
 .pulse-dot {
   animation: pulse-dot 2s ease-in-out infinite;
+}
+
+/* ══════════════════════════════════════════════════════
+   Toast 倒计时条 — CSS 动画驱动（替代逐帧 setState）。
+   hover 暂停：视觉动画由 play-state 控制，dismiss 计时器由
+   同一次 onMouseEnter/Leave 重算 remaining，两者保持同步。
+   ══════════════════════════════════════════════════════ */
+@keyframes toast-progress-bar {
+  from {
+    width: 100%;
+  }
+  to {
+    width: 0%;
+  }
+}
+
+.toast-progress {
+  animation-name: toast-progress-bar;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+
+.group:hover .toast-progress {
+  animation-play-state: paused;
 }
 
 /* ══════════════════════════════════════════════════════

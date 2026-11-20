@@ -35,7 +35,7 @@ export default function NetworkBanner() {
         animate={{ y: 0, opacity: 1 }}
         exit={{ y: -40, opacity: 0 }}
         transition={{ duration: 0.2 }}
-        className="fixed top-0 left-0 right-0 z-50 flex items-center justify-center gap-3 px-4 py-2 bg-warning-bg border-b border-warning-border text-warning-fg text-xs font-medium shadow-warm-sm"
+        className="fixed top-0 left-0 right-0 z-sheet flex items-center justify-center gap-3 px-4 py-2 bg-warning-bg border-b border-warning-border text-warning-fg text-xs font-medium shadow-warm-sm"
         role="alert"
         aria-live="polite"
       >

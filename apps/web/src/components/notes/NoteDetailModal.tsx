@@ -80,6 +80,8 @@ export default function NoteDetailModal({ note, open, onOpenChange, onOrganized 
     return () => {
       cancelled = true
     }
+    // t.notes.untitled 只用于生成默认标题；加入依赖会让切语言时重新请求详情
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, note])
 
   const fullContent = detail?.content ?? note?.content ?? note?.content_preview ?? ''

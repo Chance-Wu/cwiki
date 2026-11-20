@@ -13,8 +13,8 @@ export function useNetworkStatus() {
   const { isError, refetch } = useQuery({
     queryKey: ['health'],
     queryFn: () => api.getHealth(),
-    staleTime: 10_000,
-    refetchInterval: 10_000,
+    staleTime: 30_000,
+    refetchInterval: 30_000,
     retry: false,
   })
 

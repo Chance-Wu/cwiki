@@ -1,12 +1,12 @@
 import { lazy, Suspense, useState, useEffect } from 'react'
 import { Routes, Route, useLocation } from 'react-router-dom'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { MutationCache, QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AnimatePresence, motion } from 'framer-motion'
 import { I18nProvider, useTranslation } from './i18n/I18nProvider'
 import Layout from './components/Layout'
 import { Button } from './components/ui/Button'
 import CommandPalette from './components/CommandPalette'
-import { ToastProvider } from './components/Toast'
+import { ToastProvider, emitGlobalToast } from './components/Toast'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import NetworkBanner from './components/NetworkBanner'
 import { ListSkeleton } from './components/Skeleton'
@@ -18,14 +18,18 @@ const queryClient = new QueryClient({
       staleTime: 30000,
       retry: 1,
     },
-    mutations: {
-      onError: (error: Error) => {
-        if (import.meta.env.DEV) {
-          console.error('[QueryClient] mutation error:', error.message)
-        }
-      },
-    },
   },
+  mutationCache: new MutationCache({
+    onError: (error, _variables, _context, mutation) => {
+      if (import.meta.env.DEV) {
+        console.error('[QueryClient] mutation error:', error.message)
+      }
+      // MutationCache onError 与 mutation 自带 onError 叠加触发：
+      // 已自行处理错误的 mutation 不再弹全局 toast，meta.silentToast 可显式静默
+      if (mutation.options.onError || mutation.meta?.silentToast) return
+      emitGlobalToast(error.message, 'error')
+    },
+  }),
 })
 
 const HomePage = lazy(() => import('./pages/HomePage'))

@@ -77,7 +77,8 @@ export const SOURCE_COLORS: Record<string, string> = {
   worker: 'bg-warning/22 border-warning/35 text-warning-fg',
 }
 
-// Canvas 用的十六进制类型色（与 TYPE_COLORS 覆盖同一组类型）
+// 亮色 hex 回退：canvas（GraphPage readThemeColors）读取 index.css 的 --type-* 失败时使用；
+// 权威配色在 index.css（含 .dark 适配）。与 TYPE_COLORS 覆盖同一组类型。
 export const TYPE_HEX: Record<string, string> = {
   fact: '#3b82f6',
   decision: '#8b5cf6',

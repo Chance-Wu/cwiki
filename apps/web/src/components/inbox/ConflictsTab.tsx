@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { EmptyConflict } from '../EmptyIllustrations'
+import { EmptyConflict } from '../empty-illustrations'
 import { useTranslation } from '../../i18n/I18nProvider'
 import type { Conflict } from '../../lib/api'
 import { formatTimeShort } from '../../lib/format'

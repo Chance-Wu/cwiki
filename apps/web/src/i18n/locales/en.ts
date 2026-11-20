@@ -776,6 +776,7 @@ const en = {
     total: '{n} total',
     pageInfo: 'Page {current} / {total}',
     perPage: '{n} / page',
+    perPageLabel: 'Items per page',
     first: 'First',
     prev: 'Prev',
     next: 'Next',

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { EmptyHealth } from '../EmptyIllustrations'
+import { EmptyHealth } from '../empty-illustrations'
 import { api, type MemoryHealth } from '../../lib/api'
 import { translateBackendReason } from '../../lib/backendReason'
 import { useTranslation } from '../../i18n/I18nProvider'

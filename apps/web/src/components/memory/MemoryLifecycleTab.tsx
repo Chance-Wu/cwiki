@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { EmptyTimeline } from '../EmptyIllustrations'
+import { EmptyTimeline } from '../empty-illustrations'
 import { api, type Lifecycle } from '../../lib/api'
 import { useTranslation, translate } from '../../i18n/I18nProvider'
 import { formatTime } from '../../lib/format'

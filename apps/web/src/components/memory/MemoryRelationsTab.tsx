@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { EmptyRelations } from '../EmptyIllustrations'
+import { EmptyRelations } from '../empty-illustrations'
 import { api, type Relation, type RelatedMemory, type SearchResult } from '../../lib/api'
 import { typeLabel, TYPE_COLORS } from '../../lib/labels'
 import { useTranslation } from '../../i18n/I18nProvider'

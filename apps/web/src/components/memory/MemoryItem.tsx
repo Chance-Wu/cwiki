@@ -22,27 +22,6 @@ function summarize(text: string, max = 120): string {
   return normalized.length > max ? `${normalized.slice(0, max)}…` : normalized
 }
 
-export function getFreshness(memory: MemoryListRecord): 'fresh' | 'aging' | 'stale' {
-  const type = memory.type || 'fact'
-  const thresholds: Record<string, { fresh: number; aging: number }> = {
-    fact: { fresh: 30, aging: 90 },
-    reference: { fresh: 30, aging: 90 },
-    decision: { fresh: 60, aging: 180 },
-    convention: { fresh: 60, aging: 180 },
-    pattern: { fresh: 60, aging: 180 },
-    issue: { fresh: 30, aging: 90 },
-    procedure: { fresh: 30, aging: 90 },
-    feedback: { fresh: 30, aging: 90 },
-  }
-  const t = thresholds[type] || thresholds.fact
-  const dateStr = memory.last_used_at || memory.updated_at
-  if (!dateStr) return 'stale'
-  const days = (Date.now() - new Date(ensureUtc(dateStr)).getTime()) / 86400000
-  if (days < t.fresh) return 'fresh'
-  if (days < t.aging) return 'aging'
-  return 'stale'
-}
-
 export const MEMORY_TYPES = [
   'fact',
   'decision',

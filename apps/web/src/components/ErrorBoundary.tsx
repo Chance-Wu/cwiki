@@ -22,7 +22,8 @@ function getErrorIcon(error: Error | null) {
   const msg = error.message.toLowerCase()
   if (msg.includes('网络') || msg.includes('network') || msg.includes('fetch')) return WifiOff
   if (msg.includes('鉴权') || msg.includes('auth') || msg.includes('token')) return ShieldAlert
-  if (msg.includes('不存在') || msg.includes('not found') || msg.includes('404')) return FileQuestion
+  if (msg.includes('不存在') || msg.includes('not found') || msg.includes('404'))
+    return FileQuestion
   if (msg.includes('服务器') || msg.includes('server') || msg.includes('500')) return Server
   return AlertTriangle
 }
@@ -83,10 +84,7 @@ export class ErrorBoundary extends Component<Props, State> {
             <Button variant="secondary" onClick={this.handleReset}>
               {retry}
             </Button>
-            <Button
-              variant="secondary"
-              onClick={() => window.location.reload()}
-            >
+            <Button variant="secondary" onClick={() => window.location.reload()}>
               {this.context?.t?.common?.refreshPage ?? 'Reload Page'}
             </Button>
           </div>

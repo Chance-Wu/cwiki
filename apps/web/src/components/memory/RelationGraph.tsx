@@ -5,7 +5,7 @@ import { useTranslation } from '../../i18n/I18nProvider'
 import { TabContentSkeleton } from '../Skeleton'
 import ErrorAlert from '../ErrorAlert'
 import EmptyState from '../EmptyState'
-import { EmptyRelations } from '../EmptyIllustrations'
+import { EmptyRelations } from '../empty-illustrations'
 
 interface Props {
   memoryId: string
@@ -32,14 +32,7 @@ interface GraphEdge {
   isForward: boolean
 }
 
-const RELATION_COLORS: Record<string, string> = {
-  related: '#8b5cf6',
-  supports: '#22c55e',
-  contradicts: '#ef4444',
-  supersedes: '#f59e0b',
-  refines: '#3b82f6',
-}
-
+// 关系色由 index.css 的 --rel-* 变量提供（随明暗主题切换），未知类型回退灰色
 const RELATION_TYPES = ['related', 'supports', 'contradicts', 'supersedes', 'refines'] as const
 
 export default function RelationGraph({ memoryId, onNavigateToMemory }: Props) {
@@ -397,11 +390,11 @@ export default function RelationGraph({ memoryId, onNavigateToMemory }: Props) {
                       ? 'border-brand-500 bg-brand-badge-bg text-brand-500'
                       : 'border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-brand-badge-bg'
                   }`}
-                  style={newRelationType === type ? { borderColor: RELATION_COLORS[type] } : {}}
+                  style={newRelationType === type ? { borderColor: `var(--rel-${type})` } : {}}
                 >
                   <span
                     className="inline-block w-2 h-2 rounded-full mr-1"
-                    style={{ backgroundColor: RELATION_COLORS[type] }}
+                    style={{ backgroundColor: `var(--rel-${type})` }}
                   />
                   {type}
                 </button>
@@ -439,7 +432,7 @@ export default function RelationGraph({ memoryId, onNavigateToMemory }: Props) {
             viewBox={`0 0 ${dimensions.width} ${dimensions.height}`}
           >
             <defs>
-              {Object.entries(RELATION_COLORS).map(([type, color]) => (
+              {RELATION_TYPES.map((type) => (
                 <marker
                   key={type}
                   id={`arrow-${type}`}
@@ -450,7 +443,7 @@ export default function RelationGraph({ memoryId, onNavigateToMemory }: Props) {
                   markerHeight="6"
                   orient="auto-start-reverse"
                 >
-                  <path d="M 0 0 L 10 5 L 0 10 z" fill={color} />
+                  <path d="M 0 0 L 10 5 L 0 10 z" fill={`var(--rel-${type})`} />
                 </marker>
               ))}
             </defs>
@@ -460,7 +453,7 @@ export default function RelationGraph({ memoryId, onNavigateToMemory }: Props) {
               const source = nodes.find((n) => n.id === edge.source)
               const target = nodes.find((n) => n.id === edge.target)
               if (!source || !target) return null
-              const color = RELATION_COLORS[edge.relationType] || '#8b5cf6'
+              const color = `var(--rel-${edge.relationType}, #8b5cf6)`
               const isHighlighted = hoveredNode === edge.source || hoveredNode === edge.target
               const sourceR = source.isCenter ? 24 : 18
               const targetR = target.isCenter ? 24 : 18
@@ -503,11 +496,10 @@ export default function RelationGraph({ memoryId, onNavigateToMemory }: Props) {
             {nodes.map((node) => {
               const isHovered = hoveredNode === node.id
               const radius = node.isCenter ? 24 : 18
+              // 中心节点用 violet，其余按记忆类型取 --type-* 色（未知类型回退灰）
               const color = node.isCenter
-                ? '#8b5cf6'
-                : TYPE_COLORS[node.type]?.includes('bg-')
-                  ? '#8b5cf6'
-                  : '#6b7280'
+                ? 'var(--type-decision)'
+                : `var(--type-${node.type}, #6b7280)`
 
               return (
                 <g
@@ -548,9 +540,9 @@ export default function RelationGraph({ memoryId, onNavigateToMemory }: Props) {
 
           {/* 图例 */}
           <div className="absolute bottom-2 right-2 bg-surface-card/90 backdrop-blur-sm rounded-lg p-2 text-xs space-y-1">
-            {Object.entries(RELATION_COLORS).map(([type, color]) => (
+            {RELATION_TYPES.map((type) => (
               <div key={type} className="flex items-center gap-2">
-                <div className="w-4 h-0.5" style={{ backgroundColor: color }} />
+                <div className="w-4 h-0.5" style={{ backgroundColor: `var(--rel-${type})` }} />
                 <span className="text-[var(--text-secondary)]">{type}</span>
               </div>
             ))}
@@ -627,8 +619,8 @@ export default function RelationGraph({ memoryId, onNavigateToMemory }: Props) {
                       <span
                         className="px-1.5 py-0.5 text-sm rounded-lg border"
                         style={{
-                          borderColor: RELATION_COLORS[r.relation_type] || '#8b5cf6',
-                          color: RELATION_COLORS[r.relation_type] || '#8b5cf6',
+                          borderColor: `var(--rel-${r.relation_type}, #8b5cf6)`,
+                          color: `var(--rel-${r.relation_type}, #8b5cf6)`,
                         }}
                       >
                         {isSource ? '→' : '←'} {r.relation_type}

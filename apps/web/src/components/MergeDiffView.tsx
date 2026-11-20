@@ -2,7 +2,7 @@ import { memo, useMemo, useState, useCallback, useEffect, useRef } from 'react'
 import { computeAlignedRows, type AlignedDiffRow } from '../lib/diff'
 import MarkdownContent from './MarkdownContent'
 import { Card } from './ui/Card'
-import { useTranslation } from '../i18n/I18nProvider'
+import { useTranslation, type TranslationKeys } from '../i18n/I18nProvider'
 import { ChevronRight, ChevronLeft, ChevronsRightLeft, X, Trash2 } from 'lucide-react'
 
 interface MergeDiffViewProps {
@@ -245,9 +245,7 @@ export default function MergeDiffView({
   // 初始化聚焦第一个 pending 块
   useEffect(() => {
     if (focusedBlockId === null) {
-      const firstPending = blocks.find(
-        (b) => b.isChanged && blockDecisions.get(b.id) === 'pending',
-      )
+      const firstPending = blocks.find((b) => b.isChanged && blockDecisions.get(b.id) === 'pending')
       if (firstPending) setFocusedBlockId(firstPending.id)
     }
   }, [blocks, blockDecisions, focusedBlockId])
@@ -257,7 +255,10 @@ export default function MergeDiffView({
       {/* 顶栏 */}
       <div className="grid grid-cols-[1fr_auto_1fr] border-b border-[var(--glass-border)]">
         <div className="min-w-0 px-3 py-2 bg-surface-inset flex items-center justify-between gap-2 border-r border-[var(--border-default)]">
-          <span className="text-xs font-medium text-[var(--text-secondary)] truncate" title={targetFilePath}>
+          <span
+            className="text-xs font-medium text-[var(--text-secondary)] truncate"
+            title={targetFilePath}
+          >
             {targetTitle ?? t.memories.mergeDiffTarget}
           </span>
           <button
@@ -305,8 +306,8 @@ export default function MergeDiffView({
 
       {/* 进度条 */}
       {(() => {
-        const changedBlocks = blocks.filter(b => b.isChanged)
-        const resolved = changedBlocks.filter(b => {
+        const changedBlocks = blocks.filter((b) => b.isChanged)
+        const resolved = changedBlocks.filter((b) => {
           const d = blockDecisions.get(b.id)
           return d !== 'pending' && d !== undefined
         }).length
@@ -322,7 +323,9 @@ export default function MergeDiffView({
                 style={{ width: `${pct}%` }}
               />
             </div>
-            <span className={`text-xs tabular-nums shrink-0 ${done ? 'text-success-fg font-medium' : 'text-[var(--text-tertiary)]'}`}>
+            <span
+              className={`text-xs tabular-nums shrink-0 ${done ? 'text-success-fg font-medium' : 'text-[var(--text-tertiary)]'}`}
+            >
               {done ? `✓ ${resolved}/${total}` : `${resolved}/${total}`}
             </span>
           </div>
@@ -330,10 +333,7 @@ export default function MergeDiffView({
       })()}
 
       {/* 主体：块级交互 */}
-      <div
-        ref={containerRef}
-        className="overflow-y-auto flex-1 min-h-0"
-      >
+      <div ref={containerRef} className="overflow-y-auto flex-1 min-h-0">
         {blocks.map((block, idx) => {
           const decision = blockDecisions.get(block.id) ?? 'pending'
           const isFocused = focusedBlockId === block.id
@@ -342,9 +342,7 @@ export default function MergeDiffView({
 
           return (
             <div key={block.id}>
-              {showSeparator && (
-                <div className="h-1 bg-[var(--border-default)] opacity-30" />
-              )}
+              {showSeparator && <div className="h-1 bg-[var(--border-default)] opacity-30" />}
               {!block.isChanged ? (
                 <ContextBlock rows={block.rows} />
               ) : (
@@ -392,13 +390,21 @@ export default function MergeDiffView({
               )}
               {!manualMode && focusedBlockId !== null && (
                 <div className="hidden md:flex items-center gap-1 ml-3 text-[var(--text-tertiary)]">
-                  <kbd className="px-1 py-0.5 bg-surface-card rounded text-[10px] font-mono border border-[var(--border-default)]">1</kbd>
+                  <kbd className="px-1 py-0.5 bg-surface-card rounded text-[10px] font-mono border border-[var(--border-default)]">
+                    1
+                  </kbd>
                   <span className="text-[10px]">←</span>
-                  <kbd className="px-1 py-0.5 bg-surface-card rounded text-[10px] font-mono border border-[var(--border-default)]">2</kbd>
+                  <kbd className="px-1 py-0.5 bg-surface-card rounded text-[10px] font-mono border border-[var(--border-default)]">
+                    2
+                  </kbd>
                   <span className="text-[10px]">→</span>
-                  <kbd className="px-1 py-0.5 bg-surface-card rounded text-[10px] font-mono border border-[var(--border-default)]">3</kbd>
+                  <kbd className="px-1 py-0.5 bg-surface-card rounded text-[10px] font-mono border border-[var(--border-default)]">
+                    3
+                  </kbd>
                   <span className="text-[10px]">⇔</span>
-                  <kbd className="px-1 py-0.5 bg-surface-card rounded text-[10px] font-mono border border-[var(--border-default)]">4</kbd>
+                  <kbd className="px-1 py-0.5 bg-surface-card rounded text-[10px] font-mono border border-[var(--border-default)]">
+                    4
+                  </kbd>
                   <Trash2 size={10} className="text-[10px]" />
                   <span className="text-[10px] ml-0.5">Tab ↕</span>
                 </div>
@@ -480,7 +486,7 @@ interface ChangeBlockRowProps {
   focused: boolean
   onFocus: () => void
   onDecision: (d: BlockDecision) => void
-  t: any
+  t: TranslationKeys
 }
 
 const ChangeBlockRow = memo(function ChangeBlockRow({
@@ -622,9 +628,7 @@ const LeftCell = memo(function LeftCell({ row }: { row: AlignedDiffRow }) {
   }
   const bg = left.type === 'removed' ? 'bg-danger/10' : 'bg-surface-card'
   return (
-    <div
-      className={`h-5 flex items-center ${bg} border-b border-[var(--glass-border)]`}
-    >
+    <div className={`h-5 flex items-center ${bg} border-b border-[var(--glass-border)]`}>
       <span className="inline-block w-10 text-right px-1 text-[var(--text-tertiary)] select-none text-xs leading-5 tabular-nums shrink-0">
         {left.lineNum ?? ''}
       </span>
@@ -646,9 +650,7 @@ const RightCell = memo(function RightCell({ row }: { row: AlignedDiffRow }) {
   }
   const bg = right.type === 'added' ? 'bg-success/10' : 'bg-surface-card'
   return (
-    <div
-      className={`h-5 flex items-center ${bg} border-b border-[var(--glass-border)]`}
-    >
+    <div className={`h-5 flex items-center ${bg} border-b border-[var(--glass-border)]`}>
       <span className="inline-block w-10 text-right px-1 text-[var(--text-tertiary)] select-none text-xs leading-5 tabular-nums shrink-0">
         {right.lineNum ?? ''}
       </span>

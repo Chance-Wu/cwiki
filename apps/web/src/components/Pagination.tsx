@@ -101,6 +101,7 @@ export default function Pagination({
           <span>{totalPages}</span>
         </span>
         <select
+          aria-label={t.pagination.perPageLabel}
           value={pageSize}
           onChange={(e) => {
             onPageSizeChange(Number(e.target.value))

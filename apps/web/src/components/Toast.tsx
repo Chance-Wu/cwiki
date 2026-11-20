@@ -32,6 +32,13 @@ export function useToast() {
   return useContext(ToastContext)
 }
 
+// 跨层兜底通道：QueryClient 的全局 mutation 错误处理在 React 树之外，
+// 通过此 sink 把错误转发成 toast（ToastProvider 挂载时注册）。
+let toastSink: ((message: string, type: ToastType) => void) | null = null
+export function emitGlobalToast(message: string, type: ToastType = 'error') {
+  toastSink?.(message, type)
+}
+
 let nextId = 0
 const MAX_TOASTS = 5
 
@@ -76,49 +83,36 @@ const ToastItem = memo(function ToastItem({
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const remainingRef = useRef(duration)
   const startTimeRef = useRef(Date.now())
-  const [progress, setProgress] = useState(100)
   const [paused, setPaused] = useState(false)
-  const rafRef = useRef<number | null>(null)
 
-  const clearTimers = useCallback(() => {
+  const clearTimer = useCallback(() => {
     if (timerRef.current) {
       clearTimeout(timerRef.current)
       timerRef.current = null
     }
-    if (rafRef.current) {
-      cancelAnimationFrame(rafRef.current)
-      rafRef.current = null
-    }
   }, [])
 
-  const startProgress = useCallback(() => {
+  // 进度条视觉交给 CSS 动画（见 index.css 的 toast-progress），
+  // 这里只负责 dismiss 计时；hover 暂停时两者由同一事件分别冻结，保持同步
+  const armTimer = useCallback(() => {
     startTimeRef.current = Date.now()
-    const tick = () => {
-      const elapsed = Date.now() - startTimeRef.current
-      const pct = Math.max(0, ((remainingRef.current - elapsed) / duration) * 100)
-      setProgress(pct)
-      if (pct > 0) {
-        rafRef.current = requestAnimationFrame(tick)
-      }
-    }
-    rafRef.current = requestAnimationFrame(tick)
     timerRef.current = setTimeout(() => {
       onDismiss(item.id)
     }, remainingRef.current)
-  }, [duration, item.id, onDismiss])
+  }, [item.id, onDismiss])
 
   useEffect(() => {
     if (!paused) {
-      startProgress()
+      armTimer()
     }
-    return clearTimers
-  }, [paused, startProgress, clearTimers])
+    return clearTimer
+  }, [paused, armTimer, clearTimer])
 
   const handlePause = useCallback(() => {
-    clearTimers()
+    clearTimer()
     remainingRef.current = Math.max(0, remainingRef.current - (Date.now() - startTimeRef.current))
     setPaused(true)
-  }, [clearTimers])
+  }, [clearTimer])
 
   const handleResume = useCallback(() => {
     setPaused(false)
@@ -127,13 +121,14 @@ const ToastItem = memo(function ToastItem({
   return (
     <motion.div
       layout
+      role={item.type === 'error' ? 'alert' : undefined}
       initial={{ opacity: 0, y: 16, scale: 0.95 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, y: 16, scale: 0.95 }}
       transition={{ type: 'spring', ...spring.snappy }}
       onMouseEnter={handlePause}
       onMouseLeave={handleResume}
-      className={`pointer-events-auto relative overflow-hidden flex items-center gap-2 px-3.5 py-2.5 rounded-lg text-xs font-medium shadow-warm-md ${STYLES[item.type]}`}
+      className={`group pointer-events-auto relative overflow-hidden flex items-center gap-2 px-3.5 py-2.5 rounded-lg text-xs font-medium shadow-warm-md ${STYLES[item.type]}`}
     >
       <Icon size={14} className="shrink-0 opacity-90" aria-hidden="true" />
       <span className="flex-1 min-w-0 truncate">{item.message}</span>
@@ -145,8 +140,8 @@ const ToastItem = memo(function ToastItem({
         <X size={14} aria-hidden="true" />
       </button>
       <div
-        className={`absolute bottom-0 left-0 h-0.5 rounded-r-full transition-none ${PROGRESS_COLORS[item.type]} opacity-40`}
-        style={{ width: `${progress}%` }}
+        className={`toast-progress absolute bottom-0 left-0 h-0.5 rounded-r-full ${PROGRESS_COLORS[item.type]} opacity-40`}
+        style={{ animationDuration: `${duration}ms` }}
       />
     </motion.div>
   )
@@ -170,10 +165,20 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     })
   }, [])
 
+  useEffect(() => {
+    toastSink = toast
+    return () => {
+      toastSink = null
+    }
+  }, [toast])
+
   return (
     <ToastContext.Provider value={{ toast }}>
       {children}
-      <div className="fixed bottom-4 right-4 z-toast flex flex-col-reverse gap-2 pointer-events-none">
+      <div
+        className="fixed bottom-4 right-4 z-toast flex flex-col-reverse gap-2 pointer-events-none"
+        aria-live="polite"
+      >
         <AnimatePresence>
           {toasts.map((item) => (
             <ToastItem key={item.id} item={item} onDismiss={dismiss} />

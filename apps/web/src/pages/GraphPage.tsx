@@ -4,6 +4,7 @@ import { Download, Folder, Maximize2, Network, ZoomIn, ZoomOut } from 'lucide-re
 import { useTranslation } from '../i18n/I18nProvider'
 import { api, type FileMemory } from '../lib/api'
 import { TYPE_HEX, typeLabel } from '../lib/labels'
+import { downloadBlob } from '../lib/download'
 import {
   clampGraphScale,
   panGraphView,
@@ -59,6 +60,9 @@ interface ThemeColors {
   nodeStroke: string
   gridDot: string
   labelHalo: string
+  typeColors: Record<string, string>
+  relationColors: Record<string, string>
+  masteryColors: Record<string, string>
 }
 
 const RELATION_COLORS: Record<string, string> = {
@@ -70,15 +74,6 @@ const RELATION_COLORS: Record<string, string> = {
 }
 
 const RELATION_TYPES = ['related', 'supports', 'contradicts', 'supersedes', 'refines']
-
-function downloadBlob(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  a.click()
-  URL.revokeObjectURL(url)
-}
 
 const KICK_FRAMES = 60
 const SETTLE_FRAMES = 45
@@ -101,6 +96,15 @@ const clamp = (value: number, min: number, max: number) => Math.min(Math.max(val
 function readThemeColors(dark: boolean): ThemeColors {
   const css = getComputedStyle(document.documentElement)
   const get = (name: string, fallback: string) => css.getPropertyValue(name).trim() || fallback
+  // canvas 需要显式色值：从 index.css 的 --type-*/--rel-*/--mastery-* 读出，
+  // 读不到时回退到亮色 hex 常量
+  const colorMap = (prefix: string, fallbacks: Record<string, string>): Record<string, string> => {
+    const out: Record<string, string> = {}
+    for (const key of Object.keys(fallbacks)) {
+      out[key] = get(`${prefix}-${key}`, fallbacks[key])
+    }
+    return out
+  }
   return {
     textPrimary: get('--text-primary', dark ? '#f5f3f0' : '#18181B'),
     textTertiary: get('--text-tertiary', dark ? '#8a8279' : '#A1A1AA'),
@@ -108,6 +112,9 @@ function readThemeColors(dark: boolean): ThemeColors {
     nodeStroke: dark ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.9)',
     gridDot: dark ? 'rgba(255,255,255,0.05)' : 'rgba(24,24,27,0.06)',
     labelHalo: dark ? 'rgba(0,0,0,0.85)' : 'rgba(255,255,255,0.92)',
+    typeColors: colorMap('--type', TYPE_HEX),
+    relationColors: colorMap('--rel', RELATION_COLORS),
+    masteryColors: colorMap('--mastery', MASTERY_HEX),
   }
 }
 
@@ -436,7 +443,7 @@ export default function GraphPage() {
           target.x,
           target.y,
         )
-        ctx.strokeStyle = RELATION_COLORS[edge.type] || colors.edgeDefault
+        ctx.strokeStyle = colors.relationColors[edge.type] || colors.edgeDefault
         ctx.lineWidth = 1 + edge.confidence * 1.6
         ctx.globalAlpha = alpha
         ctx.stroke()
@@ -455,9 +462,9 @@ export default function GraphPage() {
         const fill =
           colorModeRef.current === 'mastery'
             ? node.mastery_level
-              ? MASTERY_HEX[node.mastery_level] || colors.edgeDefault
+              ? colors.masteryColors[node.mastery_level] || colors.edgeDefault
               : colors.edgeDefault
-            : TYPE_HEX[node.type] || colors.edgeDefault
+            : colors.typeColors[node.type] || colors.edgeDefault
         ctx.fillStyle = fill
         ctx.globalAlpha = alpha
         if (isHighlighted) {
@@ -1107,11 +1114,11 @@ export default function GraphPage() {
               )}
               {colorMode === 'mastery' && stats.total > 0 && (
                 <div className="absolute bottom-4 left-4 flex max-w-[70%] flex-wrap items-center gap-x-2.5 gap-y-1 rounded-lg border border-[var(--border-default)] bg-[var(--surface-elevated)]/90 px-2.5 py-1.5 text-[10px] text-[var(--text-tertiary)] shadow-warm-sm backdrop-blur-sm">
-                  {Object.entries(MASTERY_HEX).map(([level, color]) => (
+                  {Object.keys(MASTERY_HEX).map((level) => (
                     <span key={level} className="inline-flex items-center gap-1">
                       <span
                         className="inline-block h-2 w-2 rounded-full"
-                        style={{ backgroundColor: color }}
+                        style={{ backgroundColor: `var(--mastery-${level})` }}
                         aria-hidden="true"
                       />
                       {(t.review as Record<string, string>)[`mastery_${level}`] ?? level}
@@ -1149,7 +1156,7 @@ export default function GraphPage() {
                 {g.legend}
               </div>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-2.5 text-xs">
-                {Object.entries(TYPE_HEX).map(([type, color]) => (
+                {Object.keys(TYPE_HEX).map((type) => (
                   <div
                     key={type}
                     className="flex items-center gap-2 text-[var(--text-secondary)]"
@@ -1157,7 +1164,7 @@ export default function GraphPage() {
                   >
                     <span
                       className="w-2.5 h-2.5 rounded-full shrink-0"
-                      style={{ backgroundColor: color }}
+                      style={{ backgroundColor: `var(--type-${type})` }}
                     />
                     <span>{typeLabel(t.common, type)}</span>
                   </div>
@@ -1168,7 +1175,7 @@ export default function GraphPage() {
                   {g.relationTypes}
                 </div>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-2.5 text-xs">
-                  {Object.entries(RELATION_COLORS).map(([type, color]) => (
+                  {Object.keys(RELATION_COLORS).map((type) => (
                     <div
                       key={type}
                       className="flex items-center gap-2 text-[var(--text-secondary)]"
@@ -1176,7 +1183,7 @@ export default function GraphPage() {
                     >
                       <span
                         className="w-5 h-[3px] rounded-full shrink-0"
-                        style={{ backgroundColor: color }}
+                        style={{ backgroundColor: `var(--rel-${type})` }}
                       />
                       <span>{relationLabels[type] ?? type}</span>
                     </div>

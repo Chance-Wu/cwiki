@@ -180,7 +180,7 @@ export default {
       // 「Dialog z-50」之上——从合并流程里再开对话框会被盖住。按职责分层，不再直接用裸数字。
       zIndex: {
         nav: '40', // 侧边栏、移动端底部导航
-        sheet: '50', // 页面级抽屉：移动端 More、合并面板
+        sheet: '50', // 页面级浮层：移动端 More、合并面板、专注遮罩、离线横幅、配置保存条
         dialog: '70', // Radix Dialog / 命令面板（遮罩与本体同层，靠 DOM 顺序分先后）
         dropdown: '80', // Select / Popover / 搜索下拉（须盖过对话框）
         toast: '100', // 全局提示，永远最上

@@ -14,7 +14,7 @@ import { useToast } from '../components/Toast'
 import Pagination from '../components/Pagination'
 import ErrorAlert from '../components/ErrorAlert'
 import EmptyState from '../components/EmptyState'
-import { EmptyInbox } from '../components/EmptyIllustrations'
+import { EmptyInbox } from '../components/empty-illustrations'
 import { ListSkeleton } from '../components/Skeleton'
 import { useWorkspaces } from '../hooks/useCandidates'
 import { useBatchSelection } from '../hooks/useBatchSelection'
@@ -164,6 +164,14 @@ export default function NotesPage() {
             {notes.map((note) => (
               <Card
                 key={note.id}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    openNote(note)
+                  }
+                }}
                 className="p-4 md:p-5 cursor-pointer transition-all duration-150 hover:shadow-warm-md hover:border-[var(--border-strong)]"
                 onClick={() => openNote(note)}
               >

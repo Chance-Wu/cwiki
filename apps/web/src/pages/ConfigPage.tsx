@@ -445,7 +445,7 @@ export default function ConfigPage() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 18 }}
             transition={{ ...spring.snappy }}
-            className="fixed bottom-4 left-1/2 z-30 w-[calc(100%-2rem)] max-w-2xl -translate-x-1/2"
+            className="fixed bottom-4 left-1/2 z-sheet w-[calc(100%-2rem)] max-w-2xl -translate-x-1/2"
           >
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-[var(--border-default)] bg-[var(--surface-elevated)] px-4 py-3 shadow-warm-lg">
               <div className="min-w-0">

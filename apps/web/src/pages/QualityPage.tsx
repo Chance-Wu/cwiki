@@ -72,7 +72,7 @@ function BarChart({
   )
 }
 
-function StatCard({
+function StatTile({
   label,
   value,
   subtext,
@@ -176,10 +176,10 @@ export default function QualityPage() {
             <div className="space-y-5">
               {/* Summary Stats */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <StatCard label={q.total} value={stats.total} />
-                <StatCard label={q.avgConfidence} value={stats.avgConfidence} />
-                <StatCard label={q.avgImportance} value={stats.avgImportance} />
-                <StatCard label={q.avgUsage} value={stats.avgUsage} />
+                <StatTile label={q.total} value={stats.total} />
+                <StatTile label={q.avgConfidence} value={stats.avgConfidence} />
+                <StatTile label={q.avgImportance} value={stats.avgImportance} />
+                <StatTile label={q.avgUsage} value={stats.avgUsage} />
               </div>
 
               <DuplicatePairsCard
@@ -199,7 +199,7 @@ export default function QualityPage() {
                 </h3>
                 <BarChart
                   data={data.confidence_distribution}
-                  color="#3b82f6"
+                  color="var(--chart-confidence)"
                   labels={confidenceLabels}
                   onSelect={(key) => drillByRange('confidence', key)}
                 />
@@ -212,7 +212,7 @@ export default function QualityPage() {
                 </h3>
                 <BarChart
                   data={data.importance_distribution}
-                  color="#8b5cf6"
+                  color="var(--chart-importance)"
                   labels={importanceLabels}
                   onSelect={(key) => drillByRange('importance', key)}
                 />
@@ -225,7 +225,7 @@ export default function QualityPage() {
                 </h3>
                 <BarChart
                   data={data.usage_distribution}
-                  color="#22c55e"
+                  color="var(--chart-usage)"
                   labels={usageLabels}
                   onSelect={(key) => drill({ usage: key })}
                 />
@@ -238,7 +238,7 @@ export default function QualityPage() {
                 </h3>
                 <BarChart
                   data={data.decay_distribution}
-                  color="#f59e0b"
+                  color="var(--chart-decay)"
                   labels={decayLabels}
                   onSelect={(key) => drill({ decay: key })}
                 />

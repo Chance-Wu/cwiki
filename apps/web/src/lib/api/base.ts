@@ -34,7 +34,7 @@ export async function request<T>(path: string, options?: RequestInit): Promise<T
     const error = new Error(
       err instanceof TypeError && err.message.includes('fetch')
         ? '网络连接失败：请检查后端服务是否启动'
-        : '网络请求异常，请检查网络连接'
+        : '网络请求异常，请检查网络连接',
     ) as Error & { status?: number; errorType: ApiErrorType }
     error.status = 0
     error.errorType = 'network'

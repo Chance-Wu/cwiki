@@ -55,7 +55,7 @@ export function FocusModeOverlay({
 
   return (
     <motion.div
-      className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex flex-col items-center justify-center p-6"
+      className="fixed inset-0 z-sheet bg-black/60 backdrop-blur-sm flex flex-col items-center justify-center p-6"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ duration: duration.modal }}

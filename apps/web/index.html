@@ -3,15 +3,30 @@
   <head>
     <meta charset="UTF-8" />
     <script>
-      // 首帧前同步 localStorage 中的主题与皮肤，消除暗色/皮肤用户的刷新白闪。
-      // 判定逻辑必须与 src/theme/ThemeProvider.tsx 保持一致。
+      // 首帧前同步 localStorage 中的主题与品牌，消除暗色/品牌用户的刷新色闪。
+      // 判定逻辑必须与 src/theme/ThemeProvider.tsx 保持一致：
+      // theme 同步 .dark 类；brand-theme 仅在非默认（amber）值时设 data-brand 属性。
       ;(function () {
         try {
           var t = localStorage.getItem('theme')
           var dark = t === 'dark' || (t !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches)
           if (dark) document.documentElement.classList.add('dark')
-          var s = localStorage.getItem('skin')
-          if (s === 'emerald' || s === 'terracotta') document.documentElement.setAttribute('data-skin', s)
+          var b = localStorage.getItem('brand-theme')
+          if (b === 'blue' || b === 'emerald' || b === 'violet') {
+            document.documentElement.setAttribute('data-brand', b)
+          } else {
+            b = 'amber'
+          }
+          // theme-color 静态副本：与 src/theme/brandTokens.ts 的 themeColor 保持一致
+          var THEME_COLORS = {
+            amber: { light: '#D97706', dark: '#F59E0B' },
+            blue: { light: '#2563EB', dark: '#60A5FA' },
+            emerald: { light: '#059669', dark: '#10B981' },
+            violet: { light: '#7C3AED', dark: '#A78BFA' },
+          }
+          var c = THEME_COLORS[b][dark ? 'dark' : 'light']
+          var meta = document.querySelector('meta[name="theme-color"]')
+          if (c && meta) meta.setAttribute('content', c)
         } catch (e) {}
       })()
     </script>

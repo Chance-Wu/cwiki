@@ -10,7 +10,7 @@ import {
   SOURCE_COLORS,
   TYPE_COLORS,
 } from '../../lib/labels'
-import { ensureUtc } from '../../lib/format'
+import { getFreshness } from '../../lib/format'
 import { Button } from '../ui/Button'
 import { Dialog } from '../ui/Dialog'
 import { Input } from '../ui/Input'
@@ -45,27 +45,6 @@ export interface OptimizePreview {
   optimizedTitle: string
   optimizedContent: string
   changes: string
-}
-
-function getFreshness(memory: FileMemory): 'fresh' | 'aging' | 'stale' {
-  const type = memory.type || 'fact'
-  const thresholds: Record<string, { fresh: number; aging: number }> = {
-    fact: { fresh: 30, aging: 90 },
-    reference: { fresh: 30, aging: 90 },
-    decision: { fresh: 60, aging: 180 },
-    convention: { fresh: 60, aging: 180 },
-    pattern: { fresh: 60, aging: 180 },
-    issue: { fresh: 30, aging: 90 },
-    procedure: { fresh: 30, aging: 90 },
-    feedback: { fresh: 30, aging: 90 },
-  }
-  const t = thresholds[type] || thresholds.fact
-  const dateStr = memory.last_used_at || memory.updated_at
-  if (!dateStr) return 'stale'
-  const days = (Date.now() - new Date(ensureUtc(dateStr)).getTime()) / 86400000
-  if (days < t.fresh) return 'fresh'
-  if (days < t.aging) return 'aging'
-  return 'stale'
 }
 
 interface MemoryDetailModalProps {
