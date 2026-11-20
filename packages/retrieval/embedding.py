@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import threading
 import time
 from collections import OrderedDict
@@ -157,9 +158,13 @@ class EmbeddingService:
             try:
                 from fastembed import TextEmbedding
 
+                # 限制 ONNX 线程为半数核：默认吃满全部核会与另一进程的模型
+                # 互相争抢（服务运行中执行 rebuild-db 曾因此挂起 16 分钟）。
+                threads = max(1, (os.cpu_count() or 4) // 2)
                 result["model"] = TextEmbedding(
                     model_name=settings.embedding_model,
                     cache_dir=storage_config.embedding_cache_dir,
+                    threads=threads,
                 )
             except BaseException as e:  # 原样存进 result，由主线程记录
                 result["error"] = e

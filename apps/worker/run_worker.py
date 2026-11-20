@@ -47,7 +47,7 @@ async def main() -> None:
         async with sem:
             logger.info(f"Processing session {sid}")
             try:
-                result = await task_finalize_episode(queue._context, sid, wid)
+                result = await task_finalize_episode(queue.context, sid, wid)
                 logger.info(f"Episode result: {result}")
             except Exception:
                 logger.exception(f"Failed to process session {sid}")

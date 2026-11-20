@@ -8,6 +8,7 @@ import os
 import sqlite3
 import time
 import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -386,21 +387,37 @@ class MemoryIndexer:
 
         indexed_count = 0
         skipped_count = 0
+
+        # 批量 stat 移到线程池：逐文件 getmtime/abspath 在 async 循环内
+        # 会阻塞事件循环（10K 文件 ≈ 10-30ms），批量后循环内只查字典
+        def _stat_files() -> dict[str, tuple[float, str]]:
+            stats: dict[str, tuple[float, str]] = {}
+            for memory in memories:
+                if memory.file_path is not None:
+                    try:
+                        stats[memory.id] = (
+                            os.path.getmtime(memory.file_path),
+                            os.path.normcase(os.path.abspath(memory.file_path)),
+                        )
+                    except OSError:
+                        continue
+            return stats
+
+        file_stats = await asyncio.to_thread(_stat_files)
+
         for memory in memories:
             # 文件自上次索引后未变化则跳过
             if memory.id in existing_map:
                 existing = existing_map[memory.id]
                 try:
-                    if memory.file_path is None:
+                    stat = file_stats.get(memory.id)
+                    if stat is None:
                         continue
-                    file_mtime = os.path.getmtime(memory.file_path)
+                    file_mtime, current_path = stat
                     # 路径变化时即使 mtime 未变也要重索引：重命名保留 mtime，
                     # 仅靠时间戳会漏掉 file_path 修复。
-                    current_path = os.path.normcase(os.path.abspath(memory.file_path))
                     path_changed = existing["file_path"] != current_path
                     # 解析 ISO 时间戳以与 mtime 比较
-                    from datetime import datetime
-
                     indexed_updated_str = existing["updated"]
                     if indexed_updated_str:
                         indexed_dt = datetime.fromisoformat(indexed_updated_str)

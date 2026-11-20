@@ -91,6 +91,11 @@ class TaskQueue:
         """设置任务执行时共享的上下文。"""
         self._context[key] = value
 
+    @property
+    def context(self) -> dict[str, Any]:
+        """任务执行上下文的只读视图（外部脚本传给任务函数时使用）。"""
+        return self._context
+
     async def enqueue(self, name: str, *args: Any, **kwargs: Any) -> str:
         """将任务入队后台执行。
 

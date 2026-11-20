@@ -15,7 +15,7 @@ async def test_load_failure_degrades_to_hash_then_retries_after_cooldown(monkeyp
     attempts: list[str] = []
 
     class _FakeTextEmbedding:
-        def __init__(self, model_name: str, cache_dir: str) -> None:
+        def __init__(self, model_name: str, cache_dir: str, **_kwargs) -> None:
             attempts.append(model_name)
             if len(attempts) == 1:
                 raise RuntimeError("model files missing")
@@ -80,7 +80,7 @@ async def test_model_load_hang_is_cut_by_timeout(monkeypatch):
     load_timeout = 0.3
 
     class _HangingTextEmbedding:
-        def __init__(self, model_name: str, cache_dir: str) -> None:
+        def __init__(self, model_name: str, cache_dir: str, **_kwargs) -> None:
             threading.Event().wait()  # 永久阻塞，模拟无超时的网络下载
 
     monkeypatch.setitem(
@@ -114,7 +114,7 @@ async def test_allow_fallback_false_returns_none_instead_of_hash(monkeypatch):
     """
 
     class _BrokenTextEmbedding:
-        def __init__(self, model_name: str, cache_dir: str) -> None:
+        def __init__(self, model_name: str, cache_dir: str, **_kwargs) -> None:
             raise RuntimeError("model files missing")
 
     monkeypatch.setitem(
@@ -142,7 +142,7 @@ async def test_model_load_timeout_does_not_leak_local_model(monkeypatch):
     """超时后 _local_model 必须保持 None：迟到的线程结果不得被当成有效模型。"""
 
     class _SlowTextEmbedding:
-        def __init__(self, model_name: str, cache_dir: str) -> None:
+        def __init__(self, model_name: str, cache_dir: str, **_kwargs) -> None:
             threading.Event().wait(1.5)  # 超过 0.3s 超时后完成
             self.embedding_size = 5
 

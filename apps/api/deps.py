@@ -198,7 +198,7 @@ async def resolve_workspace(
 
     try:
         ws_uuid = uuid.UUID(workspace_id)
-        _workspace_cache[workspace_id] = (ws_uuid, time.monotonic())
+        _cache_workspace(workspace_id, ws_uuid)
         return ws_uuid
     except ValueError:
         pass
@@ -206,7 +206,7 @@ async def resolve_workspace(
     result = await db.execute(select(Workspace).where(Workspace.name == workspace_id))
     workspace = result.scalar_one_or_none()
     if workspace is not None:
-        _workspace_cache[workspace_id] = (workspace.id, time.monotonic())
+        _cache_workspace(workspace_id, workspace.id)
         return workspace.id
 
     try:
@@ -236,7 +236,7 @@ async def resolve_workspace(
     new_ws = Workspace(name=workspace_id)
     db.add(new_ws)
     await db.flush()
-    _workspace_cache[workspace_id] = (new_ws.id, time.monotonic())
+    _cache_workspace(workspace_id, new_ws.id)
     # 机器来源自动建区后立即同步快照（本地导入避免与 file_sync 循环依赖）
     from apps.api.file_sync import sync_workspaces_to_file
 
@@ -246,11 +246,31 @@ async def resolve_workspace(
 
 _workspace_cache: dict[str, tuple[uuid.UUID, float]] = {}
 _WORKSPACE_CACHE_TTL = 60.0
+# 超过该条目数时批量驱逐过期项：TTL 只门控读，驱逐靠写入侧触发，
+# 防止任意名称探测让缓存无限增长
+_WORKSPACE_CACHE_PRUNE_SIZE = 512
+
+
+def _cache_workspace(key: str, ws_id: uuid.UUID) -> None:
+    """写入解析缓存；超阈值时顺手驱逐过期条目。"""
+    now = time.monotonic()
+    if len(_workspace_cache) >= _WORKSPACE_CACHE_PRUNE_SIZE:
+        expired = [k for k, (_, ts) in _workspace_cache.items() if now - ts >= _WORKSPACE_CACHE_TTL]
+        for k in expired:
+            _workspace_cache.pop(k, None)
+    _workspace_cache[key] = (ws_id, now)
 
 
 def invalidate_workspace_cache(name: str | None = None) -> None:
-    """使 workspace 解析缓存失效；创建/删除 workspace 后调用。"""
+    """使 workspace 解析缓存失效；创建/删除 workspace 后调用。
+
+    同一 workspace 可能以「名字」和「UUID 字符串」两种键被解析过，
+    删除时两者都必须失效——按值反查 UUID 键，避免删除后仍命中旧缓存。
+    """
     if name is None:
         _workspace_cache.clear()
-    else:
-        _workspace_cache.pop(name, None)
+        return
+    _workspace_cache.pop(name, None)
+    stale_by_value = [k for k, (ws_id, _) in _workspace_cache.items() if str(ws_id) == name]
+    for k in stale_by_value:
+        _workspace_cache.pop(k, None)

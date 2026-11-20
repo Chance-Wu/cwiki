@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+import time
+
 import pytest
 from fastapi import HTTPException
 
@@ -94,3 +96,50 @@ async def test_candidates_endpoint_rejects_invalid_workspace_name(client):
     listed = await client.get("/v1/workspaces?limit=100")
     names = {w["name"] for w in listed.json()["items"]}
     assert "../escape-ws" not in names
+
+
+def test_invalidate_workspace_cache_purges_uuid_keyed_entries(monkeypatch):
+    """删除 workspace 后，以 UUID 字符串解析过的缓存条目也必须失效。
+
+    resolve 对可解析的 UUID 直接缓存（无存在校验），invalidate 只按名字
+    失效会让 UUID 键条目在删除后永久命中旧值。
+    """
+    import uuid as uuid_mod
+
+    from apps.api.deps import _WORKSPACE_CACHE_TTL, _workspace_cache
+    from apps.api.deps import invalidate_workspace_cache as _invalidate
+
+    name = f"cache-hygiene-{uuid_mod.uuid4().hex[:8]}"
+    ws_id = uuid_mod.uuid4()
+    # 两种键都进入缓存：名字键 + UUID 字符串键（同值）
+    monkeypatch.setattr(
+        "apps.api.deps._workspace_cache",
+        {name: (ws_id, time.monotonic()), str(ws_id): (ws_id, time.monotonic())},
+    )
+    _ = _WORKSPACE_CACHE_TTL
+
+    _invalidate(name)
+
+    assert name not in _workspace_cache
+    assert str(ws_id) not in _workspace_cache  # UUID 键一并失效
+
+
+def test_workspace_cache_prunes_expired_entries_when_full(monkeypatch):
+    """缓存超阈值时写入侧驱逐过期条目，防止任意名称探测无限增长。"""
+    import time as time_mod
+    import uuid as uuid_mod
+
+    from apps.api import deps
+
+    monkeypatch.setattr(deps, "_WORKSPACE_CACHE_PRUNE_SIZE", 4)
+    monkeypatch.setattr(deps, "_WORKSPACE_CACHE_TTL", 60.0)
+    # 预置 4 条全部过期的条目
+    stale = time_mod.monotonic() - 120
+    monkeypatch.setattr(
+        deps, "_workspace_cache", {f"stale-{i}": (uuid_mod.uuid4(), stale) for i in range(4)}
+    )
+
+    deps._cache_workspace("fresh", uuid_mod.uuid4())
+
+    assert "fresh" in deps._workspace_cache
+    assert len(deps._workspace_cache) == 1  # 过期条目被批量驱逐
