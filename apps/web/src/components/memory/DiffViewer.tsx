@@ -13,23 +13,21 @@ export default function DiffViewer({ oldText, newText, oldLabel, newLabel }: Dif
   const rows = useMemo(() => computeAlignedRows(oldText, newText), [oldText, newText])
 
   return (
-    <div className="overflow-hidden rounded-lg border border-[var(--border-default)]">
-      <div className="grid grid-cols-2 border-b border-[var(--border-default)] bg-surface-inset text-xs font-medium text-[var(--text-secondary)]">
-        <div className="truncate border-r border-[var(--border-default)] px-2 py-1.5">
-          {oldLabel}
-        </div>
+    <div className="overflow-hidden rounded-lg border border-default">
+      <div className="grid grid-cols-2 border-b border-default bg-surface-inset text-xs font-medium text-secondary">
+        <div className="truncate border-r border-default px-2 py-1.5">{oldLabel}</div>
         <div className="truncate px-2 py-1.5">{newLabel}</div>
       </div>
       <div className="max-h-[360px] overflow-y-auto font-mono text-xs">
         {rows.map((row, index) => (
           <div key={index} className="grid grid-cols-2">
             <div
-              className={`whitespace-pre-wrap break-all border-r border-[var(--border-default)] px-2 py-0.5 ${
+              className={`whitespace-pre-wrap break-all border-r border-default px-2 py-0.5 ${
                 row.left.type === 'removed'
                   ? 'bg-danger/10 text-danger-fg'
                   : row.left.type === 'empty'
                     ? 'bg-surface-inset'
-                    : 'text-[var(--text-secondary)]'
+                    : 'text-secondary'
               }`}
             >
               {row.left.content || ' '}
@@ -40,7 +38,7 @@ export default function DiffViewer({ oldText, newText, oldLabel, newLabel }: Dif
                   ? 'bg-success/10 text-success-fg'
                   : row.right.type === 'empty'
                     ? 'bg-surface-inset'
-                    : 'text-[var(--text-secondary)]'
+                    : 'text-secondary'
               }`}
             >
               {row.right.content || ' '}

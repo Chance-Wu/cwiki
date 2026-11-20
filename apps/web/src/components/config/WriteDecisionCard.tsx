@@ -116,10 +116,7 @@ function RuleEditor({
   return (
     <div className="space-y-4">
       <div>
-        <label
-          htmlFor={idInputId}
-          className="block text-xs font-medium text-[var(--text-secondary)]"
-        >
+        <label htmlFor={idInputId} className="block text-xs font-medium text-secondary">
           {copy.writePolicyRuleId}
         </label>
         <Input
@@ -135,15 +132,12 @@ function RuleEditor({
 
       <div>
         <div className="flex items-baseline justify-between gap-2">
-          <label
-            htmlFor={descriptionId}
-            className="block text-xs font-medium text-[var(--text-secondary)]"
-          >
+          <label htmlFor={descriptionId} className="block text-xs font-medium text-secondary">
             {copy.writeDecisionDescription}
           </label>
           <span
             className={`shrink-0 text-xs tabular-nums ${
-              descriptionOver ? 'font-medium text-danger-fg' : 'text-[var(--text-tertiary)]'
+              descriptionOver ? 'font-medium text-danger-fg' : 'text-tertiary'
             }`}
           >
             {rule.description.length}/{limits.max_description}
@@ -298,7 +292,7 @@ export default function WriteDecisionCard() {
   if (isLoading || (!draft && !error)) {
     return (
       <Card className="p-4 md:p-5">
-        <div className="flex items-center gap-2 text-sm text-[var(--text-secondary)]">
+        <div className="flex items-center gap-2 text-sm text-secondary">
           <Loader2 size={15} className="animate-spin" aria-hidden="true" />
           {t.common.loading}
         </div>
@@ -470,7 +464,7 @@ export default function WriteDecisionCard() {
             </span>
             <div className="min-w-0">
               <h4 className={`text-sm font-semibold ${meta.titleClass}`}>{copy[meta.titleKey]}</h4>
-              <p className="mt-0.5 text-xs text-[var(--text-tertiary)]">{copy[meta.descKey]}</p>
+              <p className="mt-0.5 text-xs text-tertiary">{copy[meta.descKey]}</p>
             </div>
           </div>
           <Badge variant={meta.badgeVariant}>{entries.length}</Badge>
@@ -478,7 +472,7 @@ export default function WriteDecisionCard() {
 
         <div className="mt-2 space-y-2">
           {entries.length === 0 && (
-            <p className="rounded-lg border border-dashed border-[var(--border-default)] bg-surface-card/40 px-3 py-3 text-center text-xs text-[var(--text-tertiary)]">
+            <p className="rounded-lg border border-dashed border-default bg-surface-card/40 px-3 py-3 text-center text-xs text-tertiary">
               {copy.writeDecisionEmptyGroup}
             </p>
           )}
@@ -487,7 +481,7 @@ export default function WriteDecisionCard() {
             return (
               <div
                 key={`${rule.id}-${index}`}
-                className="group rounded-lg border border-[var(--border-default)] bg-surface-card/70 transition-colors duration-150 hover:border-[var(--border-strong)]"
+                className="group rounded-lg border border-default bg-surface-card/70 transition-colors duration-150 hover:border-strong"
               >
                 <div className="flex items-start gap-2 p-2.5">
                   <button
@@ -496,14 +490,14 @@ export default function WriteDecisionCard() {
                     className="min-w-0 flex-1 text-left"
                   >
                     <div className="flex flex-wrap items-center gap-1.5">
-                      <span className="truncate text-sm font-medium text-[var(--text-primary)]">
+                      <span className="truncate text-sm font-medium text-primary">
                         {rule.description || copy.writePolicyUntitled}
                       </span>
                       {isEmptyMatch(rule.match) && (
                         <Badge variant="warning">{copy.writePolicyCatchAll}</Badge>
                       )}
                     </div>
-                    <p className="mt-0.5 truncate font-mono text-[11px] text-[var(--text-tertiary)]">
+                    <p className="mt-0.5 truncate font-mono text-[11px] text-tertiary">
                       {rule.id || copy.writePolicyRuleIdPlaceholder}
                     </p>
                     <div className="mt-1 flex flex-wrap items-center gap-1.5">
@@ -578,7 +572,7 @@ export default function WriteDecisionCard() {
                       transition={{ duration: duration.normal, ease: ease.out }}
                       className="overflow-hidden"
                     >
-                      <div className="border-t border-[var(--border-default)] px-3 pb-3 pt-3">
+                      <div className="border-t border-default px-3 pb-3 pt-3">
                         <RuleEditor
                           rule={rule}
                           error={ruleErrors[index]}
@@ -629,12 +623,8 @@ export default function WriteDecisionCard() {
             <ListChecks size={15} className="text-brand-fg" aria-hidden="true" />
           </motion.div>
           <div className="min-w-0">
-            <h3 className="text-base font-semibold text-[var(--text-primary)]">
-              {copy.writeDecision}
-            </h3>
-            <p className="mt-0.5 text-xs font-medium text-[var(--text-tertiary)]">
-              {copy.writeDecisionDesc}
-            </p>
+            <h3 className="text-base font-semibold text-primary">{copy.writeDecision}</h3>
+            <p className="mt-0.5 text-xs font-medium text-tertiary">{copy.writeDecisionDesc}</p>
           </div>
         </div>
 
@@ -644,18 +634,14 @@ export default function WriteDecisionCard() {
             onCheckedChange={(enabled) => setDraft({ ...draft, enabled })}
           />
           <div>
-            <p className="text-xs font-medium text-[var(--text-primary)]">
-              {copy.writeDecisionEnabled}
-            </p>
-            <p className="text-xs text-[var(--text-tertiary)]">{copy.writeDecisionEnabledHint}</p>
+            <p className="text-xs font-medium text-primary">{copy.writeDecisionEnabled}</p>
+            <p className="text-xs text-tertiary">{copy.writeDecisionEnabledHint}</p>
           </div>
         </div>
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-[var(--border-default)] bg-surface-inset/30 px-3 py-2">
-        <span className="text-xs font-medium text-[var(--text-secondary)]">
-          {copy.writeDecisionFlow}
-        </span>
+      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-default bg-surface-inset/30 px-3 py-2">
+        <span className="text-xs font-medium text-secondary">{copy.writeDecisionFlow}</span>
         <div className="ml-auto flex flex-wrap items-center gap-1.5">
           <Badge variant="danger">
             {counts.skip} {copy.writeDecisionActionSkip}
@@ -669,7 +655,7 @@ export default function WriteDecisionCard() {
         </div>
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[var(--text-tertiary)]">
+      <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-tertiary">
         <span>
           {copy.writePolicyStorage}: <span className="font-mono">{draft.storage_path}</span>
         </span>
@@ -681,13 +667,11 @@ export default function WriteDecisionCard() {
         <p className="mt-2 text-xs font-medium text-warning-fg">{copy.writeDecisionDisabledHint}</p>
       )}
 
-      <div className="mt-4 rounded-xl border border-[var(--border-default)] bg-surface-elevated/20 p-3">
+      <div className="mt-4 rounded-xl border border-default bg-surface-elevated/20 p-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="text-xs font-medium text-[var(--text-primary)]">
-              {copy.writeDecisionDefault}
-            </p>
-            <p className="mt-0.5 text-xs text-[var(--text-tertiary)]">{defaultDescription}</p>
+            <p className="text-xs font-medium text-primary">{copy.writeDecisionDefault}</p>
+            <p className="mt-0.5 text-xs text-tertiary">{defaultDescription}</p>
           </div>
           <SegmentedControl
             value={draft.default_action}
@@ -705,7 +689,7 @@ export default function WriteDecisionCard() {
         )}
       </div>
 
-      <p className="mt-3 text-xs text-[var(--text-tertiary)]">{copy.writeDecisionPriorityHint}</p>
+      <p className="mt-3 text-xs text-tertiary">{copy.writeDecisionPriorityHint}</p>
 
       <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
         {renderGroup('skip', 1)}
@@ -717,7 +701,7 @@ export default function WriteDecisionCard() {
         <button
           type="button"
           onClick={() => setShowPreview(!showPreview)}
-          className="flex items-center gap-1.5 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)]"
+          className="flex items-center gap-1.5 text-xs font-medium text-secondary transition-colors hover:text-primary"
         >
           <ChevronDown
             size={13}
@@ -735,9 +719,9 @@ export default function WriteDecisionCard() {
               transition={{ duration: duration.normal, ease: ease.out }}
               className="overflow-hidden"
             >
-              <div className="mt-2 rounded-xl border border-[var(--border-default)] bg-surface-inset/40 p-3">
+              <div className="mt-2 rounded-xl border border-default bg-surface-inset/40 p-3">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-xs text-[var(--text-tertiary)]">
+                  <span className="text-xs text-tertiary">
                     {copy.writeDecisionPreviewWorkspace}
                   </span>
                   <Input
@@ -747,13 +731,13 @@ export default function WriteDecisionCard() {
                     className="h-8 w-44 py-1 text-xs"
                   />
                   {previewPending && (
-                    <span className="flex items-center gap-1 text-xs text-[var(--text-tertiary)]">
+                    <span className="flex items-center gap-1 text-xs text-tertiary">
                       <Loader2 size={12} className="animate-spin" aria-hidden="true" />
                       {copy.writeDecisionPreviewLoading}
                     </span>
                   )}
                   {previewResult && !previewPending && (
-                    <span className="ml-auto text-xs tabular-nums text-[var(--text-tertiary)]">
+                    <span className="ml-auto text-xs tabular-nums text-tertiary">
                       {translate(copy.writeDecisionPreviewRules, {
                         shown: previewResult.shown_rules,
                         total: previewResult.total_rules,
@@ -765,15 +749,13 @@ export default function WriteDecisionCard() {
                 {previewResult && (
                   <div className="mt-2">
                     <div className="flex items-baseline justify-between text-xs">
-                      <span className="text-[var(--text-tertiary)]">
+                      <span className="text-tertiary">
                         {translate(copy.writeDecisionPreviewBudget, {
                           used: previewResult.length,
                           max: previewResult.max_chars,
                         })}
                       </span>
-                      <span className="tabular-nums text-[var(--text-tertiary)]">
-                        {previewBudget}%
-                      </span>
+                      <span className="tabular-nums text-tertiary">{previewBudget}%</span>
                     </div>
                     <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-surface-elevated">
                       <div
@@ -804,15 +786,13 @@ export default function WriteDecisionCard() {
                   <p className="mt-2 text-xs font-medium text-danger-fg">{previewError}</p>
                 )}
 
-                <pre className="mt-2 whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-[var(--text-secondary)]">
+                <pre className="mt-2 whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-secondary">
                   {previewResult?.preview ||
                     (previewPending
                       ? copy.writeDecisionPreviewLoading
                       : copy.writeDecisionPreviewEmpty)}
                 </pre>
-                <p className="mt-2 text-xs text-[var(--text-tertiary)]">
-                  {copy.writeDecisionPreviewHint}
-                </p>
+                <p className="mt-2 text-xs text-tertiary">{copy.writeDecisionPreviewHint}</p>
               </div>
             </motion.div>
           )}
@@ -835,9 +815,9 @@ export default function WriteDecisionCard() {
         </div>
       )}
 
-      <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border-default)] pt-4">
+      <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-default pt-4">
         <div className="flex items-center gap-2 text-xs">
-          <span className="text-[var(--text-tertiary)]">
+          <span className="text-tertiary">
             {translate(copy.writeDecisionRuleCount, {
               n: draft.rules.length,
               max: limits.max_rules,

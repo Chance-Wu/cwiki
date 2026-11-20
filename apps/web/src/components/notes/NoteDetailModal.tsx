@@ -202,9 +202,7 @@ export default function NoteDetailModal({ note, open, onOpenChange, onOrganized 
       footer={
         <div className="flex items-center justify-end gap-2">
           {detail?.candidate_id && (
-            <span className="mr-auto text-xs text-[var(--text-tertiary)]">
-              {t.notes.candidateLinked}
-            </span>
+            <span className="mr-auto text-xs text-tertiary">{t.notes.candidateLinked}</span>
           )}
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             {t.notes.cancel}
@@ -213,9 +211,7 @@ export default function NoteDetailModal({ note, open, onOpenChange, onOrganized 
             <>
               {confirmDiscard ? (
                 <>
-                  <span className="mr-auto text-xs text-[var(--text-secondary)]">
-                    {t.notes.discardConfirm}
-                  </span>
+                  <span className="mr-auto text-xs text-secondary">{t.notes.discardConfirm}</span>
                   <Button variant="ghost" onClick={() => setConfirmDiscard(false)}>
                     {t.notes.cancel}
                   </Button>
@@ -230,7 +226,7 @@ export default function NoteDetailModal({ note, open, onOpenChange, onOrganized 
                 <>
                   <Button
                     variant="ghost"
-                    className="text-[var(--text-tertiary)] hover:text-red-500"
+                    className="text-tertiary hover:text-red-500"
                     onClick={() => setConfirmDiscard(true)}
                   >
                     <Trash2 size={14} className="mr-1.5" aria-hidden="true" />
@@ -268,16 +264,16 @@ export default function NoteDetailModal({ note, open, onOpenChange, onOrganized 
       }
     >
       {loading ? (
-        <div className="flex-1 flex items-center justify-center text-[var(--text-tertiary)]">
+        <div className="flex-1 flex items-center justify-center text-tertiary">
           <Loader2 size={20} className="animate-spin" aria-hidden="true" />
         </div>
       ) : loadError ? (
-        <div className="flex-1 flex items-center justify-center text-sm text-[var(--text-tertiary)]">
+        <div className="flex-1 flex items-center justify-center text-sm text-tertiary">
           {t.notes.detailLoadFailed}
         </div>
       ) : detail ? (
         <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin space-y-4 pb-2">
-          <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-[var(--text-tertiary)]">
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-tertiary">
             <span>
               {t.notes.host}：{detail.host ?? '-'}
             </span>
@@ -295,13 +291,13 @@ export default function NoteDetailModal({ note, open, onOpenChange, onOrganized 
           {mode === 'organize' ? (
             <div className="space-y-3">
               <div>
-                <label className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">
+                <label className="mb-1 block text-xs font-medium text-secondary">
                   {t.notes.titleLabel}
                 </label>
                 <Input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={80} />
               </div>
               <div>
-                <label className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">
+                <label className="mb-1 block text-xs font-medium text-secondary">
                   {t.notes.typeLabel}
                 </label>
                 <Select
@@ -311,7 +307,7 @@ export default function NoteDetailModal({ note, open, onOpenChange, onOrganized 
                 />
               </div>
               <div>
-                <label className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">
+                <label className="mb-1 block text-xs font-medium text-secondary">
                   {t.notes.contentLabel}
                 </label>
                 <Textarea
@@ -356,31 +352,25 @@ export default function NoteDetailModal({ note, open, onOpenChange, onOrganized 
                       className={`w-full rounded-lg border px-3 py-2 text-left text-sm transition-all ${
                         mergeTarget?.id === item.id
                           ? 'border-brand-400 bg-brand-50/40'
-                          : 'border-[var(--border-default)] hover:bg-surface-elevated/40'
+                          : 'border-default hover:bg-surface-elevated/40'
                       }`}
                     >
-                      <div className="truncate font-medium text-[var(--text-primary)]">
-                        {item.title}
-                      </div>
-                      <div className="truncate text-xs text-[var(--text-tertiary)]">
-                        {item.content}
-                      </div>
+                      <div className="truncate font-medium text-primary">{item.title}</div>
+                      <div className="truncate text-xs text-tertiary">{item.content}</div>
                     </button>
                   ))}
                 </div>
               )}
               {mergeQuery.trim().length >= 2 && !mergeSearching && mergeResults.length === 0 && (
-                <p className="text-xs text-[var(--text-tertiary)]">{t.notes.mergeNoResults}</p>
+                <p className="text-xs text-tertiary">{t.notes.mergeNoResults}</p>
               )}
-              {mergeTarget && (
-                <p className="text-xs text-[var(--text-secondary)]">{t.notes.mergeAppend}</p>
-              )}
+              {mergeTarget && <p className="text-xs text-secondary">{t.notes.mergeAppend}</p>}
               {!mergeTarget && mergeResults.length === 0 && (
-                <p className="text-xs text-[var(--text-tertiary)]">{t.notes.mergeNoTarget}</p>
+                <p className="text-xs text-tertiary">{t.notes.mergeNoTarget}</p>
               )}
             </div>
           ) : (
-            <div className="rounded-xl border border-[var(--glass-border)] bg-surface-card/40 p-4">
+            <div className="rounded-xl border border-glass bg-surface-card/40 p-4">
               <MarkdownContent content={fullContent} />
             </div>
           )}

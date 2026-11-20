@@ -298,6 +298,9 @@ const en = {
     noFilterResults: 'No memories match the current filters',
     noFilterResultsDesc: 'Try adjusting or clearing the filters',
     clearFilters: 'Clear filters',
+    searchCapped:
+      'Text and semantic search return at most the top 50 results. Switch to Hybrid mode for full coverage.',
+    listLoadFailed: 'Failed to load memories',
     confidence: 'Confidence',
     importance: 'Importance',
     sourceTab: 'Source',
@@ -1353,6 +1356,7 @@ const en = {
   graph: {
     title: 'Knowledge Graph',
     loadFailed: 'Failed to load graph',
+    detailLoadFailed: 'Failed to load memory detail',
     nodes: 'Nodes',
     edges: 'Relations',
     isolated: 'Isolated',

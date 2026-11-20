@@ -26,9 +26,9 @@ export function getSimilarityColor(
     bgClass = 'bg-warning/10'
     borderClass = 'border-warning/20'
   } else {
-    textClass = 'text-[var(--text-secondary)]'
-    bgClass = 'bg-[var(--surface-inset)]'
-    borderClass = 'border-[var(--border-default)]'
+    textClass = 'text-secondary'
+    bgClass = 'bg-surface-inset'
+    borderClass = 'border-default'
   }
 
   const classes = [textClass]

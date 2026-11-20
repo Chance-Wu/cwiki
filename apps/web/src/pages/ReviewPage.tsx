@@ -651,7 +651,7 @@ export default function ReviewPage() {
               <button
                 type="button"
                 onClick={() => setShowSuspended((v) => !v)}
-                className="flex items-center gap-1.5 text-xs font-medium text-[var(--text-tertiary)] transition-colors hover:text-[var(--text-secondary)]"
+                className="flex items-center gap-1.5 text-xs font-medium text-tertiary transition-colors hover:text-secondary"
               >
                 {t.review.suspendedList.replace('{n}', String(suspendedReviews.length))}
                 {showSuspended ? (
@@ -665,18 +665,18 @@ export default function ReviewPage() {
                   {suspendedReviews.map((item) => (
                     <div
                       key={item.memory_id}
-                      className="flex items-center gap-2 rounded-lg border border-[var(--border-default)] bg-surface-elevated/30 px-3 py-2"
+                      className="flex items-center gap-2 rounded-lg border border-default bg-surface-elevated/30 px-3 py-2"
                     >
                       <span
-                        className={`shrink-0 rounded-lg border px-1.5 py-0.5 text-xs ${TYPE_COLORS[item.memory_type] ?? 'border-[var(--border-default)] bg-surface-inset text-[var(--text-secondary)]'}`}
+                        className={`shrink-0 rounded-lg border px-1.5 py-0.5 text-xs ${TYPE_COLORS[item.memory_type] ?? 'border-default bg-surface-inset text-secondary'}`}
                       >
                         {typeLabel(t.common, item.memory_type)}
                       </span>
-                      <span className="min-w-0 flex-1 truncate text-sm text-[var(--text-secondary)]">
+                      <span className="min-w-0 flex-1 truncate text-sm text-secondary">
                         {item.title}
                       </span>
                       {item.suspended_at && (
-                        <span className="shrink-0 text-[10px] text-[var(--text-tertiary)]">
+                        <span className="shrink-0 text-[10px] text-tertiary">
                           {formatTimeShort(item.suspended_at, locale)}
                         </span>
                       )}

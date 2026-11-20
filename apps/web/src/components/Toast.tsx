@@ -134,7 +134,7 @@ const ToastItem = memo(function ToastItem({
       <span className="flex-1 min-w-0 truncate">{item.message}</span>
       <button
         onClick={() => onDismiss(item.id)}
-        className="p-1 opacity-60 hover:opacity-100 hover:bg-[var(--hover-subtle)] rounded-lg shrink-0 ml-1 transition-all duration-150 active:scale-95 select-none"
+        className="p-1 opacity-60 hover:opacity-100 hover:bg-surface-hover-subtle rounded-lg shrink-0 ml-1 transition-all duration-150 active:scale-95 select-none"
         aria-label={t.common.close}
       >
         <X size={14} aria-hidden="true" />

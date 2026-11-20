@@ -33,10 +33,10 @@ export default function DuplicatePairsCard({ workspaceId }: { workspaceId?: stri
   return (
     <div className="glass-card rounded-2xl p-5 md:p-6">
       <div className="mb-1 flex items-center gap-2">
-        <Copy size={15} className="text-[var(--text-tertiary)]" aria-hidden="true" />
-        <h3 className="text-base font-semibold text-[var(--text-primary)]">{q.duplicatesTitle}</h3>
+        <Copy size={15} className="text-tertiary" aria-hidden="true" />
+        <h3 className="text-base font-semibold text-primary">{q.duplicatesTitle}</h3>
       </div>
-      <p className="mb-4 text-xs text-[var(--text-tertiary)]">
+      <p className="mb-4 text-xs text-tertiary">
         {q.duplicatesDesc.replace('{threshold}', String(data?.threshold ?? 0.6))}
       </p>
 
@@ -47,13 +47,13 @@ export default function DuplicatePairsCard({ workspaceId }: { workspaceId?: stri
           retryLabel={t.common.retry}
         />
       ) : isLoading ? (
-        <p className="text-xs text-[var(--text-tertiary)]">{t.common.loading}</p>
+        <p className="text-xs text-tertiary">{t.common.loading}</p>
       ) : data && data.pairs.length > 0 ? (
         <ul className="space-y-2">
           {data.pairs.map((pair) => (
             <li
               key={`${pair.left.id}-${pair.right.id}`}
-              className="rounded-lg border border-[var(--border-default)] px-3 py-2"
+              className="rounded-lg border border-default px-3 py-2"
             >
               <div className="flex items-start gap-2 text-xs">
                 <div className="min-w-0 flex-1 space-y-0.5">
@@ -65,12 +65,12 @@ export default function DuplicatePairsCard({ workspaceId }: { workspaceId?: stri
                   </Link>
                   <Link
                     to={`/memories?memoryId=${pair.right.id}`}
-                    className="block truncate text-[var(--text-secondary)] hover:underline"
+                    className="block truncate text-secondary hover:underline"
                   >
                     {pair.right.title}
                   </Link>
                 </div>
-                <span className="shrink-0 tabular-nums text-[var(--text-tertiary)]">
+                <span className="shrink-0 tabular-nums text-tertiary">
                   {(pair.similarity * 100).toFixed(0)}%
                 </span>
               </div>
@@ -86,7 +86,7 @@ export default function DuplicatePairsCard({ workspaceId }: { workspaceId?: stri
                     )
                     if (ok) merge.mutate({ sourceId: pair.right.id, targetId: pair.left.id })
                   }}
-                  className="inline-flex items-center gap-1 rounded border border-[var(--border-default)] px-2 py-0.5 text-[11px] text-[var(--text-secondary)] hover:bg-surface-elevated disabled:opacity-50"
+                  className="inline-flex items-center gap-1 rounded border border-default px-2 py-0.5 text-[11px] text-secondary hover:bg-surface-elevated disabled:opacity-50"
                 >
                   <GitMerge size={11} aria-hidden="true" />
                   {q.duplicatesMerge}
@@ -99,7 +99,7 @@ export default function DuplicatePairsCard({ workspaceId }: { workspaceId?: stri
           ))}
         </ul>
       ) : (
-        <p className="text-xs text-[var(--text-tertiary)]">{q.duplicatesEmpty}</p>
+        <p className="text-xs text-tertiary">{q.duplicatesEmpty}</p>
       )}
 
       {data?.truncated && <p className="mt-3 text-xs text-warning-fg">{q.duplicatesTruncated}</p>}

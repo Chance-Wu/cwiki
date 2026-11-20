@@ -91,15 +91,13 @@ export default function LearningPanel({ workspaceId }: { workspaceId?: string })
               <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-gradient-to-br from-warning/25 to-warning/10 shrink-0 ring-1 ring-warning/30 border border-warning/25 shadow-warm-xs">
                 <Lightbulb size={15} className="text-warning-fg" aria-hidden="true" />
               </div>
-              <h3 className="text-[15px] font-semibold text-[var(--text-primary)]">
-                {t.home.learningAssistant}
-              </h3>
+              <h3 className="text-[15px] font-semibold text-primary">{t.home.learningAssistant}</h3>
               <div className="w-1 h-5 bg-gradient-to-b from-warning/60 to-warning rounded-full ml-1" />
               <span className="ml-auto px-2.5 py-0.5 bg-warning/22 text-warning-fg text-sm font-semibold rounded-lg tabular-nums border border-warning/35 shadow-warm-xs">
                 {suggestions.total_suggestions}
               </span>
             </div>
-            <p className="text-xs text-[var(--text-secondary)] mb-4 ml-12 font-medium">
+            <p className="text-xs text-secondary mb-4 ml-12 font-medium">
               {t.home.learningSubtitle}
             </p>
 
@@ -125,7 +123,7 @@ export default function LearningPanel({ workspaceId }: { workspaceId?: string })
                         animate={{ opacity: 1, x: 0 }}
                         transition={{ delay: 0.5 + i * 0.08, duration: duration.stagger }}
                       >
-                        <span className="text-[var(--text-secondary)] truncate flex-1 min-w-0 font-medium">
+                        <span className="text-secondary truncate flex-1 min-w-0 font-medium">
                           {item.title}
                         </span>
                         <span className="text-warning-fg text-xs shrink-0 font-semibold">
@@ -165,7 +163,7 @@ export default function LearningPanel({ workspaceId }: { workspaceId?: string })
                         animate={{ opacity: 1, x: 0 }}
                         transition={{ delay: 0.5 + i * 0.08, duration: duration.stagger }}
                       >
-                        <span className="text-[var(--text-secondary)] truncate flex-1 min-w-0 font-medium">
+                        <span className="text-secondary truncate flex-1 min-w-0 font-medium">
                           {item.title}
                         </span>
                         <span className="text-danger-fg text-xs shrink-0 font-semibold tabular-nums">
@@ -192,21 +190,19 @@ export default function LearningPanel({ workspaceId }: { workspaceId?: string })
         {/* ═══ 分区二：到期复习（卡内分区，非独立卡片） ═══ */}
         {hasDueReviews && (
           <div
-            className={`flex flex-1 flex-col${hasSuggestions ? ' mt-5 border-t border-[var(--border-default)] pt-4' : ''}`}
+            className={`flex flex-1 flex-col${hasSuggestions ? ' mt-5 border-t border-default pt-4' : ''}`}
           >
             <div className="flex items-center gap-3 mb-4">
               <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-gradient-to-br from-info/25 to-info/10 shrink-0 ring-1 ring-info/30 border border-info/25 shadow-warm-xs">
                 <BookOpen size={15} className="text-info-fg" aria-hidden="true" />
               </div>
-              <h3 className="text-[15px] font-semibold text-[var(--text-primary)]">
-                {t.home.dueReview}
-              </h3>
+              <h3 className="text-[15px] font-semibold text-primary">{t.home.dueReview}</h3>
               <div className="w-1 h-5 bg-gradient-to-b from-info/60 to-info rounded-full ml-1" />
-              <Badge className="ml-auto text-sm font-semibold tabular-nums bg-surface-elevated/50 text-[var(--text-secondary)] border border-[var(--border-default)] shadow-warm-xs">
+              <Badge className="ml-auto text-sm font-semibold tabular-nums bg-surface-elevated/50 text-secondary border border-default shadow-warm-xs">
                 {translate(t.home.dueCount, { n: reviewStatsQuery.data!.due_now })}
               </Badge>
             </div>
-            <p className="text-xs text-[var(--text-secondary)] mb-4 ml-12 font-medium">
+            <p className="text-xs text-secondary mb-4 ml-12 font-medium">
               {t.home.dueReviewSubtitle}
             </p>
 
@@ -215,24 +211,24 @@ export default function LearningPanel({ workspaceId }: { workspaceId?: string })
                 <MotionLink
                   key={item.memory_id}
                   to={`/review?id=${item.memory_id}`}
-                  className="relative flex items-center gap-3 px-3 py-2.5 rounded-xl border border-[var(--glass-border)] hover:border-info/40 hover:bg-info/5 transition-all duration-150 group"
+                  className="relative flex items-center gap-3 px-3 py-2.5 rounded-xl border border-glass hover:border-info/40 hover:bg-info/5 transition-all duration-150 group"
                   initial={{ opacity: 0, x: -6 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: 0.5 + i * 0.08, duration: duration.stagger }}
                 >
                   <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-full bg-info opacity-40 transition-opacity duration-150" />
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm text-[var(--text-primary)] truncate font-semibold leading-5">
+                    <p className="text-sm text-primary truncate font-semibold leading-5">
                       {item.title}
                     </p>
                     <div className="flex items-center gap-2 mt-1">
                       <span
-                        className={`text-xs px-2 py-0.5 rounded-lg font-semibold ${MASTERY_COLORS[item.mastery_level] ?? 'bg-surface-elevated/50 text-[var(--text-secondary)] border border-[var(--border-default)]'}`}
+                        className={`text-xs px-2 py-0.5 rounded-lg font-semibold ${MASTERY_COLORS[item.mastery_level] ?? 'bg-surface-elevated/50 text-secondary border border-default'}`}
                       >
                         {t.review[`mastery_${item.mastery_level}` as keyof typeof t.review] ??
                           item.mastery_level}
                       </span>
-                      <span className="text-xs text-[var(--text-secondary)] font-medium">
+                      <span className="text-xs text-secondary font-medium">
                         {typeLabel(t.common, item.memory_type)}
                       </span>
                       {item.days_overdue > 0 && (
@@ -244,7 +240,7 @@ export default function LearningPanel({ workspaceId }: { workspaceId?: string })
                   </div>
                   <ArrowRight
                     size={14}
-                    className="text-[var(--text-tertiary)] group-hover:text-[var(--text-secondary)] group-hover:translate-x-0.5 transition-all duration-150 shrink-0"
+                    className="text-tertiary group-hover:text-secondary group-hover:translate-x-0.5 transition-all duration-150 shrink-0"
                     aria-hidden="true"
                   />
                 </MotionLink>
@@ -253,7 +249,7 @@ export default function LearningPanel({ workspaceId }: { workspaceId?: string })
 
             <Link
               to="/review"
-              className="group flex items-center justify-center gap-2 mt-4 pt-2.5 border-t border-[var(--border-default)] text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-surface-inset/30 font-semibold transition-all duration-150 rounded-b-lg -mx-2 px-2"
+              className="group flex items-center justify-center gap-2 mt-4 pt-2.5 border-t border-default text-sm text-secondary hover:text-primary hover:bg-surface-inset/30 font-semibold transition-all duration-150 rounded-b-lg -mx-2 px-2"
             >
               {t.home.startReview}
               <ArrowRight

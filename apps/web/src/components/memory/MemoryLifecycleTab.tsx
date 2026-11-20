@@ -98,7 +98,7 @@ export default function MemoryLifecycleTab({ memoryId }: Props) {
       {/* 状态与统计 */}
       <div className="flex gap-4">
         <div className="flex-1">
-          <div className="text-xs font-medium text-[var(--text-tertiary)] mb-1.5">
+          <div className="text-xs font-medium text-tertiary mb-1.5">
             {t.memories.lifecycleStatus}
           </div>
           <div
@@ -135,9 +135,7 @@ export default function MemoryLifecycleTab({ memoryId }: Props) {
       {/* 生命周期时间线 */}
       {(data.timeline?.length ?? 0) > 0 ? (
         <div>
-          <h4 className="text-sm font-medium text-[var(--text-secondary)] mb-3">
-            {t.memories.lifecycleEvents}
-          </h4>
+          <h4 className="text-sm font-medium text-secondary mb-3">{t.memories.lifecycleEvents}</h4>
           <div className="relative space-y-0">
             <div className="absolute left-[11px] top-2 bottom-2 w-px bg-gradient-to-b from-transparent via-[var(--border-default)] to-transparent" />
             {(data.timeline ?? []).map((event, i) => {
@@ -164,18 +162,14 @@ export default function MemoryLifecycleTab({ memoryId }: Props) {
                   {/* 事件内容 */}
                   <div className="space-y-0.5">
                     <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-[var(--text-primary)]">
-                        {eventLabel}
-                      </span>
+                      <span className="text-sm font-medium text-primary">{eventLabel}</span>
                       {event.timestamp && (
-                        <span className="text-xs text-[var(--text-tertiary)] ml-auto">
+                        <span className="text-xs text-tertiary ml-auto">
                           {formatTime(event.timestamp, locale)}
                         </span>
                       )}
                     </div>
-                    {meta && (
-                      <div className="text-xs text-[var(--text-secondary)] pl-0.5">{meta}</div>
-                    )}
+                    {meta && <div className="text-xs text-secondary pl-0.5">{meta}</div>}
                   </div>
                 </div>
               )

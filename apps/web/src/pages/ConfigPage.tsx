@@ -236,7 +236,7 @@ export default function ConfigPage() {
           <WorkflowCard copy={copy} onNavigate={scrollToSection} />
 
           <nav aria-label={copy.navLabel} className="sticky top-0 z-20 -mx-1 px-1 py-2">
-            <div className="flex gap-1 overflow-x-auto rounded-xl border border-[var(--border-default)] bg-[var(--surface-elevated)] p-1 shadow-warm-xs scrollbar-thin">
+            <div className="flex gap-1 overflow-x-auto rounded-xl border border-default bg-surface-elevated p-1 shadow-warm-xs scrollbar-thin">
               {NAV_ITEMS.map((item) => {
                 const active = activeSection === item.id
                 return (
@@ -251,7 +251,7 @@ export default function ConfigPage() {
                     className={`flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors duration-150 ${
                       active
                         ? 'bg-brand-100/70 text-brand-fg'
-                        : 'text-[var(--text-secondary)] hover:bg-[var(--surface-inset)] hover:text-[var(--text-primary)]'
+                        : 'text-secondary hover:bg-surface-inset hover:text-primary'
                     }`}
                   >
                     {copy[item.labelKey]}
@@ -275,14 +275,14 @@ export default function ConfigPage() {
               onChange={(e) => setFieldSearch(e.target.value)}
               placeholder={copy.fieldSearchPlaceholder}
               aria-label={copy.fieldSearchPlaceholder}
-              className="w-full rounded-lg border border-[var(--border-default)] bg-surface-card px-3 py-2 pr-9 text-sm text-[var(--text-primary)] outline-none placeholder:text-[var(--text-tertiary)] focus-visible:border-brand-400 focus-visible:ring-2 focus-visible:ring-brand-200/30"
+              className="w-full rounded-lg border border-default bg-surface-card px-3 py-2 pr-9 text-sm text-primary outline-none placeholder:text-tertiary focus-visible:border-brand-400 focus-visible:ring-2 focus-visible:ring-brand-200/30"
             />
             {fieldSearch && (
               <button
                 type="button"
                 onClick={() => setFieldSearch('')}
                 aria-label={t.common.close}
-                className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-[var(--text-tertiary)] transition-colors hover:text-[var(--text-secondary)]"
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-tertiary transition-colors hover:text-secondary"
               >
                 ×
               </button>
@@ -290,7 +290,7 @@ export default function ConfigPage() {
           </div>
 
           {fieldSearch.trim() && (
-            <p className="rounded-lg border border-[var(--border-default)] bg-surface-inset px-3 py-2 text-xs text-[var(--text-tertiary)]">
+            <p className="rounded-lg border border-default bg-surface-inset px-3 py-2 text-xs text-tertiary">
               {matchCount > 0
                 ? translate(copy.fieldSearchMatches, { n: matchCount })
                 : copy.fieldSearchEmpty}
@@ -447,13 +447,9 @@ export default function ConfigPage() {
             transition={{ ...spring.snappy }}
             className="fixed bottom-4 left-1/2 z-sheet w-[calc(100%-2rem)] max-w-2xl -translate-x-1/2"
           >
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-[var(--border-default)] bg-[var(--surface-elevated)] px-4 py-3 shadow-warm-lg">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-default bg-surface-elevated px-4 py-3 shadow-warm-lg">
               <div className="min-w-0">
-                <p
-                  role="status"
-                  aria-live="polite"
-                  className="text-sm font-semibold text-[var(--text-primary)]"
-                >
+                <p role="status" aria-live="polite" className="text-sm font-semibold text-primary">
                   {translate(copy.pendingChanges, { n: dirtyCount })}
                 </p>
                 {invalidCount > 0 ? (
@@ -465,7 +461,7 @@ export default function ConfigPage() {
                     {translate(copy.invalidParams, { n: invalidCount })}
                   </button>
                 ) : (
-                  <p className="mt-0.5 truncate text-[11px] font-medium text-[var(--text-tertiary)]">
+                  <p className="mt-0.5 truncate text-[11px] font-medium text-tertiary">
                     {translate(copy.saveParamsHint, {
                       path: String(cfg.system_info?.config_path ?? ''),
                     })}

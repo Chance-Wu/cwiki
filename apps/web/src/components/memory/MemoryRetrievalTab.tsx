@@ -119,7 +119,7 @@ export default function MemoryRetrievalTab({ memoryId }: Props) {
   if (!data || data.items.length === 0)
     return (
       <EmptyState
-        icon={<Search size={22} className="text-[var(--text-tertiary)]" />}
+        icon={<Search size={22} className="text-tertiary" />}
         message={t.memoryDetail.retrievalEmpty}
         compact
       />
@@ -131,7 +131,7 @@ export default function MemoryRetrievalTab({ memoryId }: Props) {
   return (
     <div className="space-y-2.5">
       {hasMore && (
-        <div className="text-xs text-[var(--text-tertiary)] tabular-nums">
+        <div className="text-xs text-tertiary tabular-nums">
           {translate(t.memoryDetail.retrievalTotal, { n: data.total })}
         </div>
       )}
@@ -171,20 +171,17 @@ function RetrievalHitRow({ item, locale }: { item: MemoryRetrievalHitItem; local
   const { t } = useTranslation()
 
   return (
-    <li className="rounded-lg bg-surface-inset border border-[var(--border-default)] shadow-warm-xs px-3 py-2.5 space-y-1.5">
+    <li className="rounded-lg bg-surface-inset border border-default shadow-warm-xs px-3 py-2.5 space-y-1.5">
       <div className="flex items-center gap-2 flex-wrap">
         <UsedBadge used={item.used} />
-        <span
-          className="font-mono text-sm text-[var(--text-primary)] truncate min-w-0 flex-1"
-          title={item.query}
-        >
+        <span className="font-mono text-sm text-primary truncate min-w-0 flex-1" title={item.query}>
           {item.query}
         </span>
-        <span className="text-2xs text-[var(--text-tertiary)] tabular-nums shrink-0">
+        <span className="text-2xs text-tertiary tabular-nums shrink-0">
           {formatRelativeTime(item.retrieved_at, t.common, locale)}
         </span>
       </div>
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-2xs text-[var(--text-secondary)]">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-2xs text-secondary">
         {item.rank != null && (
           <span className="font-medium">
             {translate(t.memoryDetail.retrievalRank, { n: item.rank })}
@@ -199,9 +196,7 @@ function RetrievalHitRow({ item, locale }: { item: MemoryRetrievalHitItem; local
           item.signals[key] != null ? (
             <span key={key} className="tabular-nums">
               {key}
-              <span className="ml-1 text-[var(--text-tertiary)]">
-                {item.signals[key].toFixed(3)}
-              </span>
+              <span className="ml-1 text-tertiary">{item.signals[key].toFixed(3)}</span>
             </span>
           ) : null,
         )}
@@ -235,7 +230,7 @@ function UsedBadge({ used }: { used: boolean }) {
       className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-2xs font-medium border shrink-0 ${
         used
           ? 'bg-success/18 border-success/35 text-success-fg'
-          : 'bg-surface-elevated/60 border-[var(--border-default)] text-[var(--text-tertiary)]'
+          : 'bg-surface-elevated/60 border-default text-tertiary'
       }`}
     >
       {used ? <Check size={10} aria-hidden="true" /> : <Minus size={10} aria-hidden="true" />}

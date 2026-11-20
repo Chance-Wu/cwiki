@@ -80,20 +80,18 @@ export default function ConflictsTab() {
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-1.5">
                   <Badge variant={c.status === 'open' ? 'danger' : 'success'}>{c.status}</Badge>
-                  <span className="text-sm text-[var(--text-secondary)]">{c.conflict_type}</span>
-                  <span className="text-sm text-[var(--text-tertiary)] ml-auto">
+                  <span className="text-sm text-secondary">{c.conflict_type}</span>
+                  <span className="text-sm text-tertiary ml-auto">
                     {formatTimeShort(c.created_at, locale)}
                   </span>
                 </div>
                 {c.description && (
-                  <p className="text-sm text-[var(--text-secondary)] mt-1 break-words">
-                    {c.description}
-                  </p>
+                  <p className="text-sm text-secondary mt-1 break-words">{c.description}</p>
                 )}
-                <div className="flex flex-wrap gap-3 mt-1.5 text-sm text-[var(--text-tertiary)]">
+                <div className="flex flex-wrap gap-3 mt-1.5 text-sm text-tertiary">
                   <span>
                     {t.conflicts.memoryId}:{' '}
-                    <span className="font-mono tabular-nums bg-surface-inset border border-[var(--border-default)] shadow-warm-xs px-1 py-0.5 rounded-lg text-xs">
+                    <span className="font-mono tabular-nums bg-surface-inset border border-default shadow-warm-xs px-1 py-0.5 rounded-lg text-xs">
                       {c.memory_id.slice(0, 8)}
                     </span>
                     ...
@@ -101,7 +99,7 @@ export default function ConflictsTab() {
                   {c.candidate_id && (
                     <span>
                       {t.conflicts.candidateId}:{' '}
-                      <span className="font-mono tabular-nums bg-surface-inset border border-[var(--border-default)] shadow-warm-xs px-1 py-0.5 rounded-lg text-xs">
+                      <span className="font-mono tabular-nums bg-surface-inset border border-default shadow-warm-xs px-1 py-0.5 rounded-lg text-xs">
                         {c.candidate_id.slice(0, 8)}
                       </span>
                       ...
@@ -128,7 +126,7 @@ export default function ConflictsTab() {
         footer={
           selectedConflict && selectedConflict.status === 'open' ? (
             <div className="flex flex-col gap-2">
-              <label className="block text-sm font-medium text-[var(--text-primary)] mb-1">
+              <label className="block text-sm font-medium text-primary mb-1">
                 {t.conflicts.resolution}
               </label>
               <Textarea
@@ -151,41 +149,39 @@ export default function ConflictsTab() {
           <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin">
             <div className="space-y-2 text-base">
               <div>
-                <span className="text-[var(--text-secondary)]">{t.conflicts.status}: </span>
+                <span className="text-secondary">{t.conflicts.status}: </span>
                 <Badge variant={selectedConflict.status === 'open' ? 'danger' : 'success'}>
                   {selectedConflict.status}
                 </Badge>
               </div>
               {selectedConflict.description && (
                 <div>
-                  <span className="text-[var(--text-secondary)]">{t.conflicts.description}: </span>
-                  <p className="text-[var(--text-secondary)] mt-1">
-                    {selectedConflict.description}
-                  </p>
+                  <span className="text-secondary">{t.conflicts.description}: </span>
+                  <p className="text-secondary mt-1">{selectedConflict.description}</p>
                 </div>
               )}
               <div>
-                <span className="text-[var(--text-secondary)]">{t.conflicts.memoryId}: </span>
-                <span className="font-mono text-sm bg-surface-inset border border-[var(--border-default)] shadow-warm-xs px-1.5 py-0.5 rounded-lg">
+                <span className="text-secondary">{t.conflicts.memoryId}: </span>
+                <span className="font-mono text-sm bg-surface-inset border border-default shadow-warm-xs px-1.5 py-0.5 rounded-lg">
                   {selectedConflict.memory_id}
                 </span>
               </div>
               {selectedConflict.candidate_id && (
                 <div>
-                  <span className="text-[var(--text-secondary)]">{t.conflicts.candidateId}: </span>
-                  <span className="font-mono text-sm bg-surface-inset border border-[var(--border-default)] shadow-warm-xs px-1.5 py-0.5 rounded-lg">
+                  <span className="text-secondary">{t.conflicts.candidateId}: </span>
+                  <span className="font-mono text-sm bg-surface-inset border border-default shadow-warm-xs px-1.5 py-0.5 rounded-lg">
                     {selectedConflict.candidate_id}
                   </span>
                 </div>
               )}
               <div>
-                <span className="text-[var(--text-secondary)]">{t.conflicts.createdAt}: </span>
+                <span className="text-secondary">{t.conflicts.createdAt}: </span>
                 <span>{formatTimeShort(selectedConflict.created_at, locale)}</span>
               </div>
               {selectedConflict.resolution && (
                 <div>
-                  <span className="text-[var(--text-secondary)]">{t.conflicts.resolution}: </span>
-                  <p className="text-[var(--text-primary)] mt-1">{selectedConflict.resolution}</p>
+                  <span className="text-secondary">{t.conflicts.resolution}: </span>
+                  <p className="text-primary mt-1">{selectedConflict.resolution}</p>
                 </div>
               )}
             </div>

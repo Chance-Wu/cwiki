@@ -25,7 +25,7 @@ export function Checkbox({ checked, onCheckedChange, label, className }: Checkbo
       <MotionCheckboxRoot
         checked={checked}
         onCheckedChange={onCheckedChange}
-        className="w-4 h-4 rounded border border-[var(--border-default)] bg-surface-card shadow-warm-xs transition-colors duration-150 data-[state=checked]:bg-brand-500 data-[state=checked]:border-brand-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-200/30 flex items-center justify-center hover:border-brand-300"
+        className="w-4 h-4 rounded border border-default bg-surface-card shadow-warm-xs transition-colors duration-150 data-[state=checked]:bg-brand-500 data-[state=checked]:border-brand-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-200/30 flex items-center justify-center hover:border-brand-300"
         whileTap={{ scale: 0.82 }}
         transition={spring.press}
       >
@@ -36,14 +36,14 @@ export function Checkbox({ checked, onCheckedChange, label, className }: Checkbo
             className="flex items-center justify-center"
           >
             {checked === 'indeterminate' ? (
-              <Minus size={12} className="text-[var(--on-brand)]" />
+              <Minus size={12} className="text-on-brand" />
             ) : (
-              <Check size={12} className="text-[var(--on-brand)]" />
+              <Check size={12} className="text-on-brand" />
             )}
           </motion.div>
         </RadixCheckbox.Indicator>
       </MotionCheckboxRoot>
-      {label && <span className="text-sm text-[var(--text-primary)]">{label}</span>}
+      {label && <span className="text-sm text-primary">{label}</span>}
     </div>
   )
 }

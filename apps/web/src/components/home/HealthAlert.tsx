@@ -29,7 +29,7 @@ export default function HealthAlert() {
       className="mb-5 flex items-center gap-2.5 rounded-xl border border-warning/35 bg-warning/10 px-4 py-2.5 no-underline transition-colors hover:border-warning/60 hover:bg-warning/15 md:mb-6"
     >
       <AlertTriangle size={15} className="shrink-0 text-warning-fg" aria-hidden="true" />
-      <span className="min-w-0 truncate text-sm font-medium text-[var(--text-primary)]">
+      <span className="min-w-0 truncate text-sm font-medium text-primary">
         {issues.join(' · ')}
       </span>
       <span className="ml-auto flex shrink-0 items-center gap-1 text-xs font-medium text-warning-fg">

@@ -253,17 +253,14 @@ export default function MergeDiffView({
   return (
     <Card className="overflow-hidden flex flex-col min-h-0 flex-1">
       {/* 顶栏 */}
-      <div className="grid grid-cols-[1fr_auto_1fr] border-b border-[var(--glass-border)]">
-        <div className="min-w-0 px-3 py-2 bg-surface-inset flex items-center justify-between gap-2 border-r border-[var(--border-default)]">
-          <span
-            className="text-xs font-medium text-[var(--text-secondary)] truncate"
-            title={targetFilePath}
-          >
+      <div className="grid grid-cols-[1fr_auto_1fr] border-b border-glass">
+        <div className="min-w-0 px-3 py-2 bg-surface-inset flex items-center justify-between gap-2 border-r border-default">
+          <span className="text-xs font-medium text-secondary truncate" title={targetFilePath}>
             {targetTitle ?? t.memories.mergeDiffTarget}
           </span>
           <button
             onClick={acceptAllLeft}
-            className="shrink-0 px-2 py-0.5 text-xs rounded hover:bg-[var(--surface-card)] transition-colors text-[var(--text-secondary)]"
+            className="shrink-0 px-2 py-0.5 text-xs rounded hover:bg-surface-card transition-colors text-secondary"
             title={t.memories.mergeDiffAcceptAllLeft}
           >
             ← {t.common.all ?? 'All'}
@@ -286,7 +283,7 @@ export default function MergeDiffView({
               <span className="text-danger-fg tabular-nums">-{stats.removed}</span>
             )}
             {stats.added === 0 && stats.removed === 0 && (
-              <span className="text-[var(--text-tertiary)]">{t.memories.mergeDiffNoChanges}</span>
+              <span className="text-tertiary">{t.memories.mergeDiffNoChanges}</span>
             )}
           </div>
         </div>
@@ -316,7 +313,7 @@ export default function MergeDiffView({
         const pct = Math.round((resolved / total) * 100)
         const done = pct === 100
         return (
-          <div className="flex items-center gap-2 px-3 py-1.5 bg-surface-inset border-b border-[var(--glass-border)] shrink-0">
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-surface-inset border-b border-glass shrink-0">
             <div className="flex-1 h-1.5 bg-[var(--border-default)] rounded-full overflow-hidden">
               <div
                 className={`h-full rounded-full transition-all duration-300 ${done ? 'bg-success-fg' : 'bg-primary'}`}
@@ -324,7 +321,7 @@ export default function MergeDiffView({
               />
             </div>
             <span
-              className={`text-xs tabular-nums shrink-0 ${done ? 'text-success-fg font-medium' : 'text-[var(--text-tertiary)]'}`}
+              className={`text-xs tabular-nums shrink-0 ${done ? 'text-success-fg font-medium' : 'text-tertiary'}`}
             >
               {done ? `✓ ${resolved}/${total}` : `${resolved}/${total}`}
             </span>
@@ -362,7 +359,7 @@ export default function MergeDiffView({
 
       {/* 底部：模式切换 */}
       {editable && (
-        <div className="border-t border-[var(--glass-border)] bg-surface-inset shrink-0 flex flex-col min-h-0">
+        <div className="border-t border-glass bg-surface-inset shrink-0 flex flex-col min-h-0">
           <div className="px-3 py-2 flex items-center justify-between shrink-0">
             <div className="flex items-center gap-2">
               <button
@@ -370,7 +367,7 @@ export default function MergeDiffView({
                 className={`px-2 py-0.5 rounded-lg text-xs transition-all ${
                   !manualMode
                     ? 'bg-warning/20 text-warning-fg font-medium'
-                    : 'text-[var(--text-secondary)] hover:bg-[var(--surface-card)]'
+                    : 'text-secondary hover:bg-surface-card'
                 }`}
               >
                 {t.memories.mergeDiffBlockMode}
@@ -380,7 +377,7 @@ export default function MergeDiffView({
                 className={`px-2 py-0.5 rounded-lg text-xs transition-all ${
                   manualMode
                     ? 'bg-warning/20 text-warning-fg font-medium'
-                    : 'text-[var(--text-secondary)] hover:bg-[var(--surface-card)]'
+                    : 'text-secondary hover:bg-surface-card'
                 }`}
               >
                 {t.memories.mergeDiffManualMode}
@@ -389,20 +386,20 @@ export default function MergeDiffView({
                 <span className="text-xs text-success-fg ml-2">✓ {t.memories.mergeSuccess}</span>
               )}
               {!manualMode && focusedBlockId !== null && (
-                <div className="hidden md:flex items-center gap-1 ml-3 text-[var(--text-tertiary)]">
-                  <kbd className="px-1 py-0.5 bg-surface-card rounded text-[10px] font-mono border border-[var(--border-default)]">
+                <div className="hidden md:flex items-center gap-1 ml-3 text-tertiary">
+                  <kbd className="px-1 py-0.5 bg-surface-card rounded text-[10px] font-mono border border-default">
                     1
                   </kbd>
                   <span className="text-[10px]">←</span>
-                  <kbd className="px-1 py-0.5 bg-surface-card rounded text-[10px] font-mono border border-[var(--border-default)]">
+                  <kbd className="px-1 py-0.5 bg-surface-card rounded text-[10px] font-mono border border-default">
                     2
                   </kbd>
                   <span className="text-[10px]">→</span>
-                  <kbd className="px-1 py-0.5 bg-surface-card rounded text-[10px] font-mono border border-[var(--border-default)]">
+                  <kbd className="px-1 py-0.5 bg-surface-card rounded text-[10px] font-mono border border-default">
                     3
                   </kbd>
                   <span className="text-[10px]">⇔</span>
-                  <kbd className="px-1 py-0.5 bg-surface-card rounded text-[10px] font-mono border border-[var(--border-default)]">
+                  <kbd className="px-1 py-0.5 bg-surface-card rounded text-[10px] font-mono border border-default">
                     4
                   </kbd>
                   <Trash2 size={10} className="text-[10px]" />
@@ -440,12 +437,12 @@ export default function MergeDiffView({
             )}
           </div>
           {manualMode && (
-            <div className="border-t border-[var(--glass-border)] flex-1 min-h-0 flex flex-col">
+            <div className="border-t border-glass flex-1 min-h-0 flex flex-col">
               {mergedTab === 'edit' ? (
                 <textarea
                   value={mergedContent}
                   onChange={(e) => onMergedChange!(e.target.value)}
-                  className="flex-1 min-h-0 w-full p-2 text-xs font-mono text-[var(--text-secondary)] resize-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-warning bg-transparent"
+                  className="flex-1 min-h-0 w-full p-2 text-xs font-mono text-secondary resize-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-warning bg-transparent"
                   spellCheck={false}
                 />
               ) : (
@@ -464,13 +461,13 @@ export default function MergeDiffView({
 // 未变更上下文块：横跨全宽
 const ContextBlock = memo(function ContextBlock({ rows }: { rows: AlignedDiffRow[] }) {
   return (
-    <div className="border-b border-[var(--glass-border)] bg-surface-card overflow-x-auto">
+    <div className="border-b border-glass bg-surface-card overflow-x-auto">
       {rows.map((row, idx) => (
         <div key={idx} className="h-5 flex items-center">
-          <span className="w-10 text-right px-1 text-[var(--text-tertiary)] select-none text-xs leading-5 tabular-nums shrink-0">
+          <span className="w-10 text-right px-1 text-tertiary select-none text-xs leading-5 tabular-nums shrink-0">
             {row.left.lineNum ?? ''}
           </span>
-          <span className="px-2 text-xs font-mono text-[var(--text-tertiary)] whitespace-pre leading-5">
+          <span className="px-2 text-xs font-mono text-tertiary whitespace-pre leading-5">
             {row.left.content || ' '}
           </span>
         </div>
@@ -517,23 +514,23 @@ const ChangeBlockRow = memo(function ChangeBlockRow({
     <div
       data-block-id={block.id}
       onClick={onFocus}
-      className={`grid grid-cols-[1fr_auto_1fr] border-b border-[var(--glass-border)] transition-all duration-150 cursor-pointer ${
+      className={`grid grid-cols-[1fr_auto_1fr] border-b border-glass transition-all duration-150 cursor-pointer ${
         decisionBorder[decision]
-      } ${decisionBg[decision]} ${focused ? 'ring-1 ring-inset ring-warning/40 bg-warning/[0.03]' : 'hover:bg-[var(--surface-inset)]'}`}
+      } ${decisionBg[decision]} ${focused ? 'ring-1 ring-inset ring-warning/40 bg-warning/[0.03]' : 'hover:bg-surface-inset'}`}
     >
       {/* 左侧：目标内容 */}
-      <div className="min-w-0 overflow-x-auto bg-surface-inset border-r border-[var(--border-default)]">
+      <div className="min-w-0 overflow-x-auto bg-surface-inset border-r border-default">
         {block.rows.map((row, idx) => (
           <LeftCell key={idx} row={row} />
         ))}
       </div>
 
       {/* 中间：操作按钮 */}
-      <div className="px-1 py-1 flex flex-col items-center justify-center gap-0.5 bg-surface-inset border-r border-[var(--border-default)]">
+      <div className="px-1 py-1 flex flex-col items-center justify-center gap-0.5 bg-surface-inset border-r border-default">
         <ActionButton
           active={decision === 'left'}
           activeClass="bg-primary text-white shadow-sm"
-          hoverClass="hover:bg-[var(--surface-card)] hover:text-primary"
+          hoverClass="hover:bg-surface-card hover:text-primary"
           onClick={(e) => {
             e.stopPropagation()
             onDecision('left')
@@ -610,7 +607,7 @@ function ActionButton({
     <button
       onClick={onClick}
       title={title}
-      className={`p-1 rounded transition-all ${active ? activeClass : `text-[var(--text-tertiary)] ${hoverClass}`}`}
+      className={`p-1 rounded transition-all ${active ? activeClass : `text-tertiary ${hoverClass}`}`}
     >
       {children}
     </button>
@@ -621,18 +618,18 @@ const LeftCell = memo(function LeftCell({ row }: { row: AlignedDiffRow }) {
   const { left } = row
   if (left.type === 'empty') {
     return (
-      <div className="h-5 bg-surface-card border-b border-[var(--glass-border)]">
-        <span className="inline-block w-10 text-right px-1 text-[var(--text-tertiary)] select-none text-xs leading-5 tabular-nums" />
+      <div className="h-5 bg-surface-card border-b border-glass">
+        <span className="inline-block w-10 text-right px-1 text-tertiary select-none text-xs leading-5 tabular-nums" />
       </div>
     )
   }
   const bg = left.type === 'removed' ? 'bg-danger/10' : 'bg-surface-card'
   return (
-    <div className={`h-5 flex items-center ${bg} border-b border-[var(--glass-border)]`}>
-      <span className="inline-block w-10 text-right px-1 text-[var(--text-tertiary)] select-none text-xs leading-5 tabular-nums shrink-0">
+    <div className={`h-5 flex items-center ${bg} border-b border-glass`}>
+      <span className="inline-block w-10 text-right px-1 text-tertiary select-none text-xs leading-5 tabular-nums shrink-0">
         {left.lineNum ?? ''}
       </span>
-      <span className="px-2 text-xs font-mono text-[var(--text-secondary)] whitespace-pre leading-5">
+      <span className="px-2 text-xs font-mono text-secondary whitespace-pre leading-5">
         {left.content || ' '}
       </span>
     </div>
@@ -643,18 +640,18 @@ const RightCell = memo(function RightCell({ row }: { row: AlignedDiffRow }) {
   const { right } = row
   if (right.type === 'empty') {
     return (
-      <div className="h-5 bg-surface-card border-b border-[var(--glass-border)]">
-        <span className="inline-block w-10 text-right px-1 text-[var(--text-tertiary)] select-none text-xs leading-5 tabular-nums" />
+      <div className="h-5 bg-surface-card border-b border-glass">
+        <span className="inline-block w-10 text-right px-1 text-tertiary select-none text-xs leading-5 tabular-nums" />
       </div>
     )
   }
   const bg = right.type === 'added' ? 'bg-success/10' : 'bg-surface-card'
   return (
-    <div className={`h-5 flex items-center ${bg} border-b border-[var(--glass-border)]`}>
-      <span className="inline-block w-10 text-right px-1 text-[var(--text-tertiary)] select-none text-xs leading-5 tabular-nums shrink-0">
+    <div className={`h-5 flex items-center ${bg} border-b border-glass`}>
+      <span className="inline-block w-10 text-right px-1 text-tertiary select-none text-xs leading-5 tabular-nums shrink-0">
         {right.lineNum ?? ''}
       </span>
-      <span className="px-2 text-xs font-mono text-[var(--text-secondary)] whitespace-pre leading-5">
+      <span className="px-2 text-xs font-mono text-secondary whitespace-pre leading-5">
         {right.content || ' '}
       </span>
     </div>

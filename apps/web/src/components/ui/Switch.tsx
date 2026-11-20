@@ -44,7 +44,7 @@ export function Switch({ checked, onCheckedChange, label, disabled, className }:
       {label && (
         <span
           className={twMerge(
-            'text-sm text-[var(--text-primary)]',
+            'text-sm text-primary',
             disabled && 'opacity-30 saturate-0 cursor-not-allowed',
           )}
         >

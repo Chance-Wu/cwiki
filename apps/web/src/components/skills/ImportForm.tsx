@@ -37,7 +37,7 @@ export default function ImportForm({
       )}
       <div className="space-y-3">
         <div>
-          <label className="text-xs font-medium text-[var(--text-primary)] mb-1 block">
+          <label className="text-xs font-medium text-primary mb-1 block">
             {t.skills.importPath}
           </label>
           <Input
@@ -46,12 +46,10 @@ export default function ImportForm({
             placeholder={t.skills.importPathPlaceholder}
             autoFocus
           />
-          <p className="text-xs text-[var(--text-tertiary)] mt-1 font-medium">
-            {t.skills.importHint}
-          </p>
+          <p className="text-xs text-tertiary mt-1 font-medium">{t.skills.importHint}</p>
         </div>
       </div>
-      <div className="flex justify-end gap-2 mt-5 pt-3 border-t border-[var(--border-default)]">
+      <div className="flex justify-end gap-2 mt-5 pt-3 border-t border-default">
         <Button onClick={onCancel} variant="secondary">
           {t.common.cancel}
         </Button>

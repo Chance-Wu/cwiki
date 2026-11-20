@@ -64,9 +64,7 @@ export default function RingProgress({
         />
       </svg>
       {label && (
-        <span className="absolute text-2xs font-semibold tabular-nums text-[var(--text-primary)]">
-          {label}
-        </span>
+        <span className="absolute text-2xs font-semibold tabular-nums text-primary">{label}</span>
       )}
     </div>
   )

@@ -24,22 +24,22 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 
 const variantClasses: Record<ButtonVariant, string> = {
   primary:
-    'bg-gradient-to-b from-brand-300 to-brand-500 text-[var(--on-brand)] hover:from-brand-400 hover:to-brand-600 active:from-brand-500 active:to-brand-700 shadow-sm shadow-brand-500/20 disabled:bg-surface-inset disabled:text-[var(--text-tertiary)] disabled:shadow-none',
+    'bg-gradient-to-b from-brand-300 to-brand-500 text-on-brand hover:from-brand-400 hover:to-brand-600 active:from-brand-500 active:to-brand-700 shadow-sm shadow-brand-500/20 disabled:bg-surface-inset disabled:text-tertiary disabled:shadow-none',
   secondary:
-    'glass text-[var(--text-primary)] border border-[var(--glass-border)] hover:border-[var(--glass-border-hover)] hover:shadow-warm-sm active:bg-surface-inset/50 disabled:text-[var(--text-tertiary)] disabled:opacity-50',
+    'glass text-primary border border-glass hover:border-glass-hover hover:shadow-warm-sm active:bg-surface-inset/50 disabled:text-tertiary disabled:opacity-50',
   ghost:
-    'text-[var(--text-secondary)] hover:bg-surface-inset hover:text-[var(--text-primary)] active:bg-surface-inset/80 disabled:text-[var(--text-tertiary)] disabled:hover:bg-transparent disabled:hover:text-[var(--text-tertiary)]',
+    'text-secondary hover:bg-surface-inset hover:text-primary active:bg-surface-inset/80 disabled:text-tertiary disabled:hover:bg-transparent disabled:hover:text-tertiary',
   danger:
-    'bg-danger text-[var(--on-accent)] hover:bg-danger/90 active:bg-danger/80 shadow-sm disabled:bg-surface-inset disabled:text-[var(--text-tertiary)] disabled:shadow-none',
+    'bg-danger text-on-accent hover:bg-danger/90 active:bg-danger/80 shadow-sm disabled:bg-surface-inset disabled:text-tertiary disabled:shadow-none',
   success:
-    'bg-success text-[var(--on-accent)] hover:bg-success/90 active:bg-success/80 shadow-sm disabled:bg-surface-inset disabled:text-[var(--text-tertiary)] disabled:shadow-none',
+    'bg-success text-on-accent hover:bg-success/90 active:bg-success/80 shadow-sm disabled:bg-surface-inset disabled:text-tertiary disabled:shadow-none',
   warning:
-    'bg-warning text-[var(--on-accent)] hover:bg-warning/90 active:bg-warning/80 shadow-sm disabled:bg-surface-inset disabled:text-[var(--text-tertiary)] disabled:shadow-none',
+    'bg-warning text-on-accent hover:bg-warning/90 active:bg-warning/80 shadow-sm disabled:bg-surface-inset disabled:text-tertiary disabled:shadow-none',
   'brand-outline':
-    'border border-brand-300/50 text-brand-fg hover:border-brand-300/70 hover:bg-brand-100/20 active:bg-brand-100/30 disabled:text-[var(--text-tertiary)] disabled:opacity-50 disabled:shadow-none',
+    'border border-brand-300/50 text-brand-fg hover:border-brand-300/70 hover:bg-brand-100/20 active:bg-brand-100/30 disabled:text-tertiary disabled:opacity-50 disabled:shadow-none',
   subtle:
-    'bg-surface-elevated/50 text-[var(--text-secondary)] border border-[var(--glass-border)] hover:bg-surface-card-hover hover:border-[var(--glass-border-hover)] active:bg-surface-inset disabled:text-[var(--text-tertiary)] disabled:hover:bg-surface-inset',
-  icon: 'text-[var(--text-secondary)] hover:bg-surface-inset hover:text-[var(--text-primary)] active:bg-surface-inset/80 disabled:text-[var(--text-tertiary)] disabled:hover:bg-transparent disabled:hover:text-[var(--text-tertiary)]',
+    'bg-surface-elevated/50 text-secondary border border-glass hover:bg-surface-card-hover hover:border-glass-hover active:bg-surface-inset disabled:text-tertiary disabled:hover:bg-surface-inset',
+  icon: 'text-secondary hover:bg-surface-inset hover:text-primary active:bg-surface-inset/80 disabled:text-tertiary disabled:hover:bg-transparent disabled:hover:text-tertiary',
 }
 
 const sizeClasses: Record<ButtonSize, string> = {

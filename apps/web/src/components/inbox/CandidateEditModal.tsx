@@ -66,13 +66,13 @@ export default function CandidateEditModal({
     >
       <div className="space-y-3">
         <div>
-          <label className="block text-sm font-medium text-[var(--text-primary)] mb-1">
+          <label className="block text-sm font-medium text-primary mb-1">
             {t.inbox.labelTitle}
           </label>
           <Input type="text" value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
         </div>
         <div>
-          <label className="block text-sm font-medium text-[var(--text-primary)] mb-1">
+          <label className="block text-sm font-medium text-primary mb-1">
             {t.inbox.labelContent}
           </label>
           <div className="flex gap-1 mb-2">
@@ -82,8 +82,8 @@ export default function CandidateEditModal({
               onClick={() => setEditTab('source')}
               className={`px-3 py-1 text-sm rounded-lg transition-all duration-150 select-none active:scale-[0.97] ${
                 editTab === 'source'
-                  ? 'bg-surface-inset text-[var(--text-primary)] font-medium'
-                  : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-surface-inset'
+                  ? 'bg-surface-inset text-primary font-medium'
+                  : 'text-secondary hover:text-primary hover:bg-surface-inset'
               }`}
             >
               {t.inbox.sourceTab}
@@ -94,8 +94,8 @@ export default function CandidateEditModal({
               onClick={() => setEditTab('preview')}
               className={`px-3 py-1 text-sm rounded-lg transition-all duration-150 select-none active:scale-[0.97] ${
                 editTab === 'preview'
-                  ? 'bg-surface-inset text-[var(--text-primary)] font-medium'
-                  : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-surface-inset'
+                  ? 'bg-surface-inset text-primary font-medium'
+                  : 'text-secondary hover:text-primary hover:bg-surface-inset'
               }`}
             >
               {t.inbox.previewTab}
@@ -117,7 +117,7 @@ export default function CandidateEditModal({
                   className="min-h-[168px]"
                 />
               ) : (
-                <div className="rounded-lg p-4 min-h-[168px] bg-surface-inset border border-[var(--border-default)] shadow-warm-xs">
+                <div className="rounded-lg p-4 min-h-[168px] bg-surface-inset border border-default shadow-warm-xs">
                   <MarkdownContent content={editContent} />
                 </div>
               )}

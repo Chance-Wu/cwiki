@@ -117,18 +117,18 @@ export default function NotesPage() {
                 checked={selectedIds.size === notes.length && notes.length > 0}
                 onCheckedChange={toggleSelectAll}
               />
-              <span className="text-sm text-[var(--text-secondary)]">{t.notes.selectAll}</span>
+              <span className="text-sm text-secondary">{t.notes.selectAll}</span>
             </div>
           </div>
 
           {selectedIds.size > 0 && (
             <div className="mb-3 flex items-center justify-between gap-3 px-4 py-3 glass rounded-xl">
-              <span className="text-sm text-[var(--text-secondary)]">
+              <span className="text-sm text-secondary">
                 {translate(t.notes.selectedCount, { n: selectedIds.size })}
               </span>
               {confirmDiscard ? (
                 <div className="flex items-center gap-3">
-                  <span className="text-sm text-[var(--text-secondary)]">
+                  <span className="text-sm text-secondary">
                     {translate(t.notes.confirmBatchDiscard, { n: selectedIds.size })}
                   </span>
                   <Button variant="secondary" size="sm" onClick={() => setConfirmDiscard(false)}>
@@ -172,7 +172,7 @@ export default function NotesPage() {
                     openNote(note)
                   }
                 }}
-                className="p-4 md:p-5 cursor-pointer transition-all duration-150 hover:shadow-warm-md hover:border-[var(--border-strong)]"
+                className="p-4 md:p-5 cursor-pointer transition-all duration-150 hover:shadow-warm-md hover:border-strong"
                 onClick={() => openNote(note)}
               >
                 <div className="flex items-start gap-3">
@@ -190,10 +190,8 @@ export default function NotesPage() {
                     )}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="line-clamp-2 text-sm text-[var(--text-primary)]">
-                      {note.content_preview}
-                    </p>
-                    <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--text-tertiary)]">
+                    <p className="line-clamp-2 text-sm text-primary">{note.content_preview}</p>
+                    <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-tertiary">
                       <span>{note.host ?? '-'}</span>
                       <span>{note.workspace_name ?? '-'}</span>
                       <span>
@@ -207,9 +205,7 @@ export default function NotesPage() {
                       )}
                     </div>
                   </div>
-                  <span className="ml-2 shrink-0 text-xs text-[var(--text-tertiary)]">
-                    {t.notes.view}
-                  </span>
+                  <span className="ml-2 shrink-0 text-xs text-tertiary">{t.notes.view}</span>
                 </div>
               </Card>
             ))}

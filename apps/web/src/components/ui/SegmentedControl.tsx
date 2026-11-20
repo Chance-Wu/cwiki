@@ -25,7 +25,7 @@ export function SegmentedControl<T extends string>({
 
   return (
     <div
-      className={`relative inline-flex items-center gap-0.5 p-0.5 glass rounded-lg border border-[var(--glass-border)] shadow-warm-xs ${className}`}
+      className={`relative inline-flex items-center gap-0.5 p-0.5 glass rounded-lg border border-glass shadow-warm-xs ${className}`}
     >
       {options.map((option) => {
         const isActive = value === option.value
@@ -34,9 +34,7 @@ export function SegmentedControl<T extends string>({
             key={option.value}
             onClick={() => onChange(option.value)}
             className={`relative z-10 px-3 py-1.5 text-sm rounded-lg transition-colors duration-150 select-none ${
-              isActive
-                ? 'text-[var(--text-primary)] font-semibold'
-                : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+              isActive ? 'text-primary font-semibold' : 'text-secondary hover:text-primary'
             }`}
             whileTap={{ scale: 0.95 }}
             transition={spring.press}
@@ -58,8 +56,8 @@ export function SegmentedControl<T extends string>({
                 <span
                   className={`tabular-nums text-xs px-1.5 py-0.5 rounded-md ${
                     isActive
-                      ? 'bg-[rgb(var(--brand-rgb)/0.2)] text-[var(--text-primary)] font-medium'
-                      : 'bg-surface-elevated/40 text-[var(--text-tertiary)]'
+                      ? 'bg-[rgb(var(--brand-rgb)/0.2)] text-primary font-medium'
+                      : 'bg-surface-elevated/40 text-tertiary'
                   }`}
                 >
                   {option.count}

@@ -19,6 +19,7 @@ import { Button } from '../components/ui/Button'
 import PageShell from '../components/PageShell'
 import PageTitle from '../components/PageTitle'
 import ErrorAlert from '../components/ErrorAlert'
+import { useToast } from '../components/Toast'
 import LoadingWrapper from '../components/LoadingWrapper'
 import { CardSkeleton } from '../components/Skeleton'
 import { MEMORY_TYPES } from '../components/memory/MemoryItem'
@@ -125,6 +126,7 @@ export default function GraphPage() {
   const { t } = useTranslation()
   const g = t.graph
   const relationLabels = g.relation as Record<string, string>
+  const { toast } = useToast()
   const workspacesQuery = useWorkspacesList()
   const [workspaceFilter, setWorkspaceFilter] = useState('all')
   const [limit, setLimit] = useState(200)
@@ -257,7 +259,9 @@ export default function GraphPage() {
 
         setError(false)
       } catch (err) {
-        console.error('Failed to fetch graph:', err)
+        if (import.meta.env.DEV) {
+          console.error('Failed to fetch graph:', err)
+        }
         setError(true)
       } finally {
         setLoading(false)
@@ -909,12 +913,13 @@ export default function GraphPage() {
         try {
           const memory = await api.getMemoryDetail(clicked.id)
           setDetailMemory(memory)
-        } catch (err) {
-          console.error('Failed to fetch memory detail:', err)
+        } catch {
+          // 节点点击后详情拉取失败不再静默：给用户可见反馈
+          toast(g.detailLoadFailed, 'error')
         }
       }
     },
-    [findNodeAt],
+    [findNodeAt, toast, g.detailLoadFailed],
   )
 
   const graphLimitOptions = [
@@ -1048,12 +1053,10 @@ export default function GraphPage() {
                   key={label}
                   className="glass-card p-4 rounded-2xl transition-transform duration-200 hover:-translate-y-0.5"
                 >
-                  <div className="text-xs font-medium text-[var(--text-secondary)]">{label}</div>
-                  <div className="mt-1.5 text-2xl font-bold tabular-nums text-[var(--text-primary)]">
-                    {value}
-                  </div>
+                  <div className="text-xs font-medium text-secondary">{label}</div>
+                  <div className="mt-1.5 text-2xl font-bold tabular-nums text-primary">{value}</div>
                   {subtext && (
-                    <div className="text-xs text-[var(--text-tertiary)] mt-1">
+                    <div className="text-xs text-tertiary mt-1">
                       {g.topOnly} · {subtext}
                     </div>
                   )}
@@ -1079,7 +1082,7 @@ export default function GraphPage() {
               />
               {/* 视口控制：缩放 / 适配全部 */}
               {stats.total > 0 && (
-                <div className="absolute bottom-4 right-4 flex items-center gap-1 rounded-lg border border-[var(--border-default)] bg-[var(--surface-elevated)]/90 p-1 shadow-warm-sm backdrop-blur-sm">
+                <div className="absolute bottom-4 right-4 flex items-center gap-1 rounded-lg border border-default bg-[var(--surface-elevated)]/90 p-1 shadow-warm-sm backdrop-blur-sm">
                   <Button
                     variant="icon"
                     size="xs"
@@ -1089,7 +1092,7 @@ export default function GraphPage() {
                   >
                     <ZoomOut size={14} aria-hidden="true" />
                   </Button>
-                  <span className="w-10 text-center text-[11px] font-medium tabular-nums text-[var(--text-secondary)]">
+                  <span className="w-10 text-center text-[11px] font-medium tabular-nums text-secondary">
                     {zoomPct}%
                   </span>
                   <Button
@@ -1113,7 +1116,7 @@ export default function GraphPage() {
                 </div>
               )}
               {colorMode === 'mastery' && stats.total > 0 && (
-                <div className="absolute bottom-4 left-4 flex max-w-[70%] flex-wrap items-center gap-x-2.5 gap-y-1 rounded-lg border border-[var(--border-default)] bg-[var(--surface-elevated)]/90 px-2.5 py-1.5 text-[10px] text-[var(--text-tertiary)] shadow-warm-sm backdrop-blur-sm">
+                <div className="absolute bottom-4 left-4 flex max-w-[70%] flex-wrap items-center gap-x-2.5 gap-y-1 rounded-lg border border-default bg-[var(--surface-elevated)]/90 px-2.5 py-1.5 text-[10px] text-tertiary shadow-warm-sm backdrop-blur-sm">
                   {Object.keys(MASTERY_HEX).map((level) => (
                     <span key={level} className="inline-flex items-center gap-1">
                       <span
@@ -1126,25 +1129,21 @@ export default function GraphPage() {
                   ))}
                 </div>
               )}
-              <div className="absolute top-4 left-4 text-[11px] text-[var(--text-tertiary)] pointer-events-none select-none">
+              <div className="absolute top-4 left-4 text-[11px] text-tertiary pointer-events-none select-none">
                 {g.dragHint}
                 <span className="block">{g.keyboardHint}</span>
               </div>
               {stats.total === 0 && (
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                   <div className="text-center">
-                    <Network
-                      size={28}
-                      className="mx-auto mb-2 text-[var(--text-tertiary)]"
-                      aria-hidden
-                    />
-                    <p className="text-sm text-[var(--text-secondary)]">{g.empty}</p>
-                    <p className="text-xs text-[var(--text-tertiary)] mt-1">{g.emptyHint}</p>
+                    <Network size={28} className="mx-auto mb-2 text-tertiary" aria-hidden />
+                    <p className="text-sm text-secondary">{g.empty}</p>
+                    <p className="text-xs text-tertiary mt-1">{g.emptyHint}</p>
                   </div>
                 </div>
               )}
               {(hoveredNode || selectedNode) && (
-                <div className="absolute top-4 right-4 text-xs text-[var(--text-tertiary)] pointer-events-none">
+                <div className="absolute top-4 right-4 text-xs text-tertiary pointer-events-none">
                   {selectedNode ? g.cancelFocus : g.clickHint}
                 </div>
               )}
@@ -1152,16 +1151,10 @@ export default function GraphPage() {
 
             {/* Legend */}
             <div className="glass-card rounded-2xl p-4 md:p-5">
-              <div className="text-sm font-semibold mb-3 text-[var(--text-primary)]">
-                {g.legend}
-              </div>
+              <div className="text-sm font-semibold mb-3 text-primary">{g.legend}</div>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-2.5 text-xs">
                 {Object.keys(TYPE_HEX).map((type) => (
-                  <div
-                    key={type}
-                    className="flex items-center gap-2 text-[var(--text-secondary)]"
-                    title={type}
-                  >
+                  <div key={type} className="flex items-center gap-2 text-secondary" title={type}>
                     <span
                       className="w-2.5 h-2.5 rounded-full shrink-0"
                       style={{ backgroundColor: `var(--type-${type})` }}
@@ -1170,17 +1163,11 @@ export default function GraphPage() {
                   </div>
                 ))}
               </div>
-              <div className="mt-3 pt-3 border-t border-[var(--border-default)]">
-                <div className="text-sm font-semibold mb-3 text-[var(--text-primary)]">
-                  {g.relationTypes}
-                </div>
+              <div className="mt-3 pt-3 border-t border-default">
+                <div className="text-sm font-semibold mb-3 text-primary">{g.relationTypes}</div>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-2.5 text-xs">
                   {Object.keys(RELATION_COLORS).map((type) => (
-                    <div
-                      key={type}
-                      className="flex items-center gap-2 text-[var(--text-secondary)]"
-                      title={type}
-                    >
+                    <div key={type} className="flex items-center gap-2 text-secondary" title={type}>
                       <span
                         className="w-5 h-[3px] rounded-full shrink-0"
                         style={{ backgroundColor: `var(--rel-${type})` }}

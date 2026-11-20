@@ -25,7 +25,7 @@ export default function MemoryEvidenceSection({ memoryId }: Props) {
 
   if (loading) {
     return (
-      <div className="mt-4 pt-3 border-t border-dashed border-[var(--border-subtle)] flex items-center gap-1.5 text-xs text-[var(--text-tertiary)]">
+      <div className="mt-4 pt-3 border-t border-dashed border-subtle flex items-center gap-1.5 text-xs text-tertiary">
         <Loader2 size={12} className="animate-spin" aria-hidden="true" />
         {t.common.loading}
       </div>
@@ -34,7 +34,7 @@ export default function MemoryEvidenceSection({ memoryId }: Props) {
 
   if (error) {
     return (
-      <div className="mt-4 pt-3 border-t border-dashed border-[var(--border-subtle)] flex items-center gap-1.5 text-xs text-danger-fg">
+      <div className="mt-4 pt-3 border-t border-dashed border-subtle flex items-center gap-1.5 text-xs text-danger-fg">
         {t.memoryDetail.evidenceLoadFailed}
         <button
           type="button"
@@ -51,19 +51,19 @@ export default function MemoryEvidenceSection({ memoryId }: Props) {
   // 无证据时只给一行次要文案，不渲染折叠结构
   if (!data || data.length === 0) {
     return (
-      <div className="mt-4 pt-3 border-t border-dashed border-[var(--border-subtle)] text-xs text-[var(--text-tertiary)]">
+      <div className="mt-4 pt-3 border-t border-dashed border-subtle text-xs text-tertiary">
         {t.memoryDetail.evidenceEmpty}
       </div>
     )
   }
 
   return (
-    <div className="mt-4 pt-3 border-t border-dashed border-[var(--border-subtle)]">
+    <div className="mt-4 pt-3 border-t border-dashed border-subtle">
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
         aria-expanded={expanded}
-        className="flex items-center gap-1.5 text-xs font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors duration-150 select-none"
+        className="flex items-center gap-1.5 text-xs font-medium text-secondary hover:text-primary transition-colors duration-150 select-none"
       >
         {expanded ? (
           <ChevronDown size={13} aria-hidden="true" />
@@ -71,7 +71,7 @@ export default function MemoryEvidenceSection({ memoryId }: Props) {
           <ChevronRight size={13} aria-hidden="true" />
         )}
         {t.memoryDetail.evidenceTitle}
-        <span className="tabular-nums text-[var(--text-tertiary)] font-normal">
+        <span className="tabular-nums text-tertiary font-normal">
           {t.memoryDetail.evidenceCount.replace('{n}', String(data.length))}
         </span>
       </button>
@@ -97,30 +97,27 @@ function EvidenceItem({ item, locale }: { item: MemoryEvidenceItem; locale: stri
     t.memoryDetail.evidenceSourceUnknown
 
   return (
-    <li className="rounded-lg bg-surface-inset border border-[var(--border-default)] shadow-warm-xs px-3 py-2 space-y-1.5">
+    <li className="rounded-lg bg-surface-inset border border-default shadow-warm-xs px-3 py-2 space-y-1.5">
       <div className="flex flex-wrap items-center gap-2">
         <span
           className={`inline-flex items-center px-1.5 py-0.5 rounded-md text-2xs font-medium border ${
             SOURCE_TYPE_STYLES[item.source_type] ||
-            'bg-surface-elevated/60 border-[var(--glass-border)] text-[var(--text-secondary)]'
+            'bg-surface-elevated/60 border-glass text-secondary'
           }`}
         >
           {sourceLabel}
         </span>
-        <span className="text-2xs text-[var(--text-tertiary)] tabular-nums">
+        <span className="text-2xs text-tertiary tabular-nums">
           {formatRelativeTime(item.created_at, t.common, locale)}
         </span>
       </div>
       {item.source_ref && (
-        <div
-          className="font-mono text-2xs text-[var(--text-secondary)] break-all"
-          title={item.source_ref}
-        >
+        <div className="font-mono text-2xs text-secondary break-all" title={item.source_ref}>
           {item.source_ref}
         </div>
       )}
       {item.content && (
-        <p className="text-xs text-[var(--text-secondary)] leading-relaxed whitespace-pre-wrap break-words">
+        <p className="text-xs text-secondary leading-relaxed whitespace-pre-wrap break-words">
           {item.content}
         </p>
       )}

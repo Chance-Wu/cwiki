@@ -32,9 +32,7 @@ export function Tabs({ defaultValue, value, onValueChange, children, className }
 
 export function TabsList({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <RadixTabs.List
-      className={twMerge('relative flex gap-0 border-b border-[var(--glass-border)]', className)}
-    >
+    <RadixTabs.List className={twMerge('relative flex gap-0 border-b border-glass', className)}>
       {children}
     </RadixTabs.List>
   )
@@ -56,9 +54,9 @@ export function TabsTrigger({
     <RadixTabs.Trigger
       value={value}
       className={twMerge(
-        'relative px-4 py-2 text-sm font-medium text-[var(--text-secondary)] transition-all duration-150 select-none active:scale-[0.97]',
-        'hover:text-[var(--text-primary)]',
-        'data-[state=active]:text-[var(--text-primary)]',
+        'relative px-4 py-2 text-sm font-medium text-secondary transition-all duration-150 select-none active:scale-[0.97]',
+        'hover:text-primary',
+        'data-[state=active]:text-primary',
         'focus-visible:ring-2 focus-visible:ring-brand-200 focus-visible:outline-none',
         className,
       )}

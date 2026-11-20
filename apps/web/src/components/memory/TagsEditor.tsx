@@ -85,7 +85,7 @@ export default function TagsEditor({ tags, memoryId, workspaceId, onTagsChanged,
     return (
       <button
         onClick={() => setEditing(true)}
-        className="flex items-center gap-1 text-xs text-[var(--text-tertiary)] hover:text-brand-500 transition-colors mt-1"
+        className="flex items-center gap-1 text-xs text-tertiary hover:text-brand-500 transition-colors mt-1"
       >
         {!compact && <Plus size={12} />}
         <span>{t.memories.editTags}</span>
@@ -98,7 +98,7 @@ export default function TagsEditor({ tags, memoryId, workspaceId, onTagsChanged,
       <div className="flex items-start justify-between gap-2">
         <div className="flex flex-wrap items-center gap-1.5 flex-1">
           {currentTags.length === 0 && (
-            <span className="text-xs text-[var(--text-tertiary)]">{t.memories.noTags}</span>
+            <span className="text-xs text-tertiary">{t.memories.noTags}</span>
           )}
           {currentTags.map((tag) => (
             <Badge
@@ -119,7 +119,7 @@ export default function TagsEditor({ tags, memoryId, workspaceId, onTagsChanged,
         </div>
         <button
           onClick={() => setEditing(false)}
-          className="text-xs text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors shrink-0"
+          className="text-xs text-tertiary hover:text-primary transition-colors shrink-0"
         >
           {t.memories.done}
         </button>
@@ -148,7 +148,7 @@ export default function TagsEditor({ tags, memoryId, workspaceId, onTagsChanged,
           disabled={saving}
         />
         {suggestedTags.length > 0 && newTag && (
-          <div className="absolute top-full left-0 right-0 mt-1 bg-surface-card border border-[var(--border-default)] rounded-lg shadow-lg z-10 max-h-32 overflow-y-auto">
+          <div className="absolute top-full left-0 right-0 mt-1 bg-surface-card border border-default rounded-lg shadow-lg z-10 max-h-32 overflow-y-auto">
             {suggestedTags.slice(0, 5).map((tag) => (
               <button
                 key={tag}

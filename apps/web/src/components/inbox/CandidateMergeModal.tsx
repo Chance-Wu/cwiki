@@ -244,7 +244,7 @@ export default function CandidateMergeModal({
         >
           {confirmMerge ? (
             <>
-              <span className="text-sm text-[var(--text-secondary)] flex items-center mr-auto">
+              <span className="text-sm text-secondary flex items-center mr-auto">
                 {t.inbox.confirmMergeLabel}
               </span>
               <Button variant="secondary" onClick={() => setConfirmMerge(false)}>
@@ -291,23 +291,23 @@ export default function CandidateMergeModal({
           <div className="space-y-4">
             {/* 合并目标选择 */}
             <div>
-              <label className="block text-sm font-medium text-[var(--text-primary)] mb-1">
+              <label className="block text-sm font-medium text-primary mb-1">
                 {t.inbox.mergeTarget}
               </label>
 
               {hasRecommendedTarget ? (
                 // 后端推荐的合并目标展示
                 <div
-                  className={`border rounded-lg p-3 ${relationConfig?.bgColor ?? 'bg-surface-inset rounded-lg border-[var(--border-default)]'}`}
+                  className={`border rounded-lg p-3 ${relationConfig?.bgColor ?? 'bg-surface-inset rounded-lg border-default'}`}
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex-1 min-w-0">
-                      <h4 className="font-medium text-[var(--text-primary)] break-words">
+                      <h4 className="font-medium text-primary break-words">
                         {candidate.similar_memory_title}
                       </h4>
                       <div className="flex items-center gap-2 mt-1.5">
                         {candidate.similar_memory_type && (
-                          <Badge className="bg-surface-inset text-[var(--text-secondary)] border border-[var(--border-default)] shadow-warm-xs">
+                          <Badge className="bg-surface-inset text-secondary border border-default shadow-warm-xs">
                             {typeLabel(t.common, candidate.similar_memory_type)}
                           </Badge>
                         )}
@@ -316,7 +316,7 @@ export default function CandidateMergeModal({
                         )}
                         {relation && RelationIcon && (
                           <Badge
-                            className={`gap-1 ${relationConfig?.color} bg-surface-inset border border-[var(--border-default)] shadow-warm-xs`}
+                            className={`gap-1 ${relationConfig?.color} bg-surface-inset border border-default shadow-warm-xs`}
                           >
                             <RelationIcon size={12} aria-hidden="true" />
                             {t.inbox[
@@ -325,7 +325,7 @@ export default function CandidateMergeModal({
                           </Badge>
                         )}
                         {candidate.duplicate_probability != null && (
-                          <span className="text-xs text-[var(--text-secondary)]">
+                          <span className="text-xs text-secondary">
                             {t.inbox.similarityLabel}{' '}
                             <span className="tabular-nums">
                               {Math.round(candidate.duplicate_probability * 100)}
@@ -337,7 +337,7 @@ export default function CandidateMergeModal({
                     </div>
                   </div>
                   {candidate.similar_memory_content_preview && (
-                    <p className="text-sm text-[var(--text-secondary)] mt-2 line-clamp-3">
+                    <p className="text-sm text-secondary mt-2 line-clamp-3">
                       {candidate.similar_memory_content_preview}
                     </p>
                   )}
@@ -355,29 +355,23 @@ export default function CandidateMergeModal({
                         loadTargetOptions('')
                       }
                     }}
-                    className="w-full flex items-center justify-between px-3 py-2 text-sm bg-surface-inset border border-[var(--border-default)] rounded-lg text-[var(--text-primary)] hover:border-[var(--border-strong)] transition-all duration-150 select-none"
+                    className="w-full flex items-center justify-between px-3 py-2 text-sm bg-surface-inset border border-default rounded-lg text-primary hover:border-strong transition-all duration-150 select-none"
                   >
-                    <span
-                      className={
-                        selectedTargetId
-                          ? 'text-[var(--text-primary)]'
-                          : 'text-[var(--text-tertiary)]'
-                      }
-                    >
+                    <span className={selectedTargetId ? 'text-primary' : 'text-tertiary'}>
                       {selectedTargetId
                         ? targetTitle || t.inbox.selectTarget
                         : t.inbox.selectTarget}
                     </span>
-                    <Search size={14} className="text-[var(--text-tertiary)]" aria-hidden="true" />
+                    <Search size={14} className="text-tertiary" aria-hidden="true" />
                   </button>
 
                   {showTargetPicker && (
                     <div className="absolute z-dropdown mt-1 w-full glass-heavy rounded-lg max-h-96 !overflow-y-auto scrollbar-thin flex flex-col animate-fade-in">
-                      <div className="p-2 border-b border-[var(--glass-border)]">
+                      <div className="p-2 border-b border-glass">
                         <div className="relative">
                           <Search
                             size={14}
-                            className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)]"
+                            className="absolute left-2.5 top-1/2 -translate-y-1/2 text-tertiary"
                             aria-hidden="true"
                           />
                           <Input
@@ -397,7 +391,7 @@ export default function CandidateMergeModal({
                                 setTargetSearch('')
                                 loadTargetOptions('')
                               }}
-                              className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-all duration-150 active:scale-95 select-none"
+                              className="absolute right-2 top-1/2 -translate-y-1/2 text-tertiary hover:text-primary transition-all duration-150 active:scale-95 select-none"
                               aria-label={t.common.close}
                             >
                               <X size={14} aria-hidden="true" />
@@ -407,12 +401,12 @@ export default function CandidateMergeModal({
                       </div>
                       <div className="overflow-y-auto flex-1 scrollbar-thin">
                         {targetOptionsLoading ? (
-                          <div className="p-4 text-center text-sm text-[var(--text-secondary)] flex items-center justify-center gap-2">
+                          <div className="p-4 text-center text-sm text-secondary flex items-center justify-center gap-2">
                             <Loader2 size={14} className="animate-spin" />
                             {t.common.loading}
                           </div>
                         ) : targetOptions.length === 0 ? (
-                          <div className="p-4 text-center text-sm text-[var(--text-secondary)]">
+                          <div className="p-4 text-center text-sm text-secondary">
                             {t.inbox.noTargetsFound}
                           </div>
                         ) : (
@@ -421,15 +415,15 @@ export default function CandidateMergeModal({
                               key={option.id}
                               aria-label={option.title || option.id.slice(0, 8)}
                               onClick={() => handleSelectTarget(option)}
-                              className={`w-full text-left px-3 py-2 hover:bg-surface-inset transition-all duration-150 select-none border-b border-[var(--border-default)] last:border-0 ${
+                              className={`w-full text-left px-3 py-2 hover:bg-surface-inset transition-all duration-150 select-none border-b border-default last:border-0 ${
                                 option.id === selectedTargetId ? 'bg-surface-inset' : ''
                               }`}
                             >
                               <div className="flex items-center gap-2">
-                                <span className="text-sm font-medium text-[var(--text-primary)] truncate flex-1">
+                                <span className="text-sm font-medium text-primary truncate flex-1">
                                   {option.title}
                                 </span>
-                                <Badge className="bg-surface-inset text-[var(--text-secondary)] border border-[var(--border-default)] shadow-warm-xs shrink-0">
+                                <Badge className="bg-surface-inset text-secondary border border-default shadow-warm-xs shrink-0">
                                   {typeLabel(t.common, option.type)}
                                 </Badge>
                                 {option.source === 'candidate' && (
@@ -439,7 +433,7 @@ export default function CandidateMergeModal({
                                 )}
                               </div>
                               {option.content_preview && (
-                                <p className="text-xs text-[var(--text-secondary)] mt-1 truncate">
+                                <p className="text-xs text-secondary mt-1 truncate">
                                   {option.content_preview}
                                 </p>
                               )}
@@ -456,7 +450,7 @@ export default function CandidateMergeModal({
             {/* 三栏合并对比视图 */}
             {targetFullContent && !targetLoading && (
               <div>
-                <label className="block text-sm font-medium text-[var(--text-primary)] mb-1">
+                <label className="block text-sm font-medium text-primary mb-1">
                   {t.inbox.mergeDiff}
                 </label>
                 <MergeDiffView
@@ -471,7 +465,7 @@ export default function CandidateMergeModal({
               </div>
             )}
             {targetLoading && (
-              <div className="p-3 bg-surface-inset rounded-lg border border-[var(--border-default)] shadow-warm-xs text-center text-sm text-[var(--text-secondary)] flex items-center justify-center gap-2">
+              <div className="p-3 bg-surface-inset rounded-lg border border-default shadow-warm-xs text-center text-sm text-secondary flex items-center justify-center gap-2">
                 <Loader2 size={14} className="animate-spin" />
                 {t.common.loading}
               </div>

@@ -32,14 +32,7 @@ function HealthCard() {
         }
       >
         <svg width="36" height="36" viewBox="0 0 40 40" className="-rotate-90">
-          <circle
-            cx="20"
-            cy="20"
-            r="18"
-            fill="none"
-            strokeWidth="3"
-            className="stroke-[var(--border-default)]"
-          />
+          <circle cx="20" cy="20" r="18" fill="none" strokeWidth="3" className="stroke-default" />
           <circle
             cx="20"
             cy="20"
@@ -60,10 +53,8 @@ function HealthCard() {
         </span>
       </div>
       <div className="flex flex-col gap-0.5">
-        <span className="text-xs font-medium text-[var(--text-secondary)]">
-          {t.memories.healthTitle}
-        </span>
-        <div className="flex items-center gap-2 text-[11px] text-[var(--text-tertiary)]">
+        <span className="text-xs font-medium text-secondary">{t.memories.healthTitle}</span>
+        <div className="flex items-center gap-2 text-[11px] text-tertiary">
           <span className="flex items-center gap-0.5" title={t.memories.healthHealthy}>
             <CheckCircle size={10} className="text-success" />
             {distribution.healthy}

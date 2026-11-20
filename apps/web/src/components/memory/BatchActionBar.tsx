@@ -26,7 +26,7 @@ interface BatchActionBarProps {
 }
 
 const FIELD_CLASS =
-  'rounded-lg border border-[var(--border-default)] bg-surface-card px-2 py-1.5 text-sm text-[var(--text-primary)] outline-none focus-visible:border-brand-400 focus-visible:ring-2 focus-visible:ring-brand-200/30'
+  'rounded-lg border border-default bg-surface-card px-2 py-1.5 text-sm text-primary outline-none focus-visible:border-brand-400 focus-visible:ring-2 focus-visible:ring-brand-200/30'
 
 export default function BatchActionBar({
   selectedCount,
@@ -77,13 +77,13 @@ export default function BatchActionBar({
 
   return (
     <motion.div
-      className="mb-4 flex flex-col gap-2 rounded-lg border border-[var(--glass-border)] bg-surface-elevated/60 px-4 py-2.5 shadow-warm-sm"
+      className="mb-4 flex flex-col gap-2 rounded-lg border border-glass bg-surface-elevated/60 px-4 py-2.5 shadow-warm-sm"
       initial={{ opacity: 0, y: -6 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ type: 'spring', ...spring.snappy }}
     >
       <div className="flex items-center justify-between gap-2">
-        <span className="text-xs font-semibold text-[var(--text-primary)]">
+        <span className="text-xs font-semibold text-primary">
           {translate(t.memories.selectedCount, { n: selectedCount })}
         </span>
         <div className="flex items-center gap-2">

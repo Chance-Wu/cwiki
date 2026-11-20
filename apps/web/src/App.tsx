@@ -76,10 +76,8 @@ function ChunkErrorFallback() {
           />
         </svg>
       </div>
-      <h2 className="text-lg font-semibold text-[var(--text-primary)] mb-2">
-        {t.common.loadFailed}
-      </h2>
-      <p className="text-sm text-[var(--text-secondary)] mb-4">{t.common.loadFailedDesc}</p>
+      <h2 className="text-lg font-semibold text-primary mb-2">{t.common.loadFailed}</h2>
+      <p className="text-sm text-secondary mb-4">{t.common.loadFailedDesc}</p>
       <Button onClick={handleRetry}>{retrying ? t.common.refreshing : t.common.refreshPage}</Button>
     </div>
   )

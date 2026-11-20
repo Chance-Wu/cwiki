@@ -38,37 +38,31 @@ export default function MemoryOptimizePreviewModal({ preview, applying, onClose,
     >
       <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin">
         {preview.changes && (
-          <div className="mb-4 p-3 bg-surface-inset border border-[var(--border-default)] rounded-lg text-sm text-[var(--text-primary)]">
+          <div className="mb-4 p-3 bg-surface-inset border border-default rounded-lg text-sm text-primary">
             <span className="font-medium">{t.memories.changes}:</span> {preview.changes}
           </div>
         )}
         <div className="grid grid-cols-2 gap-4 mb-4">
           <div>
-            <h4 className="text-sm font-medium text-[var(--text-secondary)] mb-2">
-              {t.memories.titleLabel}
-            </h4>
-            <div className="text-sm text-[var(--text-tertiary)] line-through mb-1">
-              {preview.originalTitle}
-            </div>
-            <div className="text-sm text-[var(--text-primary)] font-medium">
-              {preview.optimizedTitle}
-            </div>
+            <h4 className="text-sm font-medium text-secondary mb-2">{t.memories.titleLabel}</h4>
+            <div className="text-sm text-tertiary line-through mb-1">{preview.originalTitle}</div>
+            <div className="text-sm text-primary font-medium">{preview.optimizedTitle}</div>
           </div>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5">
           <div>
-            <h4 className="text-sm font-medium text-[var(--text-secondary)] mb-2">
+            <h4 className="text-sm font-medium text-secondary mb-2">
               {t.memories.originalContent}
             </h4>
-            <div className="text-sm text-[var(--text-secondary)] bg-surface-inset rounded-lg p-3 border border-[var(--border-default)] shadow-warm-xs">
+            <div className="text-sm text-secondary bg-surface-inset rounded-lg p-3 border border-default shadow-warm-xs">
               <MarkdownContent content={preview.originalContent} />
             </div>
           </div>
           <div>
-            <h4 className="text-sm font-medium text-[var(--text-secondary)] mb-2">
+            <h4 className="text-sm font-medium text-secondary mb-2">
               {t.memories.optimizedContent}
             </h4>
-            <div className="text-sm text-[var(--text-primary)] bg-success-bg rounded-lg p-3 border border-success-border">
+            <div className="text-sm text-primary bg-success-bg rounded-lg p-3 border border-success-border">
               <MarkdownContent content={preview.optimizedContent} />
             </div>
           </div>

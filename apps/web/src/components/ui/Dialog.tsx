@@ -68,7 +68,7 @@ export function Dialog({
                     <div className="px-6 pt-5 pb-3 shrink-0">
                       <div className="flex items-start justify-between gap-4">
                         <div className="min-w-0 flex-1">
-                          <RadixDialog.Title className="text-lg font-semibold text-[var(--text-primary)]">
+                          <RadixDialog.Title className="text-lg font-semibold text-primary">
                             {titleLayoutId ? (
                               <motion.span layoutId={titleLayoutId} className="inline-block">
                                 {title}
@@ -78,14 +78,14 @@ export function Dialog({
                             )}
                           </RadixDialog.Title>
                           {description && (
-                            <RadixDialog.Description className="text-sm text-[var(--text-secondary)] mt-1">
+                            <RadixDialog.Description className="text-sm text-secondary mt-1">
                               {description}
                             </RadixDialog.Description>
                           )}
                         </div>
                         <RadixDialog.Close asChild>
                           <button
-                            className="p-1 rounded-lg text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-surface-inset transition-all duration-150 active:scale-95 select-none shrink-0"
+                            className="p-1 rounded-lg text-tertiary hover:text-primary hover:bg-surface-inset transition-all duration-150 active:scale-95 select-none shrink-0"
                             aria-label={t.common.close}
                           >
                             <X size={16} aria-hidden="true" />
@@ -99,9 +99,7 @@ export function Dialog({
                     </div>
 
                     {footer && (
-                      <div className="px-6 py-3 shrink-0 border-t border-[var(--glass-border)]">
-                        {footer}
-                      </div>
+                      <div className="px-6 py-3 shrink-0 border-t border-glass">{footer}</div>
                     )}
                   </>
                 ) : (
@@ -109,7 +107,7 @@ export function Dialog({
                     <div className="px-6 pt-5 pb-3 shrink-0">
                       <div className="flex items-start justify-between gap-4">
                         <div className="min-w-0 flex-1">
-                          <RadixDialog.Title className="text-lg font-semibold text-[var(--text-primary)]">
+                          <RadixDialog.Title className="text-lg font-semibold text-primary">
                             {titleLayoutId ? (
                               <motion.span layoutId={titleLayoutId} className="inline-block">
                                 {title}
@@ -119,14 +117,14 @@ export function Dialog({
                             )}
                           </RadixDialog.Title>
                           {description && (
-                            <RadixDialog.Description className="text-sm text-[var(--text-secondary)] mt-1">
+                            <RadixDialog.Description className="text-sm text-secondary mt-1">
                               {description}
                             </RadixDialog.Description>
                           )}
                         </div>
                         <RadixDialog.Close asChild>
                           <button
-                            className="p-1 rounded-lg text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-surface-inset transition-all duration-150 active:scale-95 select-none shrink-0"
+                            className="p-1 rounded-lg text-tertiary hover:text-primary hover:bg-surface-inset transition-all duration-150 active:scale-95 select-none shrink-0"
                             aria-label={t.common.close}
                           >
                             <X size={16} aria-hidden="true" />

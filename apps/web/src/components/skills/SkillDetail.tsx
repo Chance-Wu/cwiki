@@ -65,13 +65,13 @@ export default function SkillDetail({
         </div>
         <Badge className={SOURCE_BADGE[skill.source] || NEUTRAL_CHIP}>{sourceLabel}</Badge>
         {skill.builtin && (
-          <span className="flex items-center gap-0.5 text-xs font-medium text-[var(--text-tertiary)]">
+          <span className="flex items-center gap-0.5 text-xs font-medium text-tertiary">
             <Lock size={12} aria-hidden="true" />
             {t.skills.builtin}
           </span>
         )}
         {skill.provided_by && skill.provided_by.length > 0 && !skill.builtin && (
-          <span className="flex items-center gap-0.5 text-xs font-medium text-[var(--text-tertiary)]">
+          <span className="flex items-center gap-0.5 text-xs font-medium text-tertiary">
             <Bot size={12} aria-hidden="true" />
             {skill.provided_by
               .map((a) => (t.skills[`source_${a}` as keyof typeof t.skills] as string) || a)
@@ -83,11 +83,11 @@ export default function SkillDetail({
       {/* Agent 发布状态 */}
       {skill.editable && (
         <div className="mb-5">
-          <h4 className="text-xs font-semibold text-[var(--text-tertiary)] uppercase tracking-[0.08em] mb-2.5">
+          <h4 className="text-xs font-semibold text-tertiary uppercase tracking-[0.08em] mb-2.5">
             {t.skills.publishTo}
           </h4>
           {skill.publishable_to.length === 0 ? (
-            <p className="text-xs text-[var(--text-tertiary)]">{t.skills.noPublishTarget}</p>
+            <p className="text-xs text-tertiary">{t.skills.noPublishTarget}</p>
           ) : (
             <>
               <div className="flex gap-2 flex-wrap">
@@ -110,7 +110,7 @@ export default function SkillDetail({
                   <button
                     aria-label={t.skills.applyChanges}
                     onClick={handleApplyAgents}
-                    className="px-2 py-1 text-xs text-[var(--text-primary)] hover:bg-surface-inset rounded-lg select-none transition-all duration-150 active:scale-[0.97] font-medium"
+                    className="px-2 py-1 text-xs text-primary hover:bg-surface-inset rounded-lg select-none transition-all duration-150 active:scale-[0.97] font-medium"
                   >
                     {t.skills.applyChanges}
                   </button>
@@ -124,7 +124,7 @@ export default function SkillDetail({
       {/* 当前启用的 Agent（内置技能只读展示） */}
       {!skill.editable && skill.agents.length > 0 && (
         <div className="mb-5">
-          <h4 className="text-xs font-semibold text-[var(--text-tertiary)] uppercase tracking-[0.08em] mb-2.5">
+          <h4 className="text-xs font-semibold text-tertiary uppercase tracking-[0.08em] mb-2.5">
             {t.skills.enabledFor}
           </h4>
           <div className="flex gap-1 flex-wrap">
@@ -137,7 +137,7 @@ export default function SkillDetail({
 
       {/* 技能指令内容 */}
       <div className="mb-5">
-        <h4 className="text-xs font-semibold text-[var(--text-tertiary)] uppercase tracking-[0.08em] mb-2.5">
+        <h4 className="text-xs font-semibold text-tertiary uppercase tracking-[0.08em] mb-2.5">
           {t.skills.bodyLabel}
         </h4>
         <div className="bg-surface-elevated/30 rounded-lg p-5">
@@ -148,25 +148,25 @@ export default function SkillDetail({
       {/* 元信息 */}
       <div className="grid grid-cols-2 gap-x-4 gap-y-2 mb-5">
         <div>
-          <span className="text-[var(--text-tertiary)] text-xs font-medium uppercase tracking-[0.08em]">
+          <span className="text-tertiary text-xs font-medium uppercase tracking-[0.08em]">
             {t.skills.sourceLabel}
           </span>
-          <p className="text-xs text-[var(--text-primary)] font-medium">{sourceLabel}</p>
+          <p className="text-xs text-primary font-medium">{sourceLabel}</p>
         </div>
         <div>
-          <span className="text-[var(--text-tertiary)] text-xs font-medium uppercase tracking-[0.08em]">
+          <span className="text-tertiary text-xs font-medium uppercase tracking-[0.08em]">
             {t.skills.typeLabel}
           </span>
-          <p className="text-xs text-[var(--text-primary)] font-medium">
+          <p className="text-xs text-primary font-medium">
             {skill.builtin ? t.skills.builtin : t.skills.custom}
           </p>
         </div>
         {skill.provided_by && skill.provided_by.length > 0 && (
           <div>
-            <span className="text-[var(--text-tertiary)] text-xs font-medium uppercase tracking-[0.08em]">
+            <span className="text-tertiary text-xs font-medium uppercase tracking-[0.08em]">
               {t.skills.providedBy}
             </span>
-            <p className="text-xs text-[var(--text-primary)] font-medium">
+            <p className="text-xs text-primary font-medium">
               {skill.provided_by
                 .map((a) => (t.skills[`source_${a}` as keyof typeof t.skills] as string) || a)
                 .join(', ')}
@@ -174,10 +174,10 @@ export default function SkillDetail({
           </div>
         )}
         <div className={skill.provided_by && skill.provided_by.length > 0 ? '' : 'col-span-2'}>
-          <span className="text-[var(--text-tertiary)] text-xs font-medium uppercase tracking-[0.08em]">
+          <span className="text-tertiary text-xs font-medium uppercase tracking-[0.08em]">
             {t.skills.pathLabel}
           </span>
-          <p className="text-[var(--text-secondary)] text-xs font-mono font-medium break-all bg-surface-elevated/30 px-1.5 py-0.5 rounded-lg ring-1 ring-subtle">
+          <p className="text-secondary text-xs font-mono font-medium break-all bg-surface-elevated/30 px-1.5 py-0.5 rounded-lg ring-1 ring-subtle">
             {skill.path}
           </p>
         </div>

@@ -48,7 +48,7 @@ export default function EmptyState({
         </motion.div>
       ) : null}
       <motion.p
-        className="text-[var(--text-secondary)] text-sm font-medium mb-1"
+        className="text-secondary text-sm font-medium mb-1"
         initial={{ opacity: 0, y: 6 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ ...spring.snappy, delay: 0.1 }}
@@ -57,7 +57,7 @@ export default function EmptyState({
       </motion.p>
       {description && (
         <motion.p
-          className="text-[var(--text-tertiary)] text-xs max-w-xs leading-relaxed"
+          className="text-tertiary text-xs max-w-xs leading-relaxed"
           initial={{ opacity: 0, y: 6 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ ...spring.snappy, delay: 0.15 }}

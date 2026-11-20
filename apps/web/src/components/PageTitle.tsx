@@ -29,12 +29,10 @@ export default function PageTitle({ icon, title, subtitle }: PageTitleProps) {
         <div style={{ color: `rgb(var(--brand-text-rgb))` }}>{icon}</div>
       </motion.div>
       <div>
-        <h1 className="text-xl md:text-2xl font-serif font-semibold text-[var(--text-primary)] tracking-tight">
+        <h1 className="text-xl md:text-2xl font-serif font-semibold text-primary tracking-tight">
           {title}
         </h1>
-        {subtitle && (
-          <p className="mt-0.5 text-xs text-[var(--text-tertiary)] font-medium">{subtitle}</p>
-        )}
+        {subtitle && <p className="mt-0.5 text-xs text-tertiary font-medium">{subtitle}</p>}
       </div>
     </motion.div>
   )

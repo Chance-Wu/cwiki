@@ -129,11 +129,11 @@ function CommandContent({
 
   return (
     <>
-      <div className="flex items-center gap-3 px-5 border-b border-[var(--glass-border)]">
-        <Search size={18} className="shrink-0 text-[var(--text-tertiary)]" aria-hidden="true" />
+      <div className="flex items-center gap-3 px-5 border-b border-glass">
+        <Search size={18} className="shrink-0 text-tertiary" aria-hidden="true" />
         <Command.Input
           placeholder={t.commandPalette.searchPlaceholder}
-          className="flex-1 py-4 text-sm bg-transparent text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] outline-none"
+          className="flex-1 py-4 text-sm bg-transparent text-primary placeholder:text-tertiary outline-none"
           autoFocus
           value={searchQuery}
           onValueChange={onSearchChange}
@@ -150,23 +150,19 @@ function CommandContent({
       </div>
 
       <div className="flex">
-        <div
-          className={previewContent ? 'w-[55%] border-r border-[var(--glass-border)]' : 'w-full'}
-        >
+        <div className={previewContent ? 'w-[55%] border-r border-glass' : 'w-full'}>
           <Command.List className="max-h-72 overflow-y-auto scrollbar-thin p-2">
             <Command.Empty className="px-3 py-8 text-center">
               <div className="w-14 h-14 mx-auto mb-2 rounded-xl bg-surface-inset ring-1 ring-brand-border border border-brand-200/25 shadow-warm-xs flex items-center justify-center">
-                <Search size={20} className="text-[var(--text-tertiary)]" aria-hidden="true" />
+                <Search size={20} className="text-tertiary" aria-hidden="true" />
               </div>
-              <p className="text-sm text-[var(--text-secondary)]">
+              <p className="text-sm text-secondary">
                 {searchQuery.length >= 2
                   ? t.commandPalette.emptyWithResults
                   : t.commandPalette.emptyNoResults}
               </p>
               {searchQuery.length > 0 && searchQuery.length < 2 && (
-                <p className="text-xs text-[var(--text-tertiary)] mt-1">
-                  {t.commandPalette.typeMoreHint}
-                </p>
+                <p className="text-xs text-tertiary mt-1">{t.commandPalette.typeMoreHint}</p>
               )}
             </Command.Empty>
 
@@ -175,7 +171,7 @@ function CommandContent({
                 key={group}
                 heading={
                   <div className="px-2 py-2 flex items-center gap-2">
-                    <span className="text-3xs font-semibold uppercase tracking-widest text-[var(--text-tertiary)]">
+                    <span className="text-3xs font-semibold uppercase tracking-widest text-tertiary">
                       {group}
                     </span>
                     <div className="flex-1 h-px bg-[var(--border-default)]" />
@@ -190,10 +186,10 @@ function CommandContent({
                         key={item.id}
                         value={item.id}
                         onSelect={() => item.action()}
-                        className="relative flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs cursor-pointer select-none outline-none text-[var(--text-secondary)] transition-colors duration-150 data-[selected=true]:bg-surface-inset data-[selected=true]:text-[var(--text-primary)]"
+                        className="relative flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs cursor-pointer select-none outline-none text-secondary transition-colors duration-150 data-[selected=true]:bg-surface-inset data-[selected=true]:text-primary"
                       >
                         <div className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-4 rounded-r-full bg-brand-500 opacity-0 data-[selected=true]:opacity-100 transition-opacity duration-150" />
-                        <div className="flex items-center justify-center w-7 h-7 rounded-lg bg-surface-inset border border-[var(--border-default)] shadow-warm-xs text-[var(--text-tertiary)] data-[selected=true]:text-[var(--text-secondary)] transition-colors duration-150 shrink-0">
+                        <div className="flex items-center justify-center w-7 h-7 rounded-lg bg-surface-inset border border-default shadow-warm-xs text-tertiary data-[selected=true]:text-secondary transition-colors duration-150 shrink-0">
                           <Icon size={14} strokeWidth={1.75} />
                         </div>
                         <span className="font-medium truncate">{item.label}</span>
@@ -202,7 +198,7 @@ function CommandContent({
                             <span className="text-3xs px-1.5 py-0.5 rounded-lg bg-brand-badge-bg text-brand-badge-text font-medium">
                               {typeLabel(item.memory.type)}
                             </span>
-                            <span className="text-2xs text-[var(--text-tertiary)]">
+                            <span className="text-2xs text-tertiary">
                               {formatRelativeTime(item.memory.updated || item.memory.created, t)}
                             </span>
                           </div>
@@ -232,15 +228,13 @@ function CommandContent({
                     <previewContent.icon size={22} className="text-brand-500" strokeWidth={1.5} />
                   </div>
                   <div>
-                    <p className="text-sm font-semibold text-[var(--text-primary)]">
-                      {previewContent.title}
-                    </p>
-                    <p className="text-xs text-[var(--text-tertiary)] mt-1 leading-relaxed">
+                    <p className="text-sm font-semibold text-primary">{previewContent.title}</p>
+                    <p className="text-xs text-tertiary mt-1 leading-relaxed">
                       {previewContent.description}
                     </p>
                   </div>
-                  <div className="flex items-center gap-1.5 text-2xs text-[var(--text-tertiary)]">
-                    <kbd className="inline-flex items-center justify-center px-1.5 h-5 text-3xs font-medium rounded-lg border border-[var(--glass-border)] shadow-warm-xs bg-surface-inset">
+                  <div className="flex items-center gap-1.5 text-2xs text-tertiary">
+                    <kbd className="inline-flex items-center justify-center px-1.5 h-5 text-3xs font-medium rounded-lg border border-glass shadow-warm-xs bg-surface-inset">
                       ↵
                     </kbd>
                     <span>{t.commandPalette.goTo}</span>
@@ -253,16 +247,16 @@ function CommandContent({
                     <span className="text-3xs px-1.5 py-0.5 rounded-lg bg-brand-badge-bg text-brand-badge-text font-medium">
                       {typeLabel(previewContent.memoryType)}
                     </span>
-                    <span className="text-2xs text-[var(--text-tertiary)]">
+                    <span className="text-2xs text-tertiary">
                       {formatRelativeTime(previewContent.updated, t)}
                     </span>
                   </div>
-                  <p className="text-xs font-semibold text-[var(--text-primary)] leading-snug">
+                  <p className="text-xs font-semibold text-primary leading-snug">
                     {previewContent.title}
                   </p>
                   <div className="flex-1 overflow-hidden">
                     {previewContent.lines.length > 0 ? (
-                      <div className="text-xs text-[var(--text-secondary)] leading-relaxed space-y-1">
+                      <div className="text-xs text-secondary leading-relaxed space-y-1">
                         {previewContent.lines.map((line, i) => (
                           <p key={i} className="truncate">
                             {line}
@@ -270,9 +264,7 @@ function CommandContent({
                         ))}
                       </div>
                     ) : (
-                      <p className="text-xs text-[var(--text-tertiary)] italic">
-                        {t.commandPalette.noPreview}
-                      </p>
+                      <p className="text-xs text-tertiary italic">{t.commandPalette.noPreview}</p>
                     )}
                   </div>
                 </div>
@@ -282,34 +274,34 @@ function CommandContent({
         </AnimatePresence>
       </div>
 
-      <div className="flex items-center justify-between px-5 py-2.5 border-t border-[var(--glass-border)] bg-surface-inset/50">
-        <div className="flex items-center gap-3 text-2xs text-[var(--text-tertiary)]">
+      <div className="flex items-center justify-between px-5 py-2.5 border-t border-glass bg-surface-inset/50">
+        <div className="flex items-center gap-3 text-2xs text-tertiary">
           <span className="flex items-center gap-1">
-            <kbd className="inline-flex items-center justify-center w-4 h-4 text-4xs font-medium rounded border border-[var(--glass-border)] bg-surface-inset shadow-warm-xs">
+            <kbd className="inline-flex items-center justify-center w-4 h-4 text-4xs font-medium rounded border border-glass bg-surface-inset shadow-warm-xs">
               ⌘
             </kbd>
-            <kbd className="inline-flex items-center justify-center w-4 h-4 text-4xs font-medium rounded border border-[var(--glass-border)] bg-surface-inset shadow-warm-xs">
+            <kbd className="inline-flex items-center justify-center w-4 h-4 text-4xs font-medium rounded border border-glass bg-surface-inset shadow-warm-xs">
               K
             </kbd>
           </span>
           <span className="flex items-center gap-1">
-            <kbd className="inline-flex items-center justify-center w-4 h-4 text-4xs font-medium rounded border border-[var(--glass-border)] bg-surface-inset shadow-warm-xs">
+            <kbd className="inline-flex items-center justify-center w-4 h-4 text-4xs font-medium rounded border border-glass bg-surface-inset shadow-warm-xs">
               ↑
             </kbd>
-            <kbd className="inline-flex items-center justify-center w-4 h-4 text-4xs font-medium rounded border border-[var(--glass-border)] bg-surface-inset shadow-warm-xs">
+            <kbd className="inline-flex items-center justify-center w-4 h-4 text-4xs font-medium rounded border border-glass bg-surface-inset shadow-warm-xs">
               ↓
             </kbd>
             <span className="ml-0.5">{t.commandPalette.navigation}</span>
           </span>
           <span className="flex items-center gap-1">
-            <kbd className="inline-flex items-center justify-center px-1 h-4 text-4xs font-medium rounded border border-[var(--glass-border)] bg-surface-inset shadow-warm-xs">
+            <kbd className="inline-flex items-center justify-center px-1 h-4 text-4xs font-medium rounded border border-glass bg-surface-inset shadow-warm-xs">
               ↵
             </kbd>
             <span className="ml-0.5">{t.commandPalette.execute}</span>
           </span>
         </div>
-        <span className="flex items-center gap-1 text-2xs text-[var(--text-tertiary)]">
-          <kbd className="inline-flex items-center justify-center px-1.5 h-4 text-4xs font-medium rounded border border-[var(--glass-border)] bg-surface-inset shadow-warm-xs">
+        <span className="flex items-center gap-1 text-2xs text-tertiary">
+          <kbd className="inline-flex items-center justify-center px-1.5 h-4 text-4xs font-medium rounded border border-glass bg-surface-inset shadow-warm-xs">
             esc
           </kbd>
           <span className="ml-0.5">{t.common.close}</span>

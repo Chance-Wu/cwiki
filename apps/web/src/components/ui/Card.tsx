@@ -15,7 +15,7 @@ export function Card({ children, className, ...props }: CardProps) {
       className={twMerge(
         'glass relative overflow-hidden rounded-2xl',
         'transition-[box-shadow,border-color,transform] duration-300 ease-spring',
-        'hover:-translate-y-0.5 hover:border-[var(--glass-border-hover)] hover:shadow-glass-lg',
+        'hover:-translate-y-0.5 hover:border-glass-hover hover:shadow-glass-lg',
         className,
       )}
       {...props}

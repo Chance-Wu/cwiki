@@ -94,7 +94,7 @@ const MemoryItem = memo(function MemoryItem({
       }}
       role="button"
       tabIndex={0}
-      className={`group px-4 py-3 cursor-pointer transition-all duration-200 relative border-b border-[var(--border-default)] last:border-b-0 ${
+      className={`group px-4 py-3 cursor-pointer transition-all duration-200 relative border-b border-default last:border-b-0 ${
         selected ? 'bg-brand-50/30 border-l-[3px] border-l-brand-400' : ''
       } ${focused ? 'ring-2 ring-inset ring-brand-300/50 bg-surface-inset/50' : ''}`}
       whileHover={{
@@ -117,7 +117,7 @@ const MemoryItem = memo(function MemoryItem({
         <div className="min-w-0 flex-1">
           {/* 标题行 */}
           <div className="flex items-start justify-between gap-2">
-            <h3 className="text-sm font-semibold tracking-[-0.01em] text-[var(--text-primary)] break-words leading-snug">
+            <h3 className="text-sm font-semibold tracking-[-0.01em] text-primary break-words leading-snug">
               <motion.span layoutId={`mem-title-${m.id}`} className="inline-block">
                 <SearchHighlight text={m.title} query={query} />
               </motion.span>
@@ -144,7 +144,7 @@ const MemoryItem = memo(function MemoryItem({
               </span>
               {m.confidence != null && (
                 <span
-                  className="text-xs text-[var(--text-tertiary)] tabular-nums font-medium"
+                  className="text-xs text-tertiary tabular-nums font-medium"
                   title={m.confidence === 0.5 ? t.memories.confidenceDefaultHint : undefined}
                 >
                   {Math.round((m.confidence || 0) * 100)}%
@@ -153,7 +153,7 @@ const MemoryItem = memo(function MemoryItem({
             </div>
           </div>
           {m.content && (
-            <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-[var(--text-tertiary)]">
+            <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-tertiary">
               <SearchHighlight text={summarize(m.content)} query={query} />
             </p>
           )}
@@ -205,7 +205,7 @@ const MemoryItem = memo(function MemoryItem({
                 {m.tags.length > 2 && (
                   <Badge
                     variant="default"
-                    className="bg-surface-inset text-[var(--text-tertiary)] border-[var(--border-default)] text-[10px] px-1.5 py-0"
+                    className="bg-surface-inset text-tertiary border-default text-[10px] px-1.5 py-0"
                     title={`标签 (${m.tags!.length}): ${m.tags!.join(', ')}`}
                   >
                     +{m.tags.length - 2}
@@ -239,7 +239,7 @@ const MemoryItem = memo(function MemoryItem({
             )}
           </div>
           {/* 第二行：工作区 + 时间 + 使用统计 */}
-          <div className="flex items-center gap-2 mt-1.5 text-[10px] text-[var(--text-tertiary)]">
+          <div className="flex items-center gap-2 mt-1.5 text-[10px] text-tertiary">
             {m.workspace && (
               <span className="truncate max-w-[100px]" title={m.workspace}>
                 {m.workspace}

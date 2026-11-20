@@ -288,7 +288,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 <AnimatePresence initial={false}>
                   {!sidebarCollapsed && (
                     <motion.h1
-                      className="text-[15px] font-semibold text-[var(--text-primary)] tracking-[-0.02em] leading-none"
+                      className="text-[15px] font-semibold text-primary tracking-[-0.02em] leading-none"
                       initial={{ opacity: 0, x: -8 }}
                       animate={{ opacity: 1, x: 0 }}
                       exit={{ opacity: 0, x: -8 }}
@@ -341,7 +341,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             </div>
 
             {/* 底部信息 */}
-            <div className="px-2.5 pt-3 pb-3 mt-auto border-t border-[var(--border-default)]">
+            <div className="px-2.5 pt-3 pb-3 mt-auto border-t border-default">
               <AnimatePresence mode="sync" initial={false}>
                 {sidebarCollapsed ? (
                   <motion.div
@@ -356,7 +356,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                       onClick={toggleTheme}
                       whileTap={{ scale: 0.9 }}
                       transition={{ duration: duration.fast }}
-                      className="flex items-center justify-center w-7 h-7 rounded-lg text-[var(--text-tertiary)] transition-all duration-150 hover:bg-surface-inset hover:text-[var(--text-secondary)]"
+                      className="flex items-center justify-center w-7 h-7 rounded-lg text-tertiary transition-all duration-150 hover:bg-surface-inset hover:text-secondary"
                       title={themeLabel}
                       aria-label={themeLabel}
                     >
@@ -391,7 +391,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                       onClick={toggleTheme}
                       whileTap={{ scale: 0.97 }}
                       transition={{ duration: duration.fast }}
-                      className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap text-[var(--text-tertiary)] hover:bg-surface-inset hover:text-[var(--text-secondary)] transition-all duration-150"
+                      className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap text-tertiary hover:bg-surface-inset hover:text-secondary transition-all duration-150"
                       title={themeLabel}
                       aria-label={themeLabel}
                     >
@@ -456,7 +456,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
       {/* 移动端底部导航 */}
       <nav
-        className="vt-bottom-nav md:hidden shrink-0 flex items-center gap-0.5 py-1.5 px-1 pb-safe z-nav border-t border-[var(--border-default)] sidebar-glass"
+        className="vt-bottom-nav md:hidden shrink-0 flex items-center gap-0.5 py-1.5 px-1 pb-safe z-nav border-t border-default sidebar-glass"
         aria-label={t.layout.navigation}
       >
         {primaryItems.map(({ to, icon: Icon, label }) => (
@@ -465,9 +465,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             to={to}
             className={({ isActive }) =>
               `relative flex flex-col items-center gap-0.5 px-3 py-1 text-xs flex-1 rounded-lg transition-all duration-150 ease-out select-none active:scale-[0.97] ${
-                isActive
-                  ? 'nav-glass text-[var(--text-primary)] font-medium'
-                  : 'text-[var(--text-tertiary)]'
+                isActive ? 'nav-glass text-primary font-medium' : 'text-tertiary'
               }`
             }
             end={to === '/'}
@@ -477,7 +475,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 <div className="relative">
                   <Icon size={18} strokeWidth={isActive ? 2 : 1.75} aria-hidden="true" />
                   {to === '/pending' && pendingCount > 0 && (
-                    <span className="absolute -top-1.5 -right-2.5 min-w-[16px] h-4 px-1 flex items-center justify-center bg-warning text-[var(--on-accent)] text-3xs font-semibold tabular-nums rounded-full">
+                    <span className="absolute -top-1.5 -right-2.5 min-w-[16px] h-4 px-1 flex items-center justify-center bg-warning text-on-accent text-3xs font-semibold tabular-nums rounded-full">
                       {pendingCount > 99 ? '99' : pendingCount}
                     </span>
                   )}
@@ -498,7 +496,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           onClick={() => setShowMore(true)}
           whileTap={{ scale: 0.97 }}
           transition={{ duration: duration.fast }}
-          className="flex flex-col items-center gap-0.5 px-3 py-1 text-xs flex-1 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-surface-inset rounded-lg transition-all duration-150 ease-out select-none"
+          className="flex flex-col items-center gap-0.5 px-3 py-1 text-xs flex-1 text-tertiary hover:text-secondary hover:bg-surface-inset rounded-lg transition-all duration-150 ease-out select-none"
         >
           <MoreHorizontal size={18} strokeWidth={1.75} aria-hidden="true" />
           <span>{t.layout.more}</span>
@@ -522,20 +520,18 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               animate={{ y: 0 }}
               exit={{ y: '100%' }}
               transition={{ type: 'spring', ...spring.layout }}
-              className="md:hidden fixed bottom-0 left-0 right-0 z-sheet border-t border-[var(--glass-border)] rounded-t-xl pb-safe glass-heavy"
+              className="md:hidden fixed bottom-0 left-0 right-0 z-sheet border-t border-glass rounded-t-xl pb-safe glass-heavy"
             >
               <div className="flex justify-center pt-2.5 pb-1">
                 <div className="w-8 h-1 rounded-full bg-[var(--border-default)]" />
               </div>
               <div className="flex items-center justify-between px-4 py-2.5">
-                <span className="text-sm font-semibold text-[var(--text-primary)]">
-                  {t.layout.more}
-                </span>
+                <span className="text-sm font-semibold text-primary">{t.layout.more}</span>
                 <motion.button
                   onClick={closeSheet}
                   whileTap={{ scale: 0.9 }}
                   transition={{ duration: duration.fast }}
-                  className="min-w-[44px] min-h-[44px] flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] rounded-lg hover:bg-surface-inset transition-all duration-150"
+                  className="min-w-[44px] min-h-[44px] flex items-center justify-center text-tertiary hover:text-secondary rounded-lg hover:bg-surface-inset transition-all duration-150"
                   aria-label={t.common.close}
                 >
                   <X size={16} aria-hidden="true" />
@@ -559,8 +555,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                       className={({ isActive }) =>
                         `flex flex-col items-center gap-1.5 p-2.5 rounded-lg transition-all duration-150 ease-out select-none active:scale-[0.97] ${
                           isActive
-                            ? 'nav-glass text-[var(--text-primary)]'
-                            : 'text-[var(--text-secondary)] hover:bg-surface-inset'
+                            ? 'nav-glass text-primary'
+                            : 'text-secondary hover:bg-surface-inset'
                         }`
                       }
                       end={to === '/'}
@@ -569,7 +565,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                       <div className="relative">
                         <span className="text-xs font-medium">{label}</span>
                         {to === '/review' && dueReviewCount > 0 && (
-                          <span className="absolute -top-1.5 -right-4 min-w-[16px] h-4 px-1 flex items-center justify-center bg-brand-500 text-[var(--on-brand)] text-3xs font-semibold tabular-nums rounded-full">
+                          <span className="absolute -top-1.5 -right-4 min-w-[16px] h-4 px-1 flex items-center justify-center bg-brand-500 text-on-brand text-3xs font-semibold tabular-nums rounded-full">
                             {dueReviewCount > 99 ? '99' : dueReviewCount}
                           </span>
                         )}
@@ -603,11 +599,10 @@ const SidebarLink = memo(function SidebarLink({
     <NavLink
       to={to}
       className={({ isActive }) => {
-        const activeCls =
-          'nav-glass text-[var(--text-primary)] font-semibold bg-[var(--nav-glass-active)]'
+        const activeCls = 'nav-glass text-primary font-semibold bg-[var(--nav-glass-active)]'
         return `relative flex items-center py-2.5 rounded-lg transition-all duration-150 ease-out select-none group ${
           collapsed ? 'justify-center px-0' : 'gap-2.5 px-3'
-        } ${isActive ? activeCls : 'text-[var(--text-secondary)] hover:bg-surface-inset/60 hover:text-[var(--text-primary)]'}`
+        } ${isActive ? activeCls : 'text-secondary hover:bg-surface-inset/60 hover:text-primary'}`
       }}
       end={to === '/'}
       title={collapsed ? label : undefined}
@@ -629,9 +624,7 @@ const SidebarLink = memo(function SidebarLink({
           </AnimatePresence>
           <motion.div
             className={`relative flex items-center justify-center w-5 h-5 shrink-0 transition-colors duration-150 ease-out ${
-              isActive
-                ? 'text-brand-text-active'
-                : 'text-[var(--text-tertiary)] group-hover:text-[var(--text-secondary)]'
+              isActive ? 'text-brand-text-active' : 'text-tertiary group-hover:text-secondary'
             }`}
             layout
             transition={{ type: 'spring', ...spring.dialog }}

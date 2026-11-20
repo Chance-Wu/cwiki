@@ -30,7 +30,7 @@ const MemoryRelationsTab = lazy(() => import('./RelationGraph'))
 const MemoryHealthTab = lazy(() => import('./MemoryHealthTab'))
 
 const TabFallback = () => (
-  <div className="flex items-center justify-center py-12 text-[var(--text-tertiary)] text-sm">
+  <div className="flex items-center justify-center py-12 text-tertiary text-sm">
     <Loader2 size={14} className="animate-spin mr-2" aria-hidden="true" />
   </div>
 )
@@ -337,14 +337,14 @@ export default function MemoryDetailModal({
           onTagsChanged={onMemoryUpdated}
           compact
         />
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[var(--text-tertiary)]">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-tertiary">
           <span className="flex items-center gap-1.5" title={freshnessLabel}>
             <span className={`w-1.5 h-1.5 rounded-full ${freshnessColor}`} />
             <span className="font-medium">{freshnessLabel}</span>
           </span>
           {memory.file_path && (
             <span
-              className="font-mono text-[var(--text-secondary)] bg-surface-inset border border-[var(--border-default)] shadow-warm-xs px-1.5 py-0.5 rounded-lg"
+              className="font-mono text-secondary bg-surface-inset border border-default shadow-warm-xs px-1.5 py-0.5 rounded-lg"
               title={memory.file_path}
             >
               {memory.file_path}
@@ -386,7 +386,7 @@ export default function MemoryDetailModal({
                   role="tab"
                   aria-selected={editTab === 'source'}
                   onClick={() => setEditTab('source')}
-                  className={`px-3 py-1 text-sm rounded-lg transition-all duration-150 select-none active:scale-[0.97] ${editTab === 'source' ? 'bg-surface-inset text-[var(--text-primary)] font-medium' : 'text-[var(--text-secondary)] hover:bg-surface-inset'}`}
+                  className={`px-3 py-1 text-sm rounded-lg transition-all duration-150 select-none active:scale-[0.97] ${editTab === 'source' ? 'bg-surface-inset text-primary font-medium' : 'text-secondary hover:bg-surface-inset'}`}
                 >
                   {t.memories.sourceTab}
                 </button>
@@ -394,7 +394,7 @@ export default function MemoryDetailModal({
                   role="tab"
                   aria-selected={editTab === 'preview'}
                   onClick={() => setEditTab('preview')}
-                  className={`px-3 py-1 text-sm rounded-lg transition-all duration-150 select-none active:scale-[0.97] ${editTab === 'preview' ? 'bg-surface-inset text-[var(--text-primary)] font-medium' : 'text-[var(--text-secondary)] hover:bg-surface-inset'}`}
+                  className={`px-3 py-1 text-sm rounded-lg transition-all duration-150 select-none active:scale-[0.97] ${editTab === 'preview' ? 'bg-surface-inset text-primary font-medium' : 'text-secondary hover:bg-surface-inset'}`}
                 >
                   {t.memories.previewTab}
                 </button>
@@ -407,7 +407,7 @@ export default function MemoryDetailModal({
                   className="font-mono"
                 />
               ) : (
-                <div className="p-4 min-h-[280px] bg-surface-inset rounded-lg border border-[var(--border-default)] shadow-warm-xs">
+                <div className="p-4 min-h-[280px] bg-surface-inset rounded-lg border border-default shadow-warm-xs">
                   <MarkdownContent content={editContent} />
                 </div>
               )}

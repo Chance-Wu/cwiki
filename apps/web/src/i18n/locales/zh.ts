@@ -298,6 +298,8 @@ const zh: TranslationKeys = {
     noFilterResults: '没有符合筛选条件的记忆',
     noFilterResultsDesc: '尝试调整或清除筛选条件',
     clearFilters: '清除筛选',
+    searchCapped: '文本/语义检索最多返回前 50 条结果，更多内容可切换到「混合」模式检索',
+    listLoadFailed: '记忆列表加载失败',
     confidence: '置信度',
     importance: '重要度',
     sourceTab: '源码',
@@ -1302,6 +1304,7 @@ const zh: TranslationKeys = {
   graph: {
     title: '知识图谱',
     loadFailed: '加载图谱失败',
+    detailLoadFailed: '记忆详情加载失败',
     nodes: '节点数',
     edges: '关系数',
     isolated: '孤立节点',

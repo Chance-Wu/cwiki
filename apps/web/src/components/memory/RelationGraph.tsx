@@ -305,7 +305,7 @@ export default function RelationGraph({ memoryId, onNavigateToMemory }: Props) {
           className={`px-3 py-1 text-sm rounded-lg transition-colors ${
             viewMode === 'graph'
               ? 'bg-brand-500 text-white'
-              : 'bg-surface-inset text-[var(--text-secondary)] hover:bg-brand-badge-bg'
+              : 'bg-surface-inset text-secondary hover:bg-brand-badge-bg'
           }`}
         >
           {t.memories.graphView}
@@ -315,7 +315,7 @@ export default function RelationGraph({ memoryId, onNavigateToMemory }: Props) {
           className={`px-3 py-1 text-sm rounded-lg transition-colors ${
             viewMode === 'list'
               ? 'bg-brand-500 text-white'
-              : 'bg-surface-inset text-[var(--text-secondary)] hover:bg-brand-badge-bg'
+              : 'bg-surface-inset text-secondary hover:bg-brand-badge-bg'
           }`}
         >
           {t.memories.listView}
@@ -326,7 +326,7 @@ export default function RelationGraph({ memoryId, onNavigateToMemory }: Props) {
           <select
             value={filterType}
             onChange={(e) => setFilterType(e.target.value)}
-            className="px-2 py-1 text-sm bg-surface-inset border border-[var(--border-default)] rounded-lg text-[var(--text-primary)]"
+            className="px-2 py-1 text-sm bg-surface-inset border border-default rounded-lg text-primary"
           >
             <option value="all">全部类型 ({relations.length})</option>
             {RELATION_TYPES.map((type) =>
@@ -352,18 +352,14 @@ export default function RelationGraph({ memoryId, onNavigateToMemory }: Props) {
 
       {/* 创建关系表单 */}
       {showAddForm && (
-        <div className="p-3 bg-surface-inset rounded-lg border border-[var(--border-default)] space-y-3">
-          <h4 className="text-sm font-medium text-[var(--text-primary)]">
-            {t.memories.createRelationTitle}
-          </h4>
+        <div className="p-3 bg-surface-inset rounded-lg border border-default space-y-3">
+          <h4 className="text-sm font-medium text-primary">{t.memories.createRelationTitle}</h4>
           <div className="space-y-2">
-            <label className="block text-xs text-[var(--text-secondary)]">
-              {t.memories.selectTargetMemory}
-            </label>
+            <label className="block text-xs text-secondary">{t.memories.selectTargetMemory}</label>
             <select
               value={newRelationTarget}
               onChange={(e) => setNewRelationTarget(e.target.value)}
-              className="w-full px-2 py-1.5 text-sm bg-surface-card border border-[var(--border-default)] rounded-lg text-[var(--text-primary)]"
+              className="w-full px-2 py-1.5 text-sm bg-surface-card border border-default rounded-lg text-primary"
             >
               <option value="">{t.memories.selectTargetMemory}</option>
               {/* 可以输入其他记忆 ID */}
@@ -373,11 +369,11 @@ export default function RelationGraph({ memoryId, onNavigateToMemory }: Props) {
               value={newRelationTarget}
               onChange={(e) => setNewRelationTarget(e.target.value)}
               placeholder="或输入记忆 ID"
-              className="w-full px-2 py-1.5 text-sm bg-surface-card border border-[var(--border-default)] rounded-lg text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)]"
+              className="w-full px-2 py-1.5 text-sm bg-surface-card border border-default rounded-lg text-primary placeholder:text-tertiary"
             />
           </div>
           <div>
-            <label className="block text-xs text-[var(--text-secondary)] mb-1">
+            <label className="block text-xs text-secondary mb-1">
               {t.memories.selectRelationType}
             </label>
             <div className="flex flex-wrap gap-1.5">
@@ -388,7 +384,7 @@ export default function RelationGraph({ memoryId, onNavigateToMemory }: Props) {
                   className={`px-2 py-1 text-xs rounded-lg border transition-colors ${
                     newRelationType === type
                       ? 'border-brand-500 bg-brand-badge-bg text-brand-500'
-                      : 'border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-brand-badge-bg'
+                      : 'border-default text-secondary hover:bg-brand-badge-bg'
                   }`}
                   style={newRelationType === type ? { borderColor: `var(--rel-${type})` } : {}}
                 >
@@ -414,7 +410,7 @@ export default function RelationGraph({ memoryId, onNavigateToMemory }: Props) {
                 setShowAddForm(false)
                 setNewRelationTarget('')
               }}
-              className="px-3 py-1 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+              className="px-3 py-1 text-sm text-secondary hover:text-primary transition-colors"
             >
               {t.common.cancel || '取消'}
             </button>
@@ -423,7 +419,7 @@ export default function RelationGraph({ memoryId, onNavigateToMemory }: Props) {
       )}
 
       {viewMode === 'graph' && filteredRelations.length > 0 ? (
-        <div className="relative bg-surface-inset rounded-xl border border-[var(--border-default)] overflow-hidden">
+        <div className="relative bg-surface-inset rounded-xl border border-default overflow-hidden">
           <svg
             ref={svgRef}
             width={dimensions.width}
@@ -483,7 +479,7 @@ export default function RelationGraph({ memoryId, onNavigateToMemory }: Props) {
                       x={(source.x + target.x) / 2}
                       y={(source.y + target.y) / 2 - 8}
                       textAnchor="middle"
-                      className="text-xs fill-[var(--text-secondary)]"
+                      className="text-xs fill-secondary"
                     >
                       {edge.relationType} ({Math.round(edge.confidence * 100)}%)
                     </text>
@@ -529,7 +525,7 @@ export default function RelationGraph({ memoryId, onNavigateToMemory }: Props) {
                     x={node.x}
                     y={node.y + radius + 16}
                     textAnchor="middle"
-                    className="text-xs fill-[var(--text-primary)] pointer-events-none"
+                    className="text-xs fill-primary pointer-events-none"
                   >
                     {node.title.length > 12 ? node.title.slice(0, 12) + '...' : node.title}
                   </text>
@@ -543,7 +539,7 @@ export default function RelationGraph({ memoryId, onNavigateToMemory }: Props) {
             {RELATION_TYPES.map((type) => (
               <div key={type} className="flex items-center gap-2">
                 <div className="w-4 h-0.5" style={{ backgroundColor: `var(--rel-${type})` }} />
-                <span className="text-[var(--text-secondary)]">{type}</span>
+                <span className="text-secondary">{type}</span>
               </div>
             ))}
           </div>
@@ -555,7 +551,7 @@ export default function RelationGraph({ memoryId, onNavigateToMemory }: Props) {
         <div className="space-y-4">
           {relatedMemories.length > 0 && (
             <div>
-              <h4 className="text-sm font-medium text-[var(--text-secondary)] mb-2">
+              <h4 className="text-sm font-medium text-secondary mb-2">
                 {t.memories.relatedMemories}
               </h4>
               <div className="space-y-3">
@@ -571,19 +567,17 @@ export default function RelationGraph({ memoryId, onNavigateToMemory }: Props) {
                         onNavigateToMemory?.(m.id)
                       }
                     }}
-                    className="group relative flex items-center gap-2 p-2 bg-surface-inset rounded-lg border border-[var(--border-default)] shadow-warm-xs hover:bg-brand-badge-bg cursor-pointer transition-all duration-150 active:scale-[0.98]"
+                    className="group relative flex items-center gap-2 p-2 bg-surface-inset rounded-lg border border-default shadow-warm-xs hover:bg-brand-badge-bg cursor-pointer transition-all duration-150 active:scale-[0.98]"
                   >
                     <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-4 rounded-full bg-brand-400 opacity-40 transition-opacity duration-150" />
                     <span
-                      className={`px-1.5 py-0.5 text-sm rounded-lg border ${TYPE_COLORS[m.type] || 'bg-surface-inset text-[var(--text-secondary)] border-[var(--border-default)]'}`}
+                      className={`px-1.5 py-0.5 text-sm rounded-lg border ${TYPE_COLORS[m.type] || 'bg-surface-inset text-secondary border-default'}`}
                     >
                       {typeLabel(t.common, m.type)}
                     </span>
-                    <span className="text-sm text-[var(--text-primary)] truncate flex-1">
-                      {m.title}
-                    </span>
+                    <span className="text-sm text-primary truncate flex-1">{m.title}</span>
                     <svg
-                      className="w-4 h-4 text-[var(--text-tertiary)] shrink-0"
+                      className="w-4 h-4 text-tertiary shrink-0"
                       fill="none"
                       stroke="currentColor"
                       viewBox="0 0 24 24"
@@ -603,9 +597,7 @@ export default function RelationGraph({ memoryId, onNavigateToMemory }: Props) {
           )}
           {relations.length > 0 && (
             <div>
-              <h4 className="text-sm font-medium text-[var(--text-secondary)] mb-2">
-                {t.memories.relationType}
-              </h4>
+              <h4 className="text-sm font-medium text-secondary mb-2">{t.memories.relationType}</h4>
               <div className="space-y-3">
                 {filteredRelations.map((r) => {
                   const isSource = r.source_memory_id === memoryId
@@ -614,7 +606,7 @@ export default function RelationGraph({ memoryId, onNavigateToMemory }: Props) {
                   return (
                     <div
                       key={r.id}
-                      className="flex items-center gap-3 text-base p-2 bg-surface-inset rounded-lg border border-[var(--border-default)] shadow-warm-xs"
+                      className="flex items-center gap-3 text-base p-2 bg-surface-inset rounded-lg border border-default shadow-warm-xs"
                     >
                       <span
                         className="px-1.5 py-0.5 text-sm rounded-lg border"
@@ -625,16 +617,16 @@ export default function RelationGraph({ memoryId, onNavigateToMemory }: Props) {
                       >
                         {isSource ? '→' : '←'} {r.relation_type}
                       </span>
-                      <span className="text-sm text-[var(--text-primary)] truncate flex-1">
+                      <span className="text-sm text-primary truncate flex-1">
                         {other?.title || otherId.slice(0, 8)}
                       </span>
-                      <span className="text-[var(--text-secondary)] text-xs tabular-nums">
+                      <span className="text-secondary text-xs tabular-nums">
                         {t.memories.relationConfidence}: {Math.round(r.confidence * 100)}%
                       </span>
                       <button
                         onClick={() => handleDeleteRelation(r.id)}
                         disabled={deletingRelationId === r.id}
-                        className="p-1 text-[var(--text-tertiary)] hover:text-danger-fg transition-colors disabled:opacity-50"
+                        className="p-1 text-tertiary hover:text-danger-fg transition-colors disabled:opacity-50"
                         title={t.memories.deleteRelation}
                       >
                         <svg

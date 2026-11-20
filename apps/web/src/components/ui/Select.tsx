@@ -30,17 +30,15 @@ export function Select({ options, value, onChange, placeholder, icon }: SelectPr
   return (
     <RadixSelect.Root value={value} onValueChange={onChange} open={open} onOpenChange={setOpen}>
       <RadixSelect.Trigger
-        className="h-9 flex items-center gap-2 px-3 text-sm rounded-lg glass border border-[var(--glass-border)] bg-surface-card/80 backdrop-blur-[var(--glass-blur)] hover:border-[var(--glass-border-hover)] hover:bg-surface-card transition-all duration-200 ease-out focus-visible:outline-none focus-visible:border-brand-400 focus-visible:ring-2 focus-visible:ring-brand-200/30 select-none shadow-warm-xs"
+        className="h-9 flex items-center gap-2 px-3 text-sm rounded-lg glass border border-glass bg-surface-card/80 backdrop-blur-[var(--glass-blur)] hover:border-glass-hover hover:bg-surface-card transition-all duration-200 ease-out focus-visible:outline-none focus-visible:border-brand-400 focus-visible:ring-2 focus-visible:ring-brand-200/30 select-none shadow-warm-xs"
         aria-label={t.common.select}
       >
-        {icon && <span className="shrink-0 text-[var(--text-tertiary)]">{icon}</span>}
-        <span className="flex-1 text-left truncate text-[var(--text-primary)]">
-          {selectedLabel}
-        </span>
+        {icon && <span className="shrink-0 text-tertiary">{icon}</span>}
+        <span className="flex-1 text-left truncate text-primary">{selectedLabel}</span>
         <RadixSelect.Icon>
           <ChevronDown
             size={14}
-            className={`text-[var(--text-tertiary)] transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
+            className={`text-tertiary transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
             aria-hidden="true"
           />
         </RadixSelect.Icon>
@@ -67,10 +65,10 @@ export function Select({ options, value, onChange, placeholder, icon }: SelectPr
                     <RadixSelect.Item
                       key={option.value}
                       value={option.value}
-                      className="flex items-center gap-2.5 px-3 py-2 text-sm text-[var(--text-primary)] rounded-lg cursor-pointer select-none outline-none data-[highlighted]:bg-brand-500/12 data-[highlighted]:text-brand-fg data-[state=checked]:font-medium transition-all duration-150 active:scale-[0.98]"
+                      className="flex items-center gap-2.5 px-3 py-2 text-sm text-primary rounded-lg cursor-pointer select-none outline-none data-[highlighted]:bg-brand-500/12 data-[highlighted]:text-brand-fg data-[state=checked]:font-medium transition-all duration-150 active:scale-[0.98]"
                     >
                       <RadixSelect.ItemIndicator>
-                        <Check size={14} className="text-[var(--text-primary)]" />
+                        <Check size={14} className="text-primary" />
                       </RadixSelect.ItemIndicator>
                       <RadixSelect.ItemText>{option.label}</RadixSelect.ItemText>
                     </RadixSelect.Item>

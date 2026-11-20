@@ -124,7 +124,7 @@ export default function MemoryCreateModal({
     >
       <div className="space-y-3">
         <div>
-          <label className="block text-sm font-medium text-[var(--text-primary)] mb-1">
+          <label className="block text-sm font-medium text-primary mb-1">
             {t.memories.titleLabel}
           </label>
           <Input
@@ -135,7 +135,7 @@ export default function MemoryCreateModal({
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-[var(--text-primary)] mb-1">
+          <label className="block text-sm font-medium text-primary mb-1">
             {t.memories.labelType}
           </label>
           <Select
@@ -148,7 +148,7 @@ export default function MemoryCreateModal({
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-[var(--text-primary)] mb-1">
+          <label className="block text-sm font-medium text-primary mb-1">
             {t.memories.labelTags}
           </label>
           <Input
@@ -159,7 +159,7 @@ export default function MemoryCreateModal({
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-[var(--text-primary)] mb-1">
+          <label className="block text-sm font-medium text-primary mb-1">
             {t.memories.contentLabel}
           </label>
           <Textarea

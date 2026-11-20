@@ -32,7 +32,7 @@ type FeedbackIdentity = 'human' | 'agent'
 const SOURCE_BADGE_STYLES: Record<string, string> = {
   human: 'bg-blue-500/15 border-blue-500/30 text-blue-600 dark:text-blue-300',
   agent: 'bg-purple-500/15 border-purple-500/30 text-purple-600 dark:text-purple-300',
-  auto: 'bg-surface-inset border-[var(--border-default)] text-[var(--text-tertiary)]',
+  auto: 'bg-surface-inset border-default text-tertiary',
 }
 
 // 反馈类型 → 徽标变体与 i18n key（复用 memories 命名空间的既有文案）
@@ -112,7 +112,7 @@ export default function MemoryFeedbackTab({ memoryId }: Props) {
   const submitArea = (
     <div className="space-y-2.5">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-xs text-[var(--text-tertiary)] shrink-0">
+        <span className="text-xs text-tertiary shrink-0">
           {t.memoryDetail.feedbackIdentityLabel}
         </span>
         <SegmentedControl<FeedbackIdentity>
@@ -237,7 +237,7 @@ function FeedbackDetailList({ detail, loading, error, onRetry, locale }: DetailL
   const { t } = useTranslation()
 
   if (loading) {
-    return <div className="text-xs text-[var(--text-tertiary)] py-1">{t.common.loading}</div>
+    return <div className="text-xs text-tertiary py-1">{t.common.loading}</div>
   }
   if (error) {
     return (
@@ -254,18 +254,14 @@ function FeedbackDetailList({ detail, loading, error, onRetry, locale }: DetailL
     )
   }
   if (!detail || detail.items.length === 0) {
-    return (
-      <div className="text-xs text-[var(--text-tertiary)]">
-        {t.memoryDetail.feedbackDetailEmpty}
-      </div>
-    )
+    return <div className="text-xs text-tertiary">{t.memoryDetail.feedbackDetailEmpty}</div>
   }
 
   return (
     <div>
-      <h4 className="text-sm font-medium text-[var(--text-secondary)] mb-2">
+      <h4 className="text-sm font-medium text-secondary mb-2">
         {t.memoryDetail.feedbackDetailTitle}
-        <span className="ml-1.5 text-xs font-normal text-[var(--text-tertiary)] tabular-nums">
+        <span className="ml-1.5 text-xs font-normal text-tertiary tabular-nums">
           {detail.total}
         </span>
       </h4>
@@ -285,8 +281,7 @@ function FeedbackItemRow({ item, locale }: { item: MemoryFeedbackItem; locale: s
   const typeLabel = typeMeta ? t.memories[typeMeta.key] : item.feedback_type || '-'
 
   const sourceStyle =
-    SOURCE_BADGE_STYLES[item.source_type] ||
-    'bg-surface-elevated/60 border-[var(--glass-border)] text-[var(--text-secondary)]'
+    SOURCE_BADGE_STYLES[item.source_type] || 'bg-surface-elevated/60 border-glass text-secondary'
   const sourceLabel =
     item.source_type === 'human'
       ? t.memoryDetail.feedbackSourceHuman
@@ -297,7 +292,7 @@ function FeedbackItemRow({ item, locale }: { item: MemoryFeedbackItem; locale: s
           : item.source_type
 
   return (
-    <li className="flex flex-wrap items-start gap-x-2 gap-y-1 rounded-lg bg-surface-inset border border-[var(--border-default)] shadow-warm-xs px-3 py-2">
+    <li className="flex flex-wrap items-start gap-x-2 gap-y-1 rounded-lg bg-surface-inset border border-default shadow-warm-xs px-3 py-2">
       <Badge variant={typeMeta?.variant || 'default'} className="shrink-0">
         {typeLabel}
       </Badge>
@@ -308,17 +303,17 @@ function FeedbackItemRow({ item, locale }: { item: MemoryFeedbackItem; locale: s
       </span>
       {item.source_id && (
         <span
-          className="text-2xs font-mono text-[var(--text-secondary)] self-center max-w-[200px] truncate"
+          className="text-2xs font-mono text-secondary self-center max-w-[200px] truncate"
           title={item.source_id}
         >
           {item.source_id}
         </span>
       )}
-      <span className="ml-auto text-2xs text-[var(--text-tertiary)] tabular-nums self-center shrink-0">
+      <span className="ml-auto text-2xs text-tertiary tabular-nums self-center shrink-0">
         {formatRelativeTime(item.created_at, t.common, locale)}
       </span>
       {item.reason && (
-        <p className="w-full text-xs text-[var(--text-secondary)] leading-relaxed break-words pl-0.5">
+        <p className="w-full text-xs text-secondary leading-relaxed break-words pl-0.5">
           {item.reason}
         </p>
       )}

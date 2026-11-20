@@ -58,9 +58,7 @@ export default function CreateForm({
       )}
       <div className="space-y-3">
         <div>
-          <label className="text-xs font-medium text-[var(--text-primary)] mb-1 block">
-            {t.skills.name}
-          </label>
+          <label className="text-xs font-medium text-primary mb-1 block">{t.skills.name}</label>
           <Input
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -69,7 +67,7 @@ export default function CreateForm({
           />
         </div>
         <div>
-          <label className="text-xs font-medium text-[var(--text-primary)] mb-1 block">
+          <label className="text-xs font-medium text-primary mb-1 block">
             {t.skills.description}
           </label>
           <Input
@@ -79,9 +77,7 @@ export default function CreateForm({
           />
         </div>
         <div>
-          <label className="text-xs font-medium text-[var(--text-primary)] mb-1 block">
-            {t.skills.body}
-          </label>
+          <label className="text-xs font-medium text-primary mb-1 block">{t.skills.body}</label>
           <Textarea
             value={body}
             onChange={(e) => setBody(e.target.value)}
@@ -92,7 +88,7 @@ export default function CreateForm({
         </div>
         {agents.length > 0 && (
           <div>
-            <label className="text-xs font-medium text-[var(--text-primary)] mb-1 block">
+            <label className="text-xs font-medium text-primary mb-1 block">
               {t.skills.publishTo}
             </label>
             <div className="flex gap-2 flex-wrap">
@@ -114,7 +110,7 @@ export default function CreateForm({
           </div>
         )}
       </div>
-      <div className="flex justify-end gap-2 mt-5 pt-3 border-t border-[var(--border-default)]">
+      <div className="flex justify-end gap-2 mt-5 pt-3 border-t border-default">
         <Button onClick={onCancel} variant="secondary">
           {t.common.cancel}
         </Button>

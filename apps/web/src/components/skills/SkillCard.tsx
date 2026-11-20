@@ -65,18 +65,18 @@ const SkillCard = memo(function SkillCard({
         </motion.div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5 flex-wrap">
-            <h3 className="font-semibold text-[var(--text-primary)] text-sm tracking-[-0.01em] truncate min-w-0 leading-snug">
+            <h3 className="font-semibold text-primary text-sm tracking-[-0.01em] truncate min-w-0 leading-snug">
               {s.name}
             </h3>
             <Badge className={SOURCE_BADGE[s.source] || NEUTRAL_CHIP}>{sourceLabel}</Badge>
             {s.builtin && (
-              <span className="flex items-center gap-0.5 text-xs font-medium text-[var(--text-tertiary)]">
+              <span className="flex items-center gap-0.5 text-xs font-medium text-tertiary">
                 <Lock size={11} aria-hidden="true" />
                 {t.skills.builtin}
               </span>
             )}
           </div>
-          <p className="text-xs text-[var(--text-secondary)] mt-1.5 line-clamp-2 leading-relaxed">
+          <p className="text-xs text-secondary mt-1.5 line-clamp-2 leading-relaxed">
             {s.description || '-'}
           </p>
           {s.agents.length > 0 && (

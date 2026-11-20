@@ -9,9 +9,9 @@ import { spring } from '../lib/motion'
 import { formatTimeShort } from '../lib/format'
 import { typeLabel, TYPE_COLORS } from '../lib/labels'
 import { buildCloze } from '../lib/cloze'
-import zh from '../i18n/locales/zh'
+import { type TranslationKeys } from '../i18n/I18nProvider'
 
-type TranslationDict = typeof zh
+type TranslationDict = TranslationKeys
 
 const QUALITY_LABELS = [
   { value: 0, key: 'q0' },
@@ -91,10 +91,10 @@ export function ReviewCard({
   }
   return (
     <Card className="overflow-hidden">
-      <div className="px-6 py-5 border-b border-[var(--border-default)]">
+      <div className="px-6 py-5 border-b border-default">
         <div className="flex items-center gap-2 mb-3">
           <Badge
-            className={`font-semibold uppercase tracking-[0.08em] ${TYPE_COLORS[item.memory_type] ?? 'bg-surface-elevated/50 text-[var(--text-secondary)] border border-[var(--border-default)] shadow-warm-xs'}`}
+            className={`font-semibold uppercase tracking-[0.08em] ${TYPE_COLORS[item.memory_type] ?? 'bg-surface-elevated/50 text-secondary border border-default shadow-warm-xs'}`}
           >
             {typeLabel(t.common, item.memory_type)}
           </Badge>
@@ -104,16 +104,16 @@ export function ReviewCard({
             </Badge>
           )}
           {item.source && (
-            <span className="ml-auto text-xs text-[var(--text-tertiary)]">
+            <span className="ml-auto text-xs text-tertiary">
               {item.source}
               {item.updated_at ? ` · ${formatTimeShort(item.updated_at, locale)}` : ''}
             </span>
           )}
         </div>
         {isCloze ? (
-          <p className="text-xs font-medium text-[var(--text-tertiary)]">{t.review.clozeHint}</p>
+          <p className="text-xs font-medium text-tertiary">{t.review.clozeHint}</p>
         ) : (
-          <h2 className="text-lg font-semibold text-[var(--text-primary)] break-words leading-snug">
+          <h2 className="text-lg font-semibold text-primary break-words leading-snug">
             {item.title}
           </h2>
         )}
@@ -150,7 +150,7 @@ export function ReviewCard({
                       placeholder={t.review.quizPlaceholder.replace('{n}', String(index + 1))}
                       autoComplete="off"
                       disabled={quizPending}
-                      className="w-full rounded-lg border border-[var(--border-default)] bg-surface px-3 py-2 text-sm text-[var(--text-primary)] outline-none transition-colors focus:border-brand-border"
+                      className="w-full rounded-lg border border-default bg-surface px-3 py-2 text-sm text-primary outline-none transition-colors focus:border-brand-border"
                     />
                   ))}
                   <Button
@@ -162,9 +162,7 @@ export function ReviewCard({
                   </Button>
                 </div>
               ) : (
-                <p className="mt-4 text-xs text-[var(--text-tertiary)]">
-                  {t.review.clozeRevealHint}
-                </p>
+                <p className="mt-4 text-xs text-tertiary">{t.review.clozeRevealHint}</p>
               )}
             </motion.div>
           ) : (
@@ -177,7 +175,7 @@ export function ReviewCard({
               transition={spring.gentle}
             >
               <motion.div
-                className="w-14 h-14 rounded-xl flex items-center justify-center bg-surface-elevated/50 border border-[var(--border-default)] shadow-warm-xs transition-all duration-150"
+                className="w-14 h-14 rounded-xl flex items-center justify-center bg-surface-elevated/50 border border-default shadow-warm-xs transition-all duration-150"
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
               >
@@ -186,13 +184,13 @@ export function ReviewCard({
               <Button variant="ghost" onClick={onShowAnswer} className="text-base font-medium">
                 {t.review.showAnswer}
               </Button>
-              <p className="text-xs text-[var(--text-tertiary)]">{t.review.flashcardHint}</p>
+              <p className="text-xs text-tertiary">{t.review.flashcardHint}</p>
             </motion.div>
           )}
         </AnimatePresence>
       </div>
 
-      <div className="px-6 py-3.5 bg-surface-elevated/40 rounded-lg flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-[var(--text-tertiary)] border-t border-[var(--border-default)] font-medium">
+      <div className="px-6 py-3.5 bg-surface-elevated/40 rounded-lg flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-tertiary border-t border-default font-medium">
         <span className="tabular-nums">EF: {item.ease_factor.toFixed(2)}</span>
         <span className="tabular-nums">
           {t.review.interval}: {item.interval_days}d
@@ -235,9 +233,7 @@ export function QualityButtons({
 }) {
   return (
     <div>
-      <p
-        className={`text-xs mb-3 text-center font-medium ${labelClassName ?? 'text-[var(--text-secondary)]'}`}
-      >
+      <p className={`text-xs mb-3 text-center font-medium ${labelClassName ?? 'text-secondary'}`}>
         {t.review.rateQuality}
       </p>
       <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
@@ -260,15 +256,13 @@ export function QualityButtons({
             } disabled:opacity-50 disabled:cursor-not-allowed`}
           >
             <div className="text-lg font-semibold">{value}</div>
-            <div className="text-xs text-[var(--text-secondary)] mt-0.5">
+            <div className="text-xs text-secondary mt-0.5">
               {t.review[key as keyof typeof t.review] ?? key}
             </div>
           </motion.button>
         ))}
       </div>
-      <p
-        className={`text-xs mt-2 text-center font-medium ${hintClassName ?? 'text-[var(--text-tertiary)]'}`}
-      >
+      <p className={`text-xs mt-2 text-center font-medium ${hintClassName ?? 'text-tertiary'}`}>
         {t.review.keyboardHint}
       </p>
     </div>

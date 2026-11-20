@@ -78,7 +78,7 @@ export default function Pagination({
       animate={{ opacity: 1 }}
       transition={{ duration: duration.normal }}
     >
-      <div className="flex items-center gap-2.5 text-xs text-[var(--text-tertiary)] tabular-nums">
+      <div className="flex items-center gap-2.5 text-xs text-tertiary tabular-nums">
         <span>{translate(t.pagination.total, { n: total })}</span>
         <span className="flex items-center gap-0.5">
           {translate(t.pagination.pageInfo, { current: '', total: totalPages }).replace(
@@ -107,7 +107,7 @@ export default function Pagination({
             onPageSizeChange(Number(e.target.value))
             handlePageChange(1)
           }}
-          className="py-1 px-1.5 text-xs rounded-lg bg-surface-card border border-[var(--glass-border)] shadow-warm-xs text-[var(--text-secondary)] cursor-pointer hover:border-[var(--glass-border-hover)] transition-[border-color,box-shadow] duration-200 ease-out focus-visible:outline-none focus-visible:border-brand-400 focus-visible:ring-2 focus-visible:ring-brand-200/30"
+          className="py-1 px-1.5 text-xs rounded-lg bg-surface-card border border-glass shadow-warm-xs text-secondary cursor-pointer hover:border-glass-hover transition-[border-color,box-shadow] duration-200 ease-out focus-visible:outline-none focus-visible:border-brand-400 focus-visible:ring-2 focus-visible:ring-brand-200/30"
         >
           {pageSizeOptions.map((s) => (
             <option key={s} value={s}>

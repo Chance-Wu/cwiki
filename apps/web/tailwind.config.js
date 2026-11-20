@@ -158,9 +158,30 @@ export default {
       },
       borderColor: {
         subtle: 'var(--border-subtle)',
+        default: 'var(--border-default)',
+        strong: 'var(--border-strong)',
+        glass: 'var(--glass-border)',
+        'glass-hover': 'var(--glass-border-hover)',
+      },
+      textColor: {
+        primary: 'var(--text-primary)',
+        secondary: 'var(--text-secondary)',
+        tertiary: 'var(--text-tertiary)',
+        'on-brand': 'var(--on-brand)',
+        'on-accent': 'var(--on-accent)',
+      },
+      fill: {
+        primary: 'var(--text-primary)',
+        secondary: 'var(--text-secondary)',
+        tertiary: 'var(--text-tertiary)',
+      },
+      stroke: {
+        default: 'var(--border-default)',
       },
       ringColor: {
         subtle: 'var(--ring-subtle)',
+        default: 'var(--border-default)',
+        strong: 'var(--border-strong)',
       },
       backdropBlur: {
         glass: 'var(--glass-blur)',

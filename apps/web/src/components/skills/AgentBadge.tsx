@@ -13,7 +13,7 @@ export default function AgentBadge({
   const color = AGENT_COLORS[agent] || NEUTRAL_CHIP
   return (
     <span
-      className={`inline-flex items-center gap-0.5 px-2 py-0.5 rounded-lg text-xs font-medium max-w-[120px] border border-[var(--border-default)] shadow-warm-xs transition-all duration-150 ${color}`}
+      className={`inline-flex items-center gap-0.5 px-2 py-0.5 rounded-lg text-xs font-medium max-w-[120px] border border-default shadow-warm-xs transition-all duration-150 ${color}`}
     >
       <Bot size={12} className="shrink-0" aria-hidden="true" />
       <span className="truncate">{agentLabel(agent)}</span>

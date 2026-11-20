@@ -77,14 +77,14 @@ export function ListInput({
   return (
     <div className="min-w-0">
       <div className="flex items-baseline justify-between gap-2">
-        <label htmlFor={inputId} className="block text-xs font-medium text-[var(--text-secondary)]">
+        <label htmlFor={inputId} className="block text-xs font-medium text-secondary">
           {label}
         </label>
         {max !== undefined && (
           <span
             className={twMerge(
               'shrink-0 text-xs tabular-nums',
-              atLimit ? 'font-medium text-warning-fg' : 'text-[var(--text-tertiary)]',
+              atLimit ? 'font-medium text-warning-fg' : 'text-tertiary',
             )}
           >
             {value.length}/{max}
@@ -99,7 +99,7 @@ export function ListInput({
           'transition-[border-color,box-shadow] duration-200 ease-out',
           invalid
             ? 'border-danger/60 focus-within:ring-2 focus-within:ring-danger/20'
-            : 'border-[var(--glass-border)] focus-within:border-brand-400 focus-within:ring-2 focus-within:ring-brand-200/30',
+            : 'border-glass focus-within:border-brand-400 focus-within:ring-2 focus-within:ring-brand-200/30',
         )}
         onClick={() => inputRef.current?.focus()}
       >
@@ -146,10 +146,10 @@ export function ListInput({
           }}
           placeholder={value.length === 0 ? placeholder : ''}
           aria-describedby={hintId}
-          className="min-w-[6rem] flex-1 bg-transparent px-1 py-0.5 text-sm text-[var(--text-primary)] outline-none placeholder:text-[var(--text-tertiary)]"
+          className="min-w-[6rem] flex-1 bg-transparent px-1 py-0.5 text-sm text-primary outline-none placeholder:text-tertiary"
         />
       </div>
-      <p id={hintId} className="mt-1 text-xs text-[var(--text-tertiary)]">
+      <p id={hintId} className="mt-1 text-xs text-tertiary">
         {hint}
       </p>
     </div>
@@ -201,10 +201,10 @@ export function LinesInput({
   return (
     <div className="min-w-0">
       <div className="flex items-baseline justify-between gap-2">
-        <label htmlFor={inputId} className="block text-xs font-medium text-[var(--text-secondary)]">
+        <label htmlFor={inputId} className="block text-xs font-medium text-secondary">
           {label}
         </label>
-        <span className="shrink-0 text-xs tabular-nums text-[var(--text-tertiary)]">
+        <span className="shrink-0 text-xs tabular-nums text-tertiary">
           {value.length}/{max}
         </span>
       </div>
@@ -230,7 +230,7 @@ export function LinesInput({
         rows={3}
         className="mt-1.5"
       />
-      <p className="mt-1 text-xs text-[var(--text-tertiary)]">{hint}</p>
+      <p className="mt-1 text-xs text-tertiary">{hint}</p>
       {overLimit && overLimitMessage && (
         <p className="mt-1 flex items-center gap-1 text-xs font-medium text-danger-fg">
           <AlertTriangle size={12} aria-hidden="true" />
@@ -257,7 +257,7 @@ export function MatchChips({
   ].filter((chip) => chip.values.length > 0)
 
   if (chips.length === 0) {
-    return <span className="text-xs text-[var(--text-tertiary)]">{copy.writePolicyNoMatch}</span>
+    return <span className="text-xs text-tertiary">{copy.writePolicyNoMatch}</span>
   }
 
   return (
@@ -267,7 +267,7 @@ export function MatchChips({
         const hidden = chip.values.length - shown.length
         return (
           <Badge key={chip.label} variant="default" className="max-w-full">
-            <span className="whitespace-nowrap text-[var(--text-tertiary)]">{chip.label}</span>
+            <span className="whitespace-nowrap text-tertiary">{chip.label}</span>
             <span className="truncate">
               {shown.join(', ')}
               {hidden > 0 ? ` +${hidden}` : ''}
@@ -306,8 +306,8 @@ export function MatchEditor({
   return (
     <div>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <p className="text-xs font-medium text-[var(--text-secondary)]">{copy.writePolicyMatch}</p>
-        <p className="text-xs text-[var(--text-tertiary)]">{hint}</p>
+        <p className="text-xs font-medium text-secondary">{copy.writePolicyMatch}</p>
+        <p className="text-xs text-tertiary">{hint}</p>
       </div>
       <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-4">
         <ListInput

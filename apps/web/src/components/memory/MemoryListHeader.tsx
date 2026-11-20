@@ -24,35 +24,35 @@ export default function MemoryListHeader({
 
   return (
     <div className="group flex items-center justify-between mb-3">
-      <p className="text-xs text-[var(--text-secondary)] font-medium">{countText}</p>
+      <p className="text-xs text-secondary font-medium">{countText}</p>
       <div className="flex items-center gap-3">
         {visibleCount > 0 && (
           <>
-            <div className="hidden sm:flex items-center gap-1.5 text-xs text-[var(--text-tertiary)] opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-              <kbd className="border border-[var(--border-default)] shadow-warm-xs px-1.5 py-0.5 bg-surface-inset rounded font-mono text-[10px]">
+            <div className="hidden sm:flex items-center gap-1.5 text-xs text-tertiary opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+              <kbd className="border border-default shadow-warm-xs px-1.5 py-0.5 bg-surface-inset rounded font-mono text-[10px]">
                 /
               </kbd>
               <span className="opacity-70">{t.memories.kbdSearch}</span>
               <span className="opacity-40 mx-0.5">·</span>
-              <kbd className="border border-[var(--border-default)] shadow-warm-xs px-1.5 py-0.5 bg-surface-inset rounded font-mono text-[10px]">
+              <kbd className="border border-default shadow-warm-xs px-1.5 py-0.5 bg-surface-inset rounded font-mono text-[10px]">
                 j
               </kbd>
-              <kbd className="border border-[var(--border-default)] shadow-warm-xs px-1.5 py-0.5 bg-surface-inset rounded font-mono text-[10px]">
+              <kbd className="border border-default shadow-warm-xs px-1.5 py-0.5 bg-surface-inset rounded font-mono text-[10px]">
                 k
               </kbd>
               <span className="opacity-70">{t.memories.kbdNavigate}</span>
               <span className="opacity-40 mx-0.5">·</span>
-              <kbd className="border border-[var(--border-default)] shadow-warm-xs px-1.5 py-0.5 bg-surface-inset rounded font-mono text-[10px]">
+              <kbd className="border border-default shadow-warm-xs px-1.5 py-0.5 bg-surface-inset rounded font-mono text-[10px]">
                 ␣
               </kbd>
               <span className="opacity-70">{t.memories.kbdSelect}</span>
               <span className="opacity-40 mx-0.5">·</span>
-              <kbd className="border border-[var(--border-default)] shadow-warm-xs px-1.5 py-0.5 bg-surface-inset rounded font-mono text-[10px]">
+              <kbd className="border border-default shadow-warm-xs px-1.5 py-0.5 bg-surface-inset rounded font-mono text-[10px]">
                 ⏎
               </kbd>
               <span className="opacity-70">{t.memories.kbdOpen}</span>
             </div>
-            <div className="flex items-center gap-1.5 text-sm text-[var(--text-secondary)] cursor-pointer select-none hover:text-[var(--text-primary)] transition-all duration-150">
+            <div className="flex items-center gap-1.5 text-sm text-secondary cursor-pointer select-none hover:text-primary transition-all duration-150">
               <Checkbox
                 checked={selectedCount === visibleCount && visibleCount > 0}
                 onCheckedChange={onToggleAll}

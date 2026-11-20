@@ -5,10 +5,8 @@ import { useTranslation } from '../../i18n/I18nProvider'
 import { Card } from '../ui/Card'
 import { typeLabel, TYPE_COLORS, MASTERY_COLORS } from '../../lib/labels'
 
-const PILL_ACTIVE =
-  'bg-surface-elevated/60 text-[var(--text-primary)] font-semibold border border-[var(--border-default)]'
-const PILL_INACTIVE =
-  'text-[var(--text-secondary)] hover:bg-surface-elevated/40 hover:text-[var(--text-primary)]'
+const PILL_ACTIVE = 'bg-surface-elevated/60 text-primary font-semibold border border-default'
+const PILL_INACTIVE = 'text-secondary hover:bg-surface-elevated/40 hover:text-primary'
 
 const MASTERY_ORDER = ['new', 'learning', 'familiar', 'proficient', 'mastered'] as const
 
@@ -72,9 +70,7 @@ export const FilterBar = function FilterBar({
             >
               {/* 掌握度筛选 */}
               <div className="flex flex-wrap items-center gap-2">
-                <span className="text-xs text-[var(--text-tertiary)] mr-1">
-                  {t.review.filterMastery}:
-                </span>
+                <span className="text-xs text-tertiary mr-1">{t.review.filterMastery}:</span>
                 <button
                   aria-pressed={filterMastery === null}
                   onClick={() => setFilterMastery(null)}
@@ -100,9 +96,7 @@ export const FilterBar = function FilterBar({
 
               {/* 记忆类型筛选 */}
               <div className="flex flex-wrap items-center gap-2">
-                <span className="text-xs text-[var(--text-tertiary)] mr-1">
-                  {t.review.filterType}:
-                </span>
+                <span className="text-xs text-tertiary mr-1">{t.review.filterType}:</span>
                 <button
                   aria-pressed={filterType === null}
                   onClick={() => setFilterType(null)}
@@ -120,7 +114,7 @@ export const FilterBar = function FilterBar({
                     className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all duration-150 select-none active:scale-[0.97] ${
                       filterType === type
                         ? (TYPE_COLORS[type] ??
-                          'bg-surface-inset text-[var(--text-secondary)] border border-[var(--border-default)] shadow-warm-xs')
+                          'bg-surface-inset text-secondary border border-default shadow-warm-xs')
                         : PILL_INACTIVE
                     }`}
                   >

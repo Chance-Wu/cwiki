@@ -72,7 +72,7 @@ export default function NotFoundPage() {
           <LostIllustration />
         </div>
         <motion.h1
-          className="text-6xl font-semibold text-[var(--text-tertiary)] tabular-nums tracking-tighter"
+          className="text-6xl font-semibold text-tertiary tabular-nums tracking-tighter"
           initial={{ opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ ...spring.gentle, delay: 0.2 }}
@@ -80,7 +80,7 @@ export default function NotFoundPage() {
           404
         </motion.h1>
         <motion.h2
-          className="text-lg font-semibold text-[var(--text-primary)] mt-3"
+          className="text-lg font-semibold text-primary mt-3"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ duration: duration.stagger, delay: 0.4 }}
@@ -88,7 +88,7 @@ export default function NotFoundPage() {
           {t.notFound.title}
         </motion.h2>
         <motion.p
-          className="text-sm text-[var(--text-secondary)] mt-2 leading-relaxed max-w-xs mx-auto"
+          className="text-sm text-secondary mt-2 leading-relaxed max-w-xs mx-auto"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ duration: duration.stagger, delay: 0.5 }}

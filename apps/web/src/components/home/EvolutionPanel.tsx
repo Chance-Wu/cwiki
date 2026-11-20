@@ -33,12 +33,10 @@ export default function EvolutionPanel({ workspaceId }: { workspaceId?: string }
         <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-gradient-to-br from-brand-100 to-brand-50 shrink-0 ring-1 ring-brand-200/35 border border-brand-200/25 shadow-warm-xs">
           <Zap size={15} className="text-brand-fg" aria-hidden="true" />
         </div>
-        <h3 className="text-[15px] font-semibold text-[var(--text-primary)]">
-          {t.home.evolutionMetrics}
-        </h3>
+        <h3 className="text-[15px] font-semibold text-primary">{t.home.evolutionMetrics}</h3>
         <div className="w-1 h-5 bg-gradient-to-b from-brand/60 to-brand rounded-full ml-1" />
       </div>
-      <p className="text-xs text-[var(--text-tertiary)] mb-4 ml-11 font-medium">
+      <p className="text-xs text-tertiary mb-4 ml-11 font-medium">
         {evolutionIdle
           ? t.home.evolutionIdle
           : translate(t.home.daysWindow, {
@@ -55,15 +53,13 @@ export default function EvolutionPanel({ workspaceId }: { workspaceId?: string }
             transition={{ delay: 0.3, duration: duration.medium }}
           >
             <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-xs">
-              <span className="text-[var(--text-secondary)] font-medium">
-                {t.home.notesFormalized}
-              </span>
-              <span className="font-semibold text-[var(--text-primary)] tabular-nums ml-auto">
+              <span className="text-secondary font-medium">{t.home.notesFormalized}</span>
+              <span className="font-semibold text-primary tabular-nums ml-auto">
                 {memoryStatus.evolution_metrics?.notes?.formalized ?? 0} /{' '}
                 {memoryStatus.evolution_metrics?.notes?.created ?? 0}
               </span>
             </div>
-            <div className="progress-shimmer w-full h-2.5 bg-surface-inset rounded-full overflow-hidden shadow-inner-subtle border border-[var(--border-default)]">
+            <div className="progress-shimmer w-full h-2.5 bg-surface-inset rounded-full overflow-hidden shadow-inner-subtle border border-default">
               <div
                 className="h-full bg-gradient-to-r from-brand-500 to-brand-400 rounded-full transition-[width] duration-700 ease-out"
                 style={{
@@ -73,7 +69,7 @@ export default function EvolutionPanel({ workspaceId }: { workspaceId?: string }
                 }}
               />
             </div>
-            <p className="text-xs text-[var(--text-tertiary)] font-medium tabular-nums">
+            <p className="text-xs text-tertiary font-medium tabular-nums">
               {t.home.formalizationRate}{' '}
               {((memoryStatus.evolution_metrics?.notes?.formalization_rate ?? 0) * 100).toFixed(0)}%
             </p>
@@ -85,15 +81,13 @@ export default function EvolutionPanel({ workspaceId }: { workspaceId?: string }
             transition={{ delay: 0.4, duration: duration.medium }}
           >
             <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-xs">
-              <span className="text-[var(--text-secondary)] font-medium">
-                {t.home.approvalRate}
-              </span>
+              <span className="text-secondary font-medium">{t.home.approvalRate}</span>
               <span className="font-semibold text-success-fg tabular-nums ml-auto">
                 {memoryStatus.evolution_metrics?.submissions?.approved ?? 0} /{' '}
                 {memoryStatus.evolution_metrics?.submissions?.total ?? 0}
               </span>
             </div>
-            <div className="progress-shimmer w-full h-2.5 bg-surface-inset rounded-full overflow-hidden shadow-inner-subtle border border-[var(--border-default)]">
+            <div className="progress-shimmer w-full h-2.5 bg-surface-inset rounded-full overflow-hidden shadow-inner-subtle border border-default">
               <div
                 className="h-full bg-gradient-to-r from-success to-success/75 rounded-full transition-[width] duration-700 ease-out"
                 style={{
@@ -103,7 +97,7 @@ export default function EvolutionPanel({ workspaceId }: { workspaceId?: string }
                 }}
               />
             </div>
-            <p className="text-xs text-[var(--text-tertiary)] font-medium tabular-nums">
+            <p className="text-xs text-tertiary font-medium tabular-nums">
               {t.home.approvalRate}{' '}
               {((memoryStatus.evolution_metrics?.submissions?.approval_rate ?? 0) * 100).toFixed(0)}
               %
@@ -112,7 +106,7 @@ export default function EvolutionPanel({ workspaceId }: { workspaceId?: string }
         </div>
 
         <motion.div
-          className="flex shrink-0 items-center justify-center gap-3 border-t border-[var(--border-default)] pt-5 min-[420px]:flex-col min-[420px]:self-stretch min-[420px]:border-l min-[420px]:border-t-0 min-[420px]:pl-6 min-[420px]:pt-0"
+          className="flex shrink-0 items-center justify-center gap-3 border-t border-default pt-5 min-[420px]:flex-col min-[420px]:self-stretch min-[420px]:border-l min-[420px]:border-t-0 min-[420px]:pl-6 min-[420px]:pt-0"
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.5, duration: duration.medium }}
@@ -123,9 +117,7 @@ export default function EvolutionPanel({ workspaceId }: { workspaceId?: string }
             strokeWidth={4}
             label={`${((memoryStatus.evolution_metrics?.memory_health?.avg_confidence ?? 0) * 100).toFixed(0)}%`}
           />
-          <span className="text-xs text-[var(--text-secondary)] font-medium">
-            {t.home.avgQuality}
-          </span>
+          <span className="text-xs text-secondary font-medium">{t.home.avgQuality}</span>
         </motion.div>
       </div>
     </Card>

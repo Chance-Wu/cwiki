@@ -16,8 +16,7 @@ interface BadgeProps extends HTMLMotionProps<'span'> {
 }
 
 const variantClasses: Record<BadgeVariant, string> = {
-  default:
-    'bg-surface-elevated/60 border-[var(--glass-border)] text-[var(--text-secondary)] shadow-warm-xs',
+  default: 'bg-surface-elevated/60 border-glass text-secondary shadow-warm-xs',
   brand: 'bg-brand-100/70 border-brand-300/35 text-brand-fg shadow-warm-xs',
   success: 'bg-success/22 border-success/35 text-success-fg shadow-warm-xs',
   warning: 'bg-warning/22 border-warning/35 text-warning-fg shadow-warm-xs',
@@ -64,7 +63,7 @@ export function Badge({
         <button
           type="button"
           onClick={onRemove}
-          className="ml-0.5 -mr-0.5 p-0.5 rounded-full hover:bg-surface-card-hover hover:text-[var(--text-secondary)] active:scale-95 transition-all duration-150 ease-out"
+          className="ml-0.5 -mr-0.5 p-0.5 rounded-full hover:bg-surface-card-hover hover:text-secondary active:scale-95 transition-all duration-150 ease-out"
           aria-label={
             removeLabel ?? (typeof children === 'string' ? `Remove ${children}` : 'Remove')
           }

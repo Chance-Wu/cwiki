@@ -165,7 +165,7 @@ export default function CandidateDetailModal({
           >
             {confirmAction ? (
               <>
-                <span className="text-sm text-[var(--text-secondary)] flex items-center">
+                <span className="text-sm text-secondary flex items-center">
                   {confirmAction === 'approve' && t.inbox.confirmApprove}
                   {confirmAction === 'reject' && t.inbox.confirmReject}
                   {confirmAction === 'update' && t.inbox.confirmUpdate}
@@ -211,7 +211,7 @@ export default function CandidateDetailModal({
                   title={`${t.inbox.reject} (R)`}
                 >
                   <X size={14} aria-hidden="true" /> {t.inbox.reject}
-                  <kbd className="border border-[var(--border-default)] shadow-warm-xs ml-1 px-1 py-0.5 text-3xs font-mono bg-surface-inset rounded-lg">
+                  <kbd className="border border-default shadow-warm-xs ml-1 px-1 py-0.5 text-3xs font-mono bg-surface-inset rounded-lg">
                     R
                   </kbd>
                 </Button>
@@ -226,7 +226,7 @@ export default function CandidateDetailModal({
                     title={`${t.inbox.edit} (E)`}
                   >
                     <Edit size={14} aria-hidden="true" /> {t.inbox.edit}
-                    <kbd className="border border-[var(--border-default)] shadow-warm-xs ml-1 px-1 py-0.5 text-3xs font-mono bg-surface-inset rounded-lg">
+                    <kbd className="border border-default shadow-warm-xs ml-1 px-1 py-0.5 text-3xs font-mono bg-surface-inset rounded-lg">
                       E
                     </kbd>
                   </Button>
@@ -252,7 +252,7 @@ export default function CandidateDetailModal({
                     title={`${t.inbox.approve} (A)`}
                   >
                     <Check size={14} aria-hidden="true" /> {t.inbox.approve}
-                    <kbd className="border border-[var(--border-default)] shadow-warm-xs ml-1 px-1 py-0.5 text-3xs font-mono bg-surface-inset rounded-lg">
+                    <kbd className="border border-default shadow-warm-xs ml-1 px-1 py-0.5 text-3xs font-mono bg-surface-inset rounded-lg">
                       A
                     </kbd>
                   </Button>
@@ -265,7 +265,7 @@ export default function CandidateDetailModal({
     >
       {candidate && (
         <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin">
-          <div className="flex flex-wrap items-center gap-4 mb-4 text-sm text-[var(--text-tertiary)]">
+          <div className="flex flex-wrap items-center gap-4 mb-4 text-sm text-tertiary">
             <Badge className={TYPE_COLORS[candidate.type] || ''}>
               {typeLabel(t.common, candidate.type)}
             </Badge>
@@ -285,10 +285,10 @@ export default function CandidateDetailModal({
 
           {/* 质量诊断面板 */}
           {(candidate.quality_gate_score !== null || candidate.quality_gate_reason) && (
-            <div className="mb-4 p-3 rounded-lg border border-[var(--border-default)] bg-surface-inset">
+            <div className="mb-4 p-3 rounded-lg border border-default bg-surface-inset">
               <div className="flex items-center gap-2 mb-2">
-                <BarChart3 size={14} className="text-[var(--text-secondary)]" />
-                <span className="text-sm font-medium text-[var(--text-primary)]">
+                <BarChart3 size={14} className="text-secondary" />
+                <span className="text-sm font-medium text-primary">
                   {t.inbox.qualityDiagnostics}
                 </span>
                 {candidate.quality_gate_score !== null && (
@@ -310,7 +310,7 @@ export default function CandidateDetailModal({
                 <div className="space-y-1.5">
                   {dimensions.map((dim) => (
                     <div key={dim.key} className="flex items-center gap-2 text-xs">
-                      <span className="w-20 text-[var(--text-secondary)]">{dim.label}</span>
+                      <span className="w-20 text-secondary">{dim.label}</span>
                       <div className="flex-1 h-1.5 bg-[var(--border-default)] rounded-full overflow-hidden">
                         {dim.score !== null ? (
                           <div
@@ -321,7 +321,7 @@ export default function CandidateDetailModal({
                           <div className="h-full w-0" />
                         )}
                       </div>
-                      <span className="w-10 text-right tabular-nums text-[var(--text-tertiary)]">
+                      <span className="w-10 text-right tabular-nums text-tertiary">
                         {dim.score !== null ? Math.round(dim.score * 100) : '—'}
                       </span>
                     </div>
@@ -329,8 +329,8 @@ export default function CandidateDetailModal({
                 </div>
               )}
               {candidate.quality_gate_reason && (
-                <div className="mt-2 pt-2 border-t border-[var(--border-default)]">
-                  <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
+                <div className="mt-2 pt-2 border-t border-default">
+                  <p className="text-xs text-secondary leading-relaxed">
                     {translateBackendReason(candidate.quality_gate_reason, t, locale)}
                   </p>
                 </div>
@@ -381,13 +381,11 @@ export default function CandidateDetailModal({
               </div>
               <ul className="space-y-1.5">
                 {evidenceRefs.map((ref, i) => (
-                  <li key={i} className="text-xs text-[var(--text-secondary)]">
+                  <li key={i} className="text-xs text-secondary">
                     {ref.source_ref && (
                       <span className="font-mono text-info-fg">{ref.source_ref}</span>
                     )}
-                    {ref.supports && (
-                      <span className="ml-2 text-[var(--text-tertiary)]">— {ref.supports}</span>
-                    )}
+                    {ref.supports && <span className="ml-2 text-tertiary">— {ref.supports}</span>}
                   </li>
                 ))}
               </ul>
@@ -449,13 +447,13 @@ export default function CandidateDetailModal({
                     }
                   }}
                 >
-                  <p className="text-sm text-[var(--text-secondary)] mt-1 font-medium">
+                  <p className="text-sm text-secondary mt-1 font-medium">
                     {candidate.similar_memory_title && (
                       <span className="truncate block group-hover:text-brand-500 transition-colors">
                         {candidate.similar_memory_title}
                       </span>
                     )}
-                    <span className="text-[var(--text-tertiary)] font-mono text-xs group-hover:text-brand-500/70 transition-colors">
+                    <span className="text-tertiary font-mono text-xs group-hover:text-brand-500/70 transition-colors">
                       {candidate.similar_memory_source === 'candidate'
                         ? t.inbox.similarCandidate
                         : t.inbox.similarMemory}{' '}

@@ -94,7 +94,7 @@ function Highlighted({ text, query }: { text: string; query: string }) {
   return (
     <>
       {text.slice(0, index)}
-      <mark className="rounded bg-warning/30 px-0.5 text-[var(--text-primary)]">
+      <mark className="rounded bg-warning/30 px-0.5 text-primary">
         {text.slice(index, index + q.length)}
       </mark>
       {text.slice(index + q.length)}
@@ -141,17 +141,13 @@ function ConfigCard({
       transition={{ ...spring.snappy, delay }}
       className="h-full"
     >
-      <Card className="h-full p-4 transition-all duration-150 hover:border-[var(--border-strong)] hover:shadow-warm-md md:p-5">
+      <Card className="h-full p-4 transition-all duration-150 hover:border-strong hover:shadow-warm-md md:p-5">
         <div className="mb-3 flex items-center gap-2.5">
           <AnimatedIcon theme={theme} />
-          <h3 className="text-base font-semibold text-[var(--text-primary)]">
-            {copy[titleKey] ?? titleKey}
-          </h3>
+          <h3 className="text-base font-semibold text-primary">{copy[titleKey] ?? titleKey}</h3>
         </div>
         {subtitle && (
-          <p className="mb-4 text-xs font-medium text-[var(--text-tertiary)]">
-            {copy[subtitle] ?? subtitle}
-          </p>
+          <p className="mb-4 text-xs font-medium text-tertiary">{copy[subtitle] ?? subtitle}</p>
         )}
         <div
           className={
@@ -166,10 +162,10 @@ function ConfigCard({
               className="flex items-center justify-between rounded-lg px-3 py-2.5 -mx-3 transition-all duration-150 hover:bg-brand-badge-bg"
             >
               <div className="mr-3 min-w-0 flex-1">
-                <span className="text-xs font-medium text-[var(--text-primary)]">
+                <span className="text-xs font-medium text-primary">
                   <Highlighted text={copy[field.nameKey] ?? field.key} query={searchQuery} />
                 </span>
-                <p className="text-xs font-medium text-[var(--text-tertiary)]">
+                <p className="text-xs font-medium text-tertiary">
                   <Highlighted text={copy[field.descKey] ?? ''} query={searchQuery} />
                 </p>
               </div>
@@ -192,7 +188,7 @@ function ConfigCard({
                         : undefined
                     }
                   />
-                  <span className="w-10 text-right text-[10px] font-medium tabular-nums text-[var(--text-tertiary)]">
+                  <span className="w-10 text-right text-[10px] font-medium tabular-nums text-tertiary">
                     {field.unit ? (copy[UNIT_KEYS[field.unit]] ?? '') : ''}
                   </span>
                 </div>

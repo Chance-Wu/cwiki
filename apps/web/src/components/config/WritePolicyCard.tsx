@@ -79,10 +79,7 @@ function RuleEditor({
     <div className="space-y-4">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
-          <label
-            htmlFor={idInputId}
-            className="block text-xs font-medium text-[var(--text-secondary)]"
-          >
+          <label htmlFor={idInputId} className="block text-xs font-medium text-secondary">
             {copy.writePolicyRuleId}
           </label>
           <Input
@@ -97,9 +94,7 @@ function RuleEditor({
         </div>
 
         <div>
-          <p className="text-xs font-medium text-[var(--text-secondary)]">
-            {copy.writePolicyAction}
-          </p>
+          <p className="text-xs font-medium text-secondary">{copy.writePolicyAction}</p>
           <div className="mt-1.5" role="group" aria-label={copy.writePolicyAction}>
             <SegmentedControl
               value={rule.action}
@@ -111,17 +106,12 @@ function RuleEditor({
               ]}
             />
           </div>
-          <p className="mt-1.5 text-xs text-[var(--text-tertiary)]">
-            {copy[ACTION_DESC_KEYS[rule.action]]}
-          </p>
+          <p className="mt-1.5 text-xs text-tertiary">{copy[ACTION_DESC_KEYS[rule.action]]}</p>
         </div>
       </div>
 
       <div>
-        <label
-          htmlFor={reasonInputId}
-          className="block text-xs font-medium text-[var(--text-secondary)]"
-        >
+        <label htmlFor={reasonInputId} className="block text-xs font-medium text-secondary">
           {copy.writePolicyReason}
         </label>
         <Input
@@ -206,7 +196,7 @@ export default function WritePolicyCard() {
   if (isLoading || (!draft && !error)) {
     return (
       <Card className="p-4 md:p-5">
-        <div className="flex items-center gap-2 text-sm text-[var(--text-secondary)]">
+        <div className="flex items-center gap-2 text-sm text-secondary">
           <Loader2 size={15} className="animate-spin" aria-hidden="true" />
           {t.common.loading}
         </div>
@@ -354,12 +344,8 @@ export default function WritePolicyCard() {
             <ListFilter size={15} className="text-brand-fg" aria-hidden="true" />
           </motion.div>
           <div className="min-w-0">
-            <h3 className="text-base font-semibold text-[var(--text-primary)]">
-              {copy.writePolicy}
-            </h3>
-            <p className="mt-0.5 text-xs font-medium text-[var(--text-tertiary)]">
-              {copy.writePolicyDesc}
-            </p>
+            <h3 className="text-base font-semibold text-primary">{copy.writePolicy}</h3>
+            <p className="mt-0.5 text-xs font-medium text-tertiary">{copy.writePolicyDesc}</p>
           </div>
         </div>
 
@@ -369,15 +355,13 @@ export default function WritePolicyCard() {
             onCheckedChange={(enabled) => setDraft({ ...draft, enabled })}
           />
           <div>
-            <p className="text-xs font-medium text-[var(--text-primary)]">
-              {copy.writePolicyEnabled}
-            </p>
-            <p className="text-xs text-[var(--text-tertiary)]">{copy.writePolicyEnabledHint}</p>
+            <p className="text-xs font-medium text-primary">{copy.writePolicyEnabled}</p>
+            <p className="text-xs text-tertiary">{copy.writePolicyEnabledHint}</p>
           </div>
         </div>
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[var(--text-tertiary)]">
+      <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-tertiary">
         <span>
           {copy.writePolicyStorage}: <span className="font-mono">{draft.storage_path}</span>
         </span>
@@ -389,15 +373,13 @@ export default function WritePolicyCard() {
         <p className="mt-2 text-xs font-medium text-warning-fg">{copy.writePolicyDisabledHint}</p>
       )}
 
-      <p className="mt-3 text-xs text-[var(--text-tertiary)]">{copy.writePolicyOrderHint}</p>
+      <p className="mt-3 text-xs text-tertiary">{copy.writePolicyOrderHint}</p>
 
       <div className="mt-4 space-y-2.5">
         {draft.rules.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-[var(--border-default)] bg-surface-elevated/10 px-4 py-6 text-center">
-            <p className="text-sm font-medium text-[var(--text-secondary)]">
-              {copy.writePolicyEmpty}
-            </p>
-            <p className="mt-1 text-xs text-[var(--text-tertiary)]">{copy.writePolicyEmptyHint}</p>
+          <div className="rounded-xl border border-dashed border-default bg-surface-elevated/10 px-4 py-6 text-center">
+            <p className="text-sm font-medium text-secondary">{copy.writePolicyEmpty}</p>
+            <p className="mt-1 text-xs text-tertiary">{copy.writePolicyEmptyHint}</p>
           </div>
         ) : (
           draft.rules.map((rule, index) => {
@@ -405,7 +387,7 @@ export default function WritePolicyCard() {
             return (
               <div
                 key={`${rule.id}-${index}`}
-                className="group rounded-xl border border-[var(--border-default)] bg-surface-elevated/20 transition-colors duration-150 hover:border-[var(--border-strong)]"
+                className="group rounded-xl border border-default bg-surface-elevated/20 transition-colors duration-150 hover:border-strong"
               >
                 <div className="flex items-start gap-3 p-3">
                   <button
@@ -414,10 +396,10 @@ export default function WritePolicyCard() {
                     className="min-w-0 flex-1 text-left"
                   >
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="w-4 text-right text-[11px] tabular-nums text-[var(--text-tertiary)]">
+                      <span className="w-4 text-right text-[11px] tabular-nums text-tertiary">
                         {index + 1}
                       </span>
-                      <span className="truncate font-mono text-sm font-semibold text-[var(--text-primary)]">
+                      <span className="truncate font-mono text-sm font-semibold text-primary">
                         {rule.id || copy.writePolicyUntitled}
                       </span>
                       <Badge variant={ACTION_VARIANTS[rule.action]}>
@@ -431,9 +413,7 @@ export default function WritePolicyCard() {
                       <MatchChips match={rule.match} copy={copy} />
                     </div>
                     {rule.reason && (
-                      <p className="mt-1 truncate pl-6 text-xs text-[var(--text-tertiary)]">
-                        {rule.reason}
-                      </p>
+                      <p className="mt-1 truncate pl-6 text-xs text-tertiary">{rule.reason}</p>
                     )}
                   </button>
 
@@ -504,7 +484,7 @@ export default function WritePolicyCard() {
                       transition={{ duration: duration.normal, ease: ease.out }}
                       className="overflow-hidden"
                     >
-                      <div className="border-t border-[var(--border-default)] px-3 pb-3 pt-3">
+                      <div className="border-t border-default px-3 pb-3 pt-3">
                         <RuleEditor
                           rule={rule}
                           error={ruleErrors[index]}
@@ -552,9 +532,9 @@ export default function WritePolicyCard() {
         </div>
       )}
 
-      <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border-default)] pt-4">
+      <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-default pt-4">
         <div className="flex items-center gap-2 text-xs">
-          <span className="text-[var(--text-tertiary)]">
+          <span className="text-tertiary">
             {translate(copy.writePolicyRuleCount, { n: draft.rules.length, max: limits.max_rules })}
             {draft.rules.length > limits.max_rules && (
               <span className="ml-1 font-medium text-danger-fg">

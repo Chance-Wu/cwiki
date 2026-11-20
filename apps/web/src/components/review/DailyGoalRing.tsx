@@ -71,7 +71,7 @@ export function DailyGoalRing({
             style={{ transition: 'stroke-dashoffset 0.5s ease, stroke 0.3s ease' }}
           />
         </svg>
-        <span className="absolute inset-0 flex items-center justify-center text-[11px] font-semibold tabular-nums text-[var(--text-primary)]">
+        <span className="absolute inset-0 flex items-center justify-center text-[11px] font-semibold tabular-nums text-primary">
           {Math.round(pct)}%
         </span>
       </button>
@@ -83,9 +83,7 @@ export function DailyGoalRing({
             className={reached ? 'text-success-fg' : 'text-brand-fg'}
             aria-hidden="true"
           />
-          <span className="text-xs font-medium text-[var(--text-secondary)]">
-            {t.review.dailyGoal}
-          </span>
+          <span className="text-xs font-medium text-secondary">{t.review.dailyGoal}</span>
           {streakDays > 0 && (
             <span className="ml-auto flex items-center gap-0.5 text-xs font-medium text-warning-fg tabular-nums">
               <Flame size={12} aria-hidden="true" />
@@ -94,7 +92,7 @@ export function DailyGoalRing({
           )}
           {quizAttempts > 0 && quizAccuracy != null && (
             <span
-              className={`text-xs font-medium tabular-nums text-[var(--text-tertiary)] ${streakDays > 0 ? 'ml-2' : 'ml-auto'}`}
+              className={`text-xs font-medium tabular-nums text-tertiary ${streakDays > 0 ? 'ml-2' : 'ml-auto'}`}
               title={t.review.quizAccuracyHint}
             >
               {t.review.quizAccuracy.replace('{n}', String(Math.round(quizAccuracy * 100)))}
@@ -104,7 +102,7 @@ export function DailyGoalRing({
         {reached ? (
           <p className="mt-0.5 text-xs font-medium text-success-fg">{t.review.goalReached}</p>
         ) : (
-          <p className="mt-0.5 text-xs tabular-nums text-[var(--text-tertiary)]">
+          <p className="mt-0.5 text-xs tabular-nums text-tertiary">
             {done} / {goal}
           </p>
         )}
@@ -115,7 +113,7 @@ export function DailyGoalRing({
           <button
             type="button"
             onClick={() => commit(goal - 1)}
-            className="flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-secondary)] transition-colors hover:bg-surface-inset hover:text-[var(--text-primary)]"
+            className="flex h-7 w-7 items-center justify-center rounded-md text-secondary transition-colors hover:bg-surface-inset hover:text-primary"
             aria-label="-1"
           >
             <Minus size={13} aria-hidden="true" />
@@ -135,13 +133,13 @@ export function DailyGoalRing({
                 setEditing(false)
               }
             }}
-            className="w-14 rounded-md border border-[var(--border-default)] bg-surface-card px-1.5 py-1 text-center text-xs font-medium tabular-nums text-[var(--text-primary)] outline-none focus-visible:border-brand-400 focus-visible:ring-2 focus-visible:ring-brand-200/30"
+            className="w-14 rounded-md border border-default bg-surface-card px-1.5 py-1 text-center text-xs font-medium tabular-nums text-primary outline-none focus-visible:border-brand-400 focus-visible:ring-2 focus-visible:ring-brand-200/30"
             aria-label={t.review.dailyGoal}
           />
           <button
             type="button"
             onClick={() => commit(goal + 1)}
-            className="flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-secondary)] transition-colors hover:bg-surface-inset hover:text-[var(--text-primary)]"
+            className="flex h-7 w-7 items-center justify-center rounded-md text-secondary transition-colors hover:bg-surface-inset hover:text-primary"
             aria-label="+1"
           >
             <Plus size={13} aria-hidden="true" />
@@ -160,7 +158,7 @@ export function DailyGoalRing({
           <button
             type="button"
             onClick={() => setEditing(false)}
-            className="flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-tertiary)] transition-colors hover:bg-surface-inset hover:text-[var(--text-secondary)]"
+            className="flex h-7 w-7 items-center justify-center rounded-md text-tertiary transition-colors hover:bg-surface-inset hover:text-secondary"
             aria-label={t.common.cancel}
           >
             <X size={13} aria-hidden="true" />
@@ -170,7 +168,7 @@ export function DailyGoalRing({
         <button
           type="button"
           onClick={startEdit}
-          className="ml-auto shrink-0 text-xs font-medium text-[var(--text-tertiary)] transition-colors hover:text-[var(--text-secondary)]"
+          className="ml-auto shrink-0 text-xs font-medium text-tertiary transition-colors hover:text-secondary"
         >
           {t.review.dailyGoalEdit}
         </button>

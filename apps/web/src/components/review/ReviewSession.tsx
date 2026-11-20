@@ -107,7 +107,7 @@ export const ReviewSession = function ReviewSession({
       {/* 进度条 + 专注模式开关 */}
       <div className="mb-4">
         <div className="flex flex-wrap items-center justify-between gap-y-1 mb-1.5">
-          <span className="text-xs text-[var(--text-tertiary)] font-medium">{tr.progress}</span>
+          <span className="text-xs text-tertiary font-medium">{tr.progress}</span>
           <div className="flex flex-wrap items-center justify-end gap-2">
             {sessionStreak >= 2 && (
               <span className="flex items-center gap-1 text-xs text-warning-fg font-medium tabular-nums">
@@ -115,7 +115,7 @@ export const ReviewSession = function ReviewSession({
                 {sessionStreak}
               </span>
             )}
-            <span className="flex items-center gap-1 text-xs text-[var(--text-tertiary)] tabular-nums font-medium">
+            <span className="flex items-center gap-1 text-xs text-tertiary tabular-nums font-medium">
               <Clock size={12} aria-hidden="true" />
               {formatClock(elapsed)}
             </span>
@@ -126,7 +126,7 @@ export const ReviewSession = function ReviewSession({
               className={`p-1 rounded-md transition-all duration-150 ${
                 paused
                   ? 'bg-warning/20 text-warning-fg'
-                  : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-surface-elevated/40'
+                  : 'text-tertiary hover:text-secondary hover:bg-surface-elevated/40'
               }`}
             >
               {paused ? (
@@ -135,7 +135,7 @@ export const ReviewSession = function ReviewSession({
                 <Pause size={14} aria-hidden="true" />
               )}
             </button>
-            <span className="text-xs text-[var(--text-tertiary)] tabular-nums font-medium">
+            <span className="text-xs text-tertiary tabular-nums font-medium">
               {currentIndex + 1} / {totalItems}
             </span>
             <button
@@ -144,7 +144,7 @@ export const ReviewSession = function ReviewSession({
               className={`p-1 rounded-md transition-all duration-150 ${
                 focusMode
                   ? 'bg-info/20 text-info-fg'
-                  : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-surface-elevated/40'
+                  : 'text-tertiary hover:text-secondary hover:bg-surface-elevated/40'
               }`}
               title={tr.focusMode}
             >
@@ -161,7 +161,7 @@ export const ReviewSession = function ReviewSession({
             style={{ boxShadow: '0 0 8px rgb(var(--info-rgb, 59 130 246) / 0.4)' }}
           />
         </div>
-        <p className="mt-1.5 hidden text-[10px] font-medium text-[var(--text-tertiary)] sm:block">
+        <p className="mt-1.5 hidden text-[10px] font-medium text-tertiary sm:block">
           S {tr.skip} · P {tr.pause} · F {tr.focusMode}
         </p>
       </div>
@@ -189,7 +189,7 @@ export const ReviewSession = function ReviewSession({
           )}
         </div>
         <Badge
-          className={`font-semibold ${MASTERY_COLORS[currentItem.mastery_level] ?? 'bg-surface-elevated/40 text-[var(--text-secondary)] border border-[var(--border-default)]'}`}
+          className={`font-semibold ${MASTERY_COLORS[currentItem.mastery_level] ?? 'bg-surface-elevated/40 text-secondary border border-default'}`}
         >
           {tr[`mastery_${currentItem.mastery_level}` as keyof typeof tr] ??
             currentItem.mastery_level}
@@ -223,7 +223,7 @@ export const ReviewSession = function ReviewSession({
                 initial={{ scale: 0.9, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
                 transition={spring.snappy}
-                className="flex items-center gap-2 text-sm font-semibold text-[var(--text-secondary)]"
+                className="flex items-center gap-2 text-sm font-semibold text-secondary"
               >
                 <Pause size={16} aria-hidden="true" />
                 {tr.pausedTitle}
@@ -241,7 +241,7 @@ export const ReviewSession = function ReviewSession({
       {currentItem.leech && !lastResult && !paused && (
         <div className="mt-3 rounded-xl border border-warning/40 bg-warning/10 px-3 py-2.5">
           <p className="text-xs font-medium text-warning-fg">{tr.leechTitle}</p>
-          <p className="mt-0.5 text-xs text-[var(--text-tertiary)]">{tr.leechHint}</p>
+          <p className="mt-0.5 text-xs text-tertiary">{tr.leechHint}</p>
           <div className="mt-2 flex flex-wrap gap-2">
             <Button size="sm" variant="secondary" onClick={() => onEdit(currentItem.memory_id)}>
               {tr.editContent}
@@ -273,7 +273,7 @@ export const ReviewSession = function ReviewSession({
             onClick={handleSkip}
             variant="ghost"
             size="sm"
-            className="text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+            className="text-tertiary hover:text-secondary"
           >
             <SkipForward size={14} aria-hidden="true" />
             {tr.skip}
@@ -303,7 +303,7 @@ export const ReviewSession = function ReviewSession({
                 </>
               )}
               <Badge
-                className={`px-3 py-1 ${MASTERY_COLORS[lastResult.mastery_level] ?? 'bg-surface-elevated/50 text-[var(--text-secondary)] border border-[var(--border-default)]'}`}
+                className={`px-3 py-1 ${MASTERY_COLORS[lastResult.mastery_level] ?? 'bg-surface-elevated/50 text-secondary border border-default'}`}
               >
                 {tr[`mastery_${lastResult.mastery_level}` as keyof typeof tr] ??
                   lastResult.mastery_level}
@@ -312,7 +312,7 @@ export const ReviewSession = function ReviewSession({
                 <span className="text-xs text-success-fg font-medium">{tr.masteryUp}</span>
               )}
             </div>
-            <span className="text-xs text-[var(--text-tertiary)]">
+            <span className="text-xs text-tertiary">
               {tr.nextReviewDate.replace(
                 '{date}',
                 new Date(Date.now() + lastResult.interval_days * 86400000).toLocaleDateString(
@@ -325,7 +325,7 @@ export const ReviewSession = function ReviewSession({
 
           {/* 记忆强度条：ease_factor 取值约 1.3（最弱）~ 3.5（最强），线性映射到 0-100% */}
           <div className="flex items-center gap-2 justify-center">
-            <span className="text-xs text-[var(--text-tertiary)]">{tr.memoryStrength}</span>
+            <span className="text-xs text-tertiary">{tr.memoryStrength}</span>
             <div className="w-24 h-1.5 bg-surface-elevated/30 rounded-full overflow-hidden">
               <motion.div
                 className="h-full bg-gradient-to-r from-danger via-warning to-success rounded-full"
@@ -336,7 +336,7 @@ export const ReviewSession = function ReviewSession({
                 transition={{ duration: duration.reveal, ease: ease.out }}
               />
             </div>
-            <span className="text-xs text-[var(--text-tertiary)] tabular-nums">
+            <span className="text-xs text-tertiary tabular-nums">
               {lastResult.ease_factor.toFixed(2)}
             </span>
           </div>

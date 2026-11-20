@@ -174,11 +174,11 @@ const SearchBox = forwardRef<SearchBoxHandle, SearchBoxProps>(function SearchBox
   return (
     <div ref={rootRef} className="flex min-w-0 flex-1 items-center gap-2">
       <div className="relative min-w-0 flex-1">
-        <div className="relative flex h-9 items-center rounded-lg border border-[var(--glass-border)] bg-surface-card/80 backdrop-blur-[var(--glass-blur)] shadow-warm-sm transition-[border-color,box-shadow] duration-200 ease-out hover:border-[var(--glass-border-hover)] hover:bg-surface-card hover:shadow-warm-md focus-within:border-brand-400 focus-within:ring-2 focus-within:ring-brand-200/30">
+        <div className="relative flex h-9 items-center rounded-lg border border-glass bg-surface-card/80 backdrop-blur-[var(--glass-blur)] shadow-warm-sm transition-[border-color,box-shadow] duration-200 ease-out hover:border-glass-hover hover:bg-surface-card hover:shadow-warm-md focus-within:border-brand-400 focus-within:ring-2 focus-within:ring-brand-200/30">
           <Search
             size={14}
             strokeWidth={1.75}
-            className="pointer-events-none absolute left-2.5 text-[var(--text-tertiary)]"
+            className="pointer-events-none absolute left-2.5 text-tertiary"
             aria-hidden="true"
           />
           <input
@@ -199,7 +199,7 @@ const SearchBox = forwardRef<SearchBoxHandle, SearchBoxProps>(function SearchBox
             onKeyDown={handleKeyDown}
             placeholder={t.search.placeholder}
             aria-label={t.search.placeholder}
-            className="h-full w-full bg-transparent pl-8 pr-9 text-sm text-[var(--text-primary)] outline-none placeholder:text-[var(--text-tertiary)]"
+            className="h-full w-full bg-transparent pl-8 pr-9 text-sm text-primary outline-none placeholder:text-tertiary"
           />
           {value ? (
             <button
@@ -208,14 +208,14 @@ const SearchBox = forwardRef<SearchBoxHandle, SearchBoxProps>(function SearchBox
                 onChange('')
                 inputRef.current?.focus()
               }}
-              className="absolute right-2.5 rounded p-0.5 text-[var(--text-tertiary)] transition-all duration-150 hover:bg-surface-inset hover:text-[var(--text-secondary)] active:scale-95 select-none"
+              className="absolute right-2.5 rounded p-0.5 text-tertiary transition-all duration-150 hover:bg-surface-inset hover:text-secondary active:scale-95 select-none"
               aria-label={t.search.clear}
             >
               <X size={13} strokeWidth={1.75} aria-hidden="true" />
             </button>
           ) : (
             !open && (
-              <kbd className="pointer-events-none absolute right-2.5 select-none rounded-lg border border-[var(--border-default)] shadow-warm-xs bg-surface-inset px-1.5 py-0.5 font-mono text-3xs text-[var(--text-tertiary)]">
+              <kbd className="pointer-events-none absolute right-2.5 select-none rounded-lg border border-default shadow-warm-xs bg-surface-inset px-1.5 py-0.5 font-mono text-3xs text-tertiary">
                 /
               </kbd>
             )
@@ -233,14 +233,14 @@ const SearchBox = forwardRef<SearchBoxHandle, SearchBoxProps>(function SearchBox
             >
               {!query && (
                 <div className="flex items-center justify-between px-3 pb-0.5 pt-1">
-                  <span className="text-3xs font-medium uppercase tracking-wider text-[var(--text-tertiary)]">
+                  <span className="text-3xs font-medium uppercase tracking-wider text-tertiary">
                     {t.search.recentSearches}
                   </span>
                   <button
                     type="button"
                     aria-label={t.search.clearHistory}
                     onClick={onClearHistory}
-                    className="text-xs text-[var(--text-tertiary)] transition-all duration-150 hover:text-[var(--text-secondary)] select-none"
+                    className="text-xs text-tertiary transition-all duration-150 hover:text-secondary select-none"
                   >
                     {t.search.clearHistory}
                   </button>
@@ -263,20 +263,18 @@ const SearchBox = forwardRef<SearchBoxHandle, SearchBoxProps>(function SearchBox
                       <Clock
                         size={12}
                         strokeWidth={1.75}
-                        className="shrink-0 text-[var(--text-tertiary)]"
+                        className="shrink-0 text-tertiary"
                         aria-hidden="true"
                       />
                     ) : (
                       <FileText
                         size={12}
                         strokeWidth={1.75}
-                        className="shrink-0 text-[var(--text-tertiary)]"
+                        className="shrink-0 text-tertiary"
                         aria-hidden="true"
                       />
                     )}
-                    <span className="min-w-0 flex-1 truncate text-[var(--text-secondary)]">
-                      {item.text}
-                    </span>
+                    <span className="min-w-0 flex-1 truncate text-secondary">{item.text}</span>
                     {item.kind === 'history' && (
                       <button
                         type="button"
@@ -284,7 +282,7 @@ const SearchBox = forwardRef<SearchBoxHandle, SearchBoxProps>(function SearchBox
                           e.stopPropagation()
                           onRemoveHistory(item.text)
                         }}
-                        className="shrink-0 rounded p-0.5 text-[var(--text-tertiary)] transition-all duration-150 hover:bg-surface-inset hover:text-[var(--text-secondary)] active:scale-95 select-none"
+                        className="shrink-0 rounded p-0.5 text-tertiary transition-all duration-150 hover:bg-surface-inset hover:text-secondary active:scale-95 select-none"
                         aria-label={`${t.common.delete}: ${item.text}`}
                       >
                         <X size={11} strokeWidth={1.75} aria-hidden="true" />
@@ -293,14 +291,12 @@ const SearchBox = forwardRef<SearchBoxHandle, SearchBoxProps>(function SearchBox
                   </div>
                 ))
               ) : query && loading ? (
-                <div className="flex items-center gap-2 px-3 py-2.5 text-xs text-[var(--text-tertiary)]">
+                <div className="flex items-center gap-2 px-3 py-2.5 text-xs text-tertiary">
                   <Loader2 size={12} className="animate-spin" aria-hidden="true" />
                   <span>{t.memories.searching}</span>
                 </div>
               ) : query ? (
-                <div className="px-3 py-2.5 text-xs text-[var(--text-tertiary)]">
-                  {t.search.noResults}
-                </div>
+                <div className="px-3 py-2.5 text-xs text-tertiary">{t.search.noResults}</div>
               ) : null}
             </div>,
             document.body,
@@ -311,7 +307,7 @@ const SearchBox = forwardRef<SearchBoxHandle, SearchBoxProps>(function SearchBox
         type="button"
         onClick={() => submit(value)}
         disabled={loading || !value.trim()}
-        className="flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-lg bg-brand-500 px-3 text-xs font-medium text-[var(--on-brand)] transition-all duration-150 select-none hover:bg-brand-600 active:bg-brand-700 disabled:bg-surface-inset disabled:text-[var(--text-tertiary)] disabled:hover:bg-surface-inset disabled:cursor-not-allowed sm:px-3.5"
+        className="flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-lg bg-brand-500 px-3 text-xs font-medium text-on-brand transition-all duration-150 select-none hover:bg-brand-600 active:bg-brand-700 disabled:bg-surface-inset disabled:text-tertiary disabled:hover:bg-surface-inset disabled:cursor-not-allowed sm:px-3.5"
         aria-label={t.search.button}
       >
         {loading ? (

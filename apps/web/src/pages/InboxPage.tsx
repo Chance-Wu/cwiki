@@ -364,11 +364,11 @@ export default function InboxPage() {
       <div className="flex flex-col sm:flex-row gap-2.5">
         {/* 搜索输入框 */}
         <div className="relative flex-1 min-w-0">
-          <div className="relative flex h-9 items-center rounded-lg border border-[var(--glass-border)] bg-surface-card/80 backdrop-blur-[var(--glass-blur)] shadow-warm-sm transition-[border-color,box-shadow] duration-200 ease-out hover:border-[var(--glass-border-hover)] hover:bg-surface-card hover:shadow-warm-md focus-within:border-brand-400 focus-within:ring-2 focus-within:ring-brand-200/30">
+          <div className="relative flex h-9 items-center rounded-lg border border-glass bg-surface-card/80 backdrop-blur-[var(--glass-blur)] shadow-warm-sm transition-[border-color,box-shadow] duration-200 ease-out hover:border-glass-hover hover:bg-surface-card hover:shadow-warm-md focus-within:border-brand-400 focus-within:ring-2 focus-within:ring-brand-200/30">
             <Search
               size={14}
               strokeWidth={1.75}
-              className="pointer-events-none absolute left-2.5 text-[var(--text-tertiary)]"
+              className="pointer-events-none absolute left-2.5 text-tertiary"
               aria-hidden="true"
             />
             <input
@@ -377,12 +377,12 @@ export default function InboxPage() {
               onChange={(e) => setTitleSearch(e.target.value)}
               placeholder={t.inbox.searchTitle}
               aria-label={t.inbox.searchTitle}
-              className="h-full w-full bg-transparent pl-8 pr-9 text-sm text-[var(--text-primary)] outline-none placeholder:text-[var(--text-tertiary)]"
+              className="h-full w-full bg-transparent pl-8 pr-9 text-sm text-primary outline-none placeholder:text-tertiary"
             />
             {titleSearch && (
               <button
                 onClick={() => setTitleSearch('')}
-                className="absolute right-2.5 rounded p-0.5 text-[var(--text-tertiary)] transition-all duration-150 hover:bg-surface-inset hover:text-[var(--text-secondary)] active:scale-95 select-none"
+                className="absolute right-2.5 rounded p-0.5 text-tertiary transition-all duration-150 hover:bg-surface-inset hover:text-secondary active:scale-95 select-none"
                 aria-label={t.common.close}
               >
                 <X size={13} strokeWidth={1.75} aria-hidden="true" />
@@ -429,7 +429,7 @@ export default function InboxPage() {
       {activeTab === 'candidates' && (
         <div className="mt-2.5 space-y-2">
           <div className="flex flex-wrap items-center gap-2">
-            <label className="flex items-center gap-1 text-xs text-[var(--text-tertiary)]">
+            <label className="flex items-center gap-1 text-xs text-tertiary">
               {t.inbox.minGate}
               <input
                 type="number"
@@ -438,10 +438,10 @@ export default function InboxPage() {
                 step={0.05}
                 value={gateMin}
                 onChange={(e) => setGateMin(e.target.value)}
-                className="w-20 rounded-lg border border-[var(--border-default)] bg-surface-card px-2 py-1 text-sm text-[var(--text-primary)] outline-none focus-visible:border-brand-400"
+                className="w-20 rounded-lg border border-default bg-surface-card px-2 py-1 text-sm text-primary outline-none focus-visible:border-brand-400"
               />
             </label>
-            <label className="flex items-center gap-1 text-xs text-[var(--text-tertiary)]">
+            <label className="flex items-center gap-1 text-xs text-tertiary">
               {t.inbox.minValue}
               <input
                 type="number"
@@ -450,10 +450,10 @@ export default function InboxPage() {
                 step={0.05}
                 value={valueMin}
                 onChange={(e) => setValueMin(e.target.value)}
-                className="w-20 rounded-lg border border-[var(--border-default)] bg-surface-card px-2 py-1 text-sm text-[var(--text-primary)] outline-none focus-visible:border-brand-400"
+                className="w-20 rounded-lg border border-default bg-surface-card px-2 py-1 text-sm text-primary outline-none focus-visible:border-brand-400"
               />
             </label>
-            <label className="flex items-center gap-1 text-xs text-[var(--text-tertiary)]">
+            <label className="flex items-center gap-1 text-xs text-tertiary">
               {t.inbox.maxDuplicate}
               <input
                 type="number"
@@ -462,7 +462,7 @@ export default function InboxPage() {
                 step={0.05}
                 value={dupMax}
                 onChange={(e) => setDupMax(e.target.value)}
-                className="w-20 rounded-lg border border-[var(--border-default)] bg-surface-card px-2 py-1 text-sm text-[var(--text-primary)] outline-none focus-visible:border-brand-400"
+                className="w-20 rounded-lg border border-default bg-surface-card px-2 py-1 text-sm text-primary outline-none focus-visible:border-brand-400"
               />
             </label>
             <Button
@@ -478,15 +478,12 @@ export default function InboxPage() {
 
           {screenPreview && (
             <div className="rounded-xl border border-success/30 bg-success/5 p-3">
-              <p className="text-sm font-medium text-[var(--text-primary)]">
+              <p className="text-sm font-medium text-primary">
                 {translate(t.inbox.screenPreviewTitle, { n: screenPreview.ids.length })}
               </p>
               <ul className="mt-1 space-y-0.5">
                 {screenPreview.titles.map((title, index) => (
-                  <li
-                    key={`${title}-${index}`}
-                    className="truncate text-xs text-[var(--text-secondary)]"
-                  >
+                  <li key={`${title}-${index}`} className="truncate text-xs text-secondary">
                     · {title}
                   </li>
                 ))}
@@ -535,17 +532,17 @@ export default function InboxPage() {
                   setBatchConfirmAction(null)
                 }}
               />
-              <span className="text-sm text-[var(--text-secondary)]">{t.inbox.selectAll}</span>
+              <span className="text-sm text-secondary">{t.inbox.selectAll}</span>
             </div>
-            <div className="hidden sm:flex items-center gap-2 text-xs text-[var(--text-tertiary)] opacity-0 hover:opacity-100 transition-opacity duration-200">
-              <kbd className="border border-[var(--border-default)] px-1.5 py-0.5 bg-surface-elevated/30 rounded font-mono text-2xs">
+            <div className="hidden sm:flex items-center gap-2 text-xs text-tertiary opacity-0 hover:opacity-100 transition-opacity duration-200">
+              <kbd className="border border-default px-1.5 py-0.5 bg-surface-elevated/30 rounded font-mono text-2xs">
                 j/k
               </kbd>
               <span>{t.inbox.navigateHint}</span>
-              <kbd className="border border-[var(--border-default)] px-1.5 py-0.5 bg-surface-elevated/30 rounded font-mono text-2xs">
+              <kbd className="border border-default px-1.5 py-0.5 bg-surface-elevated/30 rounded font-mono text-2xs">
                 ⏎
               </kbd>
-              <kbd className="border border-[var(--border-default)] px-1.5 py-0.5 bg-surface-elevated/30 rounded font-mono text-2xs">
+              <kbd className="border border-default px-1.5 py-0.5 bg-surface-elevated/30 rounded font-mono text-2xs">
                 ␣
               </kbd>
             </div>
@@ -643,7 +640,7 @@ export default function InboxPage() {
                     transition={spring.snappy}
                     className="mb-4 flex items-center justify-between gap-3 px-4 py-3 glass rounded-xl"
                   >
-                    <span className="text-sm text-[var(--text-secondary)]">
+                    <span className="text-sm text-secondary">
                       {batchConfirmAction === 'approve'
                         ? translate(t.inbox.confirmBatchApprove, { n: selectedIds.size })
                         : batchConfirmAction === 'discard'
@@ -681,7 +678,7 @@ export default function InboxPage() {
                     transition={spring.snappy}
                     className="mb-4 flex items-center justify-between gap-3 px-4 py-3 glass rounded-xl"
                   >
-                    <span className="text-sm text-[var(--text-secondary)]">
+                    <span className="text-sm text-secondary">
                       {translate(t.inbox.selectedCount, { n: selectedIds.size })}
                     </span>
                     <div className="flex items-center gap-2">
@@ -844,9 +841,7 @@ export default function InboxPage() {
           </div>
         }
       >
-        <p className="text-sm text-[var(--text-secondary)] leading-relaxed">
-          {t.inbox.revertConfirmDesc}
-        </p>
+        <p className="text-sm text-secondary leading-relaxed">{t.inbox.revertConfirmDesc}</p>
       </Dialog>
 
       <Suspense fallback={null}>

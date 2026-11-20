@@ -47,13 +47,11 @@ function BarChart({
                 : undefined
             }
             className={`flex items-center gap-3 rounded px-1 -mx-1 ${
-              clickable ? 'cursor-pointer transition-colors hover:bg-[var(--hover-subtle)]' : ''
+              clickable ? 'cursor-pointer transition-colors hover:bg-surface-hover-subtle' : ''
             }`}
           >
-            <div className="w-24 shrink-0 text-xs text-[var(--text-secondary)]">
-              {labels?.[key] || key}
-            </div>
-            <div className="flex-1 h-6 bg-[var(--surface-inset)] rounded overflow-hidden">
+            <div className="w-24 shrink-0 text-xs text-secondary">{labels?.[key] || key}</div>
+            <div className="flex-1 h-6 bg-surface-inset rounded overflow-hidden">
               <motion.div
                 className="h-full rounded"
                 style={{ backgroundColor: color }}
@@ -83,11 +81,9 @@ function StatTile({
 }) {
   return (
     <div className="glass-card p-4 rounded-2xl">
-      <div className="text-xs font-medium text-[var(--text-secondary)]">{label}</div>
-      <div className="mt-1.5 text-2xl font-bold tabular-nums text-[var(--text-primary)]">
-        {value}
-      </div>
-      {subtext && <div className="text-xs text-[var(--text-tertiary)] mt-1">{subtext}</div>}
+      <div className="text-xs font-medium text-secondary">{label}</div>
+      <div className="mt-1.5 text-2xl font-bold tabular-nums text-primary">{value}</div>
+      {subtext && <div className="text-xs text-tertiary mt-1">{subtext}</div>}
     </div>
   )
 }
@@ -187,16 +183,14 @@ export default function QualityPage() {
               />
 
               {data.truncated && (
-                <div className="rounded-lg border border-[var(--border-default)] bg-[var(--surface-subtle)] px-3 py-2 text-xs text-[var(--text-secondary)]">
+                <div className="rounded-lg border border-default bg-surface-subtle px-3 py-2 text-xs text-secondary">
                   {q.truncated.replace('{n}', String(data.total))}
                 </div>
               )}
 
               {/* Confidence Distribution */}
               <div className="glass-card rounded-2xl p-5 md:p-6">
-                <h3 className="text-base font-semibold mb-4 text-[var(--text-primary)]">
-                  {q.confidenceDist}
-                </h3>
+                <h3 className="text-base font-semibold mb-4 text-primary">{q.confidenceDist}</h3>
                 <BarChart
                   data={data.confidence_distribution}
                   color="var(--chart-confidence)"
@@ -207,9 +201,7 @@ export default function QualityPage() {
 
               {/* Importance Distribution */}
               <div className="glass-card rounded-2xl p-5 md:p-6">
-                <h3 className="text-base font-semibold mb-4 text-[var(--text-primary)]">
-                  {q.importanceDist}
-                </h3>
+                <h3 className="text-base font-semibold mb-4 text-primary">{q.importanceDist}</h3>
                 <BarChart
                   data={data.importance_distribution}
                   color="var(--chart-importance)"
@@ -220,9 +212,7 @@ export default function QualityPage() {
 
               {/* Usage Distribution */}
               <div className="glass-card rounded-2xl p-5 md:p-6">
-                <h3 className="text-base font-semibold mb-4 text-[var(--text-primary)]">
-                  {q.usageDist}
-                </h3>
+                <h3 className="text-base font-semibold mb-4 text-primary">{q.usageDist}</h3>
                 <BarChart
                   data={data.usage_distribution}
                   color="var(--chart-usage)"
@@ -233,9 +223,7 @@ export default function QualityPage() {
 
               {/* Decay Distribution */}
               <div className="glass-card rounded-2xl p-5 md:p-6">
-                <h3 className="text-base font-semibold mb-4 text-[var(--text-primary)]">
-                  {q.decayDist}
-                </h3>
+                <h3 className="text-base font-semibold mb-4 text-primary">{q.decayDist}</h3>
                 <BarChart
                   data={data.decay_distribution}
                   color="var(--chart-decay)"

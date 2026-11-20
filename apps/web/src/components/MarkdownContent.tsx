@@ -497,7 +497,7 @@ export default function MarkdownContent({ content, className = '' }: MarkdownCon
       <TableOfContents content={content} t={t} />
       <Suspense
         fallback={
-          <div className="text-sm text-[var(--text-secondary)] flex items-center justify-center gap-2 py-4">
+          <div className="text-sm text-secondary flex items-center justify-center gap-2 py-4">
             <Loader2 size={14} className="animate-spin" />
             {t.common.loading}
           </div>

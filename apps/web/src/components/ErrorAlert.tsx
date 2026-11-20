@@ -21,6 +21,7 @@ export default function ErrorAlert({
 }: ErrorAlertProps) {
   return (
     <motion.div
+      role="alert"
       initial={{ opacity: 0, x: -10 }}
       animate={{ opacity: 1, x: 0 }}
       transition={{ duration: duration.slow, ease: ease.bounce }}

@@ -76,10 +76,8 @@ export class ErrorBoundary extends Component<Props, State> {
           >
             <ErrorIcon size={24} className="text-warning-fg" aria-hidden="true" />
           </motion.div>
-          <h3 className="text-sm font-medium text-[var(--text-secondary)] mb-1">{title}</h3>
-          <p className="text-xs text-[var(--text-tertiary)] mb-4 max-w-md break-words">
-            {errorMessage}
-          </p>
+          <h3 className="text-sm font-medium text-secondary mb-1">{title}</h3>
+          <p className="text-xs text-tertiary mb-4 max-w-md break-words">{errorMessage}</p>
           <div className="flex gap-2">
             <Button variant="secondary" onClick={this.handleReset}>
               {retry}

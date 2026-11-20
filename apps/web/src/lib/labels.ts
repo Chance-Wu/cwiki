@@ -94,7 +94,7 @@ export const TYPE_HEX: Record<string, string> = {
 }
 
 export const MASTERY_COLORS: Record<string, string> = {
-  new: 'bg-surface-elevated/50 text-[var(--text-secondary)] border border-[var(--border-default)]',
+  new: 'bg-surface-elevated/50 text-secondary border border-default',
   learning: 'bg-danger/22 text-danger-fg border border-danger/35',
   familiar: 'bg-warning/22 text-warning-fg border border-warning/35',
   proficient: 'bg-info/22 text-info-fg border border-info/35',

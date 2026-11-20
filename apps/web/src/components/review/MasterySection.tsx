@@ -41,11 +41,11 @@ function MasteryBarInner({
               <span
                 className={`w-1.5 h-1.5 rounded-full ${MASTERY_BAR_COLORS[level] ?? 'bg-[var(--border-strong)]'} opacity-80`}
               />
-              <span className="text-xs font-medium text-[var(--text-secondary)]">
+              <span className="text-xs font-medium text-secondary">
                 {t.review[`mastery_${level}` as keyof typeof t.review] ?? level}
               </span>
             </div>
-            <div className="flex-1 h-1.5 bg-surface-inset rounded-full overflow-hidden border border-[var(--border-default)]">
+            <div className="flex-1 h-1.5 bg-surface-inset rounded-full overflow-hidden border border-default">
               <motion.div
                 className={`h-full rounded-full ${MASTERY_BAR_COLORS[level] ?? 'bg-[var(--border-strong)]'}`}
                 initial={{ width: 0 }}
@@ -53,8 +53,8 @@ function MasteryBarInner({
                 transition={{ duration: duration.reveal, ease: ease.out, delay: 0.4 + i * 0.04 }}
               />
             </div>
-            <span className="text-xs text-[var(--text-secondary)] w-16 text-right tabular-nums font-medium">
-              {count} <span className="text-[var(--text-tertiary)]">({pct}%)</span>
+            <span className="text-xs text-secondary w-16 text-right tabular-nums font-medium">
+              {count} <span className="text-tertiary">({pct}%)</span>
             </span>
           </motion.div>
         )
@@ -85,9 +85,7 @@ export const MasterySection = function MasterySection({
           <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-gradient-to-br from-info/20 to-info/10 shrink-0 ring-1 ring-info/30">
             <Brain size={14} className="text-info-fg" aria-hidden="true" />
           </div>
-          <h3 className="text-base font-semibold text-[var(--text-primary)]">
-            {t.review.masteryTitle}
-          </h3>
+          <h3 className="text-base font-semibold text-primary">{t.review.masteryTitle}</h3>
           <div className="w-1 h-5 bg-gradient-to-b from-info/60 to-info rounded-full ml-1" />
         </div>
         <MasteryBarInner distribution={distribution} total={total} />

@@ -64,14 +64,12 @@ export default function MemoryHealthTab({ memoryId }: Props) {
       </div>
       {(data.health?.reasons?.length ?? 0) > 0 && (
         <div>
-          <h4 className="text-sm font-medium text-[var(--text-secondary)] mb-2">
-            {t.memories.healthScore}
-          </h4>
+          <h4 className="text-sm font-medium text-secondary mb-2">{t.memories.healthScore}</h4>
           <ul className="space-y-1">
             {(data.health?.reasons ?? []).map((reason, i) => (
               <li
                 key={i}
-                className="text-sm text-[var(--text-secondary)] flex items-start gap-2 px-2 py-1 -mx-2 rounded-lg hover:bg-surface-inset transition-all duration-150 active:scale-[0.98]"
+                className="text-sm text-secondary flex items-start gap-2 px-2 py-1 -mx-2 rounded-lg hover:bg-surface-inset transition-all duration-150 active:scale-[0.98]"
               >
                 <span className="w-1.5 h-1.5 rounded-full bg-[var(--text-tertiary)] mt-1.5 shrink-0" />
                 {translateBackendReason(reason, t, locale)}

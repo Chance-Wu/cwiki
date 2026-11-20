@@ -458,7 +458,7 @@ const advancedTheme: SectionTheme = {
   icon: Wrench,
   iconGradient: 'bg-gradient-to-br from-[var(--surface-elevated)] to-[var(--surface-inset)]',
   iconRing: 'ring-subtle',
-  iconColor: 'text-[var(--text-secondary)]',
+  iconColor: 'text-secondary',
   accentFrom: 'from-[var(--text-tertiary)]',
   accentTo: 'to-[var(--text-secondary)]',
   subtitle: 'appConfigDesc',

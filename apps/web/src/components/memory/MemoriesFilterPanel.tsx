@@ -201,7 +201,7 @@ export default function MemoriesFilterPanel({
           icon={<Clock size={14} />}
         />
         {timeRange !== 'all' && (
-          <span className="text-xs text-[var(--text-tertiary)]">{t.memories.pageOnlyFilter}</span>
+          <span className="text-xs text-tertiary">{t.memories.pageOnlyFilter}</span>
         )}
       </div>
 
@@ -215,13 +215,13 @@ export default function MemoriesFilterPanel({
           return (
             <>
               <div className="flex flex-wrap items-center gap-1.5 mt-2.5">
-                <Tags size={14} className="text-[var(--text-tertiary)] shrink-0" />
+                <Tags size={14} className="text-tertiary shrink-0" />
                 <button
                   onClick={() => onSelectedTagsChange([])}
                   className={`px-2 py-0.5 text-xs rounded-full border transition-colors flex items-center gap-1 ${
                     selectedTags.length === 0
                       ? 'bg-brand-500 text-white border-brand-500'
-                      : 'bg-surface-inset text-[var(--text-secondary)] border-[var(--border-default)] hover:bg-brand-badge-bg'
+                      : 'bg-surface-inset text-secondary border-default hover:bg-brand-badge-bg'
                   }`}
                 >
                   {selectedTags.length > 0 ? (
@@ -253,7 +253,7 @@ export default function MemoriesFilterPanel({
                     className={`px-2 py-0.5 text-xs rounded-full border transition-colors flex items-center gap-1 ${
                       selectedTags.includes(tag.name)
                         ? 'bg-brand-500 text-white border-brand-500'
-                        : 'bg-surface-inset text-[var(--text-secondary)] border-[var(--border-default)] hover:bg-brand-badge-bg'
+                        : 'bg-surface-inset text-secondary border-default hover:bg-brand-badge-bg'
                     }`}
                   >
                     {selectedTags.includes(tag.name) && (
@@ -280,7 +280,7 @@ export default function MemoriesFilterPanel({
                 {showMore && (
                   <button
                     onClick={() => setShowAllTags(true)}
-                    className="px-2 py-0.5 text-xs rounded-full border border-dashed border-[var(--border-default)] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:border-[var(--text-tertiary)] transition-colors"
+                    className="px-2 py-0.5 text-xs rounded-full border border-dashed border-default text-tertiary hover:text-secondary hover:border-[var(--text-tertiary)] transition-colors"
                   >
                     +{coldTags.length} {t.memories.tagMore}
                   </button>
@@ -288,7 +288,7 @@ export default function MemoriesFilterPanel({
                 {showAllTags && coldTags.length > 0 && (
                   <button
                     onClick={() => setShowAllTags(false)}
-                    className="px-2 py-0.5 text-xs rounded-full border border-dashed border-[var(--border-default)] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:border-[var(--text-tertiary)] transition-colors"
+                    className="px-2 py-0.5 text-xs rounded-full border border-dashed border-default text-tertiary hover:text-secondary hover:border-[var(--text-tertiary)] transition-colors"
                   >
                     {t.memories.tagCollapse}
                   </button>
@@ -299,7 +299,7 @@ export default function MemoriesFilterPanel({
                   className={`px-2 py-0.5 text-xs rounded-full border transition-colors flex items-center gap-1 ${
                     showTagManage
                       ? 'bg-brand-500 text-white border-brand-500'
-                      : 'bg-surface-inset text-[var(--text-secondary)] border-[var(--border-default)] hover:bg-brand-badge-bg'
+                      : 'bg-surface-inset text-secondary border-default hover:bg-brand-badge-bg'
                   }`}
                 >
                   <Pencil size={10} />

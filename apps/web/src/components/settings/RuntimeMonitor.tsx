@@ -33,9 +33,7 @@ function StatusDot({ ok, label }: { ok: boolean; label: string }) {
         aria-hidden="true"
         className={`h-2 w-2 shrink-0 rounded-full ${ok ? 'bg-success' : 'bg-danger'}`}
       />
-      <span
-        className={`truncate ${ok ? 'text-[var(--text-secondary)]' : 'text-danger-fg font-medium'}`}
-      >
+      <span className={`truncate ${ok ? 'text-secondary' : 'text-danger-fg font-medium'}`}>
         {label}
       </span>
     </span>
@@ -54,9 +52,9 @@ function CardHeader({
   return (
     <div className="mb-3 flex items-center gap-2.5">
       <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-surface-elevated/40 ring-1 ring-subtle">
-        <Icon size={15} className="text-[var(--text-secondary)]" aria-hidden="true" />
+        <Icon size={15} className="text-secondary" aria-hidden="true" />
       </div>
-      <h3 className="text-base font-semibold text-[var(--text-primary)]">{title}</h3>
+      <h3 className="text-base font-semibold text-primary">{title}</h3>
       {action && <div className="ml-auto">{action}</div>}
     </div>
   )
@@ -64,7 +62,7 @@ function CardHeader({
 
 function LoadFailed({ label }: { label: string }) {
   return (
-    <div className="flex flex-1 items-center justify-center gap-2 py-6 text-sm text-[var(--text-tertiary)]">
+    <div className="flex flex-1 items-center justify-center gap-2 py-6 text-sm text-tertiary">
       <AlertTriangle size={15} className="text-warning" aria-hidden="true" />
       {label}
     </div>
@@ -101,9 +99,7 @@ function RetrievalCard() {
               value: (
                 <>
                   {metrics.retrieval.avg_latency_ms}
-                  <span className="ml-0.5 text-2xs font-normal text-[var(--text-tertiary)]">
-                    {t.settings.ms}
-                  </span>
+                  <span className="ml-0.5 text-2xs font-normal text-tertiary">{t.settings.ms}</span>
                 </>
               ),
               label: t.settings.avgLatency,
@@ -118,7 +114,7 @@ function RetrievalCard() {
               key: 'queries',
               value: metrics.retrieval.queries_24h,
               label: t.settings.queries24h,
-              tone: 'text-[var(--text-primary)]',
+              tone: 'text-primary',
             },
             {
               key: 'success',
@@ -130,21 +126,21 @@ function RetrievalCard() {
               key: 'total',
               value: metrics.retrieval.total_queries,
               label: t.settings.totalQueries,
-              tone: 'text-[var(--text-primary)]',
+              tone: 'text-primary',
             },
           ].map((item) => (
             <div
               key={item.key}
-              className="rounded-lg border border-[var(--border-default)] bg-surface-elevated/20 px-3 py-2"
+              className="rounded-lg border border-default bg-surface-elevated/20 px-3 py-2"
             >
               <div className={`text-lg font-semibold tabular-nums ${item.tone}`}>{item.value}</div>
-              <div className="truncate text-2xs text-[var(--text-tertiary)]">{item.label}</div>
+              <div className="truncate text-2xs text-tertiary">{item.label}</div>
             </div>
           ))}
         </div>
       ) : isLoading ? (
         <div className="flex flex-1 items-center justify-center py-6">
-          <Loader2 size={16} className="animate-spin text-[var(--text-tertiary)]" />
+          <Loader2 size={16} className="animate-spin text-tertiary" />
         </div>
       ) : (
         <LoadFailed label={t.diagnostics.loadFailed} />
@@ -228,7 +224,7 @@ function ConsistencyCard() {
             <div key={row.key} className="flex items-center justify-between gap-2 text-sm">
               <StatusDot ok={row.ok} label={row.ok ? row.label : `${row.label} · ${row.detail}`} />
               <span
-                className="shrink-0 text-xs tabular-nums text-[var(--text-tertiary)]"
+                className="shrink-0 text-xs tabular-nums text-tertiary"
                 title={row.detail ?? undefined}
               >
                 {row.count}
@@ -243,7 +239,7 @@ function ConsistencyCard() {
         </div>
       ) : isLoading ? (
         <div className="flex flex-1 items-center justify-center py-6">
-          <Loader2 size={16} className="animate-spin text-[var(--text-tertiary)]" />
+          <Loader2 size={16} className="animate-spin text-tertiary" />
         </div>
       ) : (
         <LoadFailed label={t.diagnostics.loadFailed} />
@@ -318,10 +314,10 @@ function TaskQueueCard() {
           <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
             {queueStats.map((s) => (
               <div key={s.label} className="flex items-center justify-between text-sm">
-                <span className="text-[var(--text-secondary)]">{s.label}</span>
+                <span className="text-secondary">{s.label}</span>
                 <span
                   className={`font-semibold tabular-nums ${
-                    s.danger ? 'text-danger-fg' : 'text-[var(--text-primary)]'
+                    s.danger ? 'text-danger-fg' : 'text-primary'
                   }`}
                 >
                   {s.value}
@@ -330,11 +326,11 @@ function TaskQueueCard() {
             ))}
           </div>
           {queue.oldest_pending_age_seconds != null && (
-            <div className="mt-1.5 flex items-center justify-between border-t border-[var(--border-default)] pt-1.5 text-sm">
-              <span className="text-[var(--text-secondary)]">{t.diagnostics.oldestPending}</span>
+            <div className="mt-1.5 flex items-center justify-between border-t border-default pt-1.5 text-sm">
+              <span className="text-secondary">{t.diagnostics.oldestPending}</span>
               <span
                 className={`font-medium tabular-nums ${
-                  pendingBacklog ? 'text-warning-fg' : 'text-[var(--text-primary)]'
+                  pendingBacklog ? 'text-warning-fg' : 'text-primary'
                 }`}
               >
                 {formatAge(queue.oldest_pending_age_seconds, t)}
@@ -343,12 +339,12 @@ function TaskQueueCard() {
           )}
 
           {queue.failed.items.length > 0 && (
-            <div className="mt-3 border-t border-[var(--border-default)] pt-2">
+            <div className="mt-3 border-t border-default pt-2">
               <div className="mb-2 flex items-center justify-between">
-                <span className="text-sm font-semibold text-[var(--text-primary)]">
+                <span className="text-sm font-semibold text-primary">
                   {t.diagnostics.failedTasks}
                 </span>
-                <span className="text-xs tabular-nums text-[var(--text-tertiary)]">
+                <span className="text-xs tabular-nums text-tertiary">
                   {translate(t.diagnostics.failedTaskCount, { n: queue.failed.total })}
                 </span>
               </div>
@@ -356,24 +352,21 @@ function TaskQueueCard() {
                 {queue.failed.items.map((item) => (
                   <div
                     key={item.id}
-                    className="flex items-center gap-2 rounded-lg border border-[var(--border-default)] bg-surface-inset/40 px-3 py-2"
+                    className="flex items-center gap-2 rounded-lg border border-default bg-surface-inset/40 px-3 py-2"
                   >
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
-                        <span className="truncate font-mono text-xs font-semibold text-[var(--text-primary)]">
+                        <span className="truncate font-mono text-xs font-semibold text-primary">
                           {item.name}
                         </span>
                         {item.retry_count > 0 && (
-                          <span className="shrink-0 text-2xs tabular-nums text-[var(--text-tertiary)]">
+                          <span className="shrink-0 text-2xs tabular-nums text-tertiary">
                             ×{item.retry_count}
                           </span>
                         )}
                       </div>
                       {item.error && (
-                        <p
-                          className="truncate text-xs text-[var(--text-tertiary)]"
-                          title={item.error}
-                        >
+                        <p className="truncate text-xs text-tertiary" title={item.error}>
                           {item.error.length > 120 ? `${item.error.slice(0, 120)}…` : item.error}
                         </p>
                       )}
@@ -396,7 +389,7 @@ function TaskQueueCard() {
                 ))}
               </div>
               {queue.failed.total > queue.failed.items.length && (
-                <p className="mt-1.5 text-xs text-[var(--text-tertiary)]">
+                <p className="mt-1.5 text-xs text-tertiary">
                   {translate(t.settings.failedTasksTruncated, {
                     shown: queue.failed.items.length,
                     total: queue.failed.total,
@@ -408,7 +401,7 @@ function TaskQueueCard() {
         </>
       ) : isLoading ? (
         <div className="flex flex-1 items-center justify-center py-6">
-          <Loader2 size={16} className="animate-spin text-[var(--text-tertiary)]" />
+          <Loader2 size={16} className="animate-spin text-tertiary" />
         </div>
       ) : (
         <LoadFailed label={t.diagnostics.loadFailed} />

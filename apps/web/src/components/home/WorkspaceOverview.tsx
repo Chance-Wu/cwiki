@@ -35,12 +35,10 @@ export default function WorkspaceOverview({ defaultWorkspaceId }: { defaultWorks
         <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-gradient-to-br from-info/18 to-info/8 shrink-0 ring-1 ring-info/30">
           <Layers size={15} className="text-info-fg" aria-hidden="true" />
         </div>
-        <h3 className="text-[15px] font-semibold text-[var(--text-primary)]">
-          {t.home.workspaceOverview}
-        </h3>
+        <h3 className="text-[15px] font-semibold text-primary">{t.home.workspaceOverview}</h3>
         <div className="w-1 h-5 bg-gradient-to-b from-info/60 to-info rounded-full ml-1" />
         {!isLoading && workspaces.length > 0 && (
-          <span className="ml-auto text-xs text-[var(--text-tertiary)] tabular-nums">
+          <span className="ml-auto text-xs text-tertiary tabular-nums">
             {translate(t.home.workspaceSummary, {
               n: workspaces.length,
               m: totalMemories,
@@ -56,9 +54,7 @@ export default function WorkspaceOverview({ defaultWorkspaceId }: { defaultWorks
           ))}
         </div>
       ) : workspaces.length === 0 ? (
-        <p className="py-6 text-center text-sm text-[var(--text-tertiary)]">
-          {t.home.workspaceEmpty}
-        </p>
+        <p className="py-6 text-center text-sm text-tertiary">{t.home.workspaceEmpty}</p>
       ) : (
         <>
           <ul className="space-y-1.5">
@@ -66,14 +62,14 @@ export default function WorkspaceOverview({ defaultWorkspaceId }: { defaultWorks
               <li key={ws.id}>
                 <Link
                   to={`/memories?workspace=${ws.id}`}
-                  className="group flex items-center gap-3 px-3 py-2 rounded-lg border border-[var(--border-default)] bg-surface-inset/40 transition-colors hover:bg-surface-inset/80 hover:border-[var(--border-strong)]"
+                  className="group flex items-center gap-3 px-3 py-2 rounded-lg border border-default bg-surface-inset/40 transition-colors hover:bg-surface-inset/80 hover:border-strong"
                 >
                   <FolderOpen
                     size={14}
-                    className="shrink-0 text-[var(--text-tertiary)] group-hover:text-info-fg"
+                    className="shrink-0 text-tertiary group-hover:text-info-fg"
                     aria-hidden="true"
                   />
-                  <span className="min-w-0 truncate text-sm font-medium text-[var(--text-primary)]">
+                  <span className="min-w-0 truncate text-sm font-medium text-primary">
                     {ws.name}
                   </span>
                   {ws.id === defaultWorkspaceId && (
@@ -81,7 +77,7 @@ export default function WorkspaceOverview({ defaultWorkspaceId }: { defaultWorks
                       {t.home.workspaceDefault}
                     </span>
                   )}
-                  <span className="ml-auto shrink-0 text-xs tabular-nums text-[var(--text-tertiary)]">
+                  <span className="ml-auto shrink-0 text-xs tabular-nums text-tertiary">
                     {translate(t.home.workspaceMemories, { n: ws.memory_count ?? 0 })}
                   </span>
                 </Link>
@@ -92,7 +88,7 @@ export default function WorkspaceOverview({ defaultWorkspaceId }: { defaultWorks
             <button
               type="button"
               onClick={() => setExpanded((prev) => !prev)}
-              className="mt-2 inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)]"
+              className="mt-2 inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-secondary transition-colors hover:text-primary"
             >
               {expanded ? (
                 <>

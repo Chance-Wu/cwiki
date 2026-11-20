@@ -37,6 +37,8 @@ export interface SearchResponse {
   results: SearchResult[]
   total: number
   insufficient?: boolean
+  /** 文本/语义模式取回数达到端点上限（50），可能存在未返回的更多结果 */
+  capped?: boolean
 }
 
 // 类型过滤在结果级应用：后端返回的 type 为空时按 'fact' 兜底归类
@@ -85,13 +87,12 @@ async function executeSearch(
   if (resolved === 'semantic') {
     const data = await api.semanticSearch(query, 50)
     // semantic 端点的相似度字段为 similarity_score，归一化为 score 供结果行统一展示
-    const results = filterByTags(filterByType(data.results || [], opts.memoryType), opts.tags).map(
-      (r) => ({
-        ...r,
-        score: r.score ?? r.similarity_score ?? null,
-      }),
-    )
-    return { results, total: results.length }
+    const raw = data.results || []
+    const results = filterByTags(filterByType(raw, opts.memoryType), opts.tags).map((r) => ({
+      ...r,
+      score: r.score ?? r.similarity_score ?? null,
+    }))
+    return { results, total: results.length, capped: raw.length >= 50 }
   }
   if (resolved === 'hybrid') {
     const wsId = await api.getDefaultWorkspaceId()
@@ -106,8 +107,9 @@ async function executeSearch(
     return { results, total: data.total ?? results.length }
   }
   const data = await api.searchBM25(query, 50)
-  const results = filterByTags(filterByType(data.results || [], opts.memoryType), opts.tags)
-  return { results, total: results.length }
+  const raw = data.results || []
+  const results = filterByTags(filterByType(raw, opts.memoryType), opts.tags)
+  return { results, total: results.length, capped: raw.length >= 50 }
 }
 
 export function useSearch(

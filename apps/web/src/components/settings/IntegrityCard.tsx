@@ -21,7 +21,7 @@ export default function IntegrityCard() {
   const counts = data?.counts
 
   return (
-    <Card className="p-4 md:p-5 transition-all duration-150 hover:shadow-warm-md hover:border-[var(--border-strong)] bg-surface-elevated/20">
+    <Card className="p-4 md:p-5 transition-all duration-150 hover:shadow-warm-md hover:border-strong bg-surface-elevated/20">
       <div className="flex items-center gap-2.5 mb-3">
         <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-surface-elevated/40 shrink-0 ring-1 ring-subtle">
           {ok ? (
@@ -31,10 +31,8 @@ export default function IntegrityCard() {
           )}
         </div>
         <div className="min-w-0 flex-1">
-          <h3 className="text-base font-semibold text-[var(--text-primary)]">
-            {copy.integrityTitle}
-          </h3>
-          <p className="text-xs font-medium text-[var(--text-tertiary)]">{copy.integrityDesc}</p>
+          <h3 className="text-base font-semibold text-primary">{copy.integrityTitle}</h3>
+          <p className="text-xs font-medium text-tertiary">{copy.integrityDesc}</p>
         </div>
         <Button
           variant="secondary"
@@ -53,7 +51,7 @@ export default function IntegrityCard() {
       </div>
 
       {isLoading ? (
-        <p className="text-xs text-[var(--text-tertiary)]">{t.common.loading}</p>
+        <p className="text-xs text-tertiary">{t.common.loading}</p>
       ) : isError || !data || data.error ? (
         <p className="text-xs text-danger-fg">{copy.integrityUnavailable}</p>
       ) : (
@@ -65,7 +63,7 @@ export default function IntegrityCard() {
               {ok ? copy.integrityOk : copy.integrityIssues.replace('{n}', String(issues.length))}
             </span>
             {counts && (
-              <span className="text-[var(--text-tertiary)] tabular-nums">
+              <span className="text-tertiary tabular-nums">
                 DB {counts.db_active}/{counts.db_total} · MD {counts.markdown} · _meta {counts.meta}{' '}
                 · 索引 {counts.index} · 向量 {counts.vectors}
               </span>
@@ -74,17 +72,15 @@ export default function IntegrityCard() {
           {issues.length > 0 && (
             <ul className="mt-3 space-y-1.5">
               {issues.map((issue) => (
-                <li key={issue.kind} className="text-xs text-[var(--text-secondary)]">
-                  <span className="font-semibold text-[var(--text-primary)]">{issue.kind}</span>
+                <li key={issue.kind} className="text-xs text-secondary">
+                  <span className="font-semibold text-primary">{issue.kind}</span>
                   <span className="tabular-nums"> ×{issue.count}</span>
-                  <span className="text-[var(--text-tertiary)]"> · {issue.hint}</span>
+                  <span className="text-tertiary"> · {issue.hint}</span>
                 </li>
               ))}
             </ul>
           )}
-          <p className="mt-3 text-[11px] font-medium text-[var(--text-tertiary)]">
-            {copy.integrityFixHint}
-          </p>
+          <p className="mt-3 text-[11px] font-medium text-tertiary">{copy.integrityFixHint}</p>
         </>
       )}
     </Card>

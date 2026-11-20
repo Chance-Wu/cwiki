@@ -11,7 +11,7 @@ function TrendChartInner({ data }: { data: Array<{ date: string; count: number }
 
   if (isEmpty) {
     return (
-      <div className="flex items-center justify-center h-28 text-sm text-[var(--text-tertiary)]">
+      <div className="flex items-center justify-center h-28 text-sm text-tertiary">
         {t.review.noTrendData}
       </div>
     )
@@ -32,9 +32,7 @@ function TrendChartInner({ data }: { data: Array<{ date: string; count: number }
             animate={{ opacity: 1, y: 0 }}
             transition={{ ...spring.snappy, delay: 0.3 + i * 0.04 }}
           >
-            <span className="text-xs font-medium text-[var(--text-tertiary)] tabular-nums">
-              {d.count || ''}
-            </span>
+            <span className="text-xs font-medium text-tertiary tabular-nums">{d.count || ''}</span>
             <div className="w-full flex-1 flex items-end">
               <motion.div
                 className="w-full bg-gradient-to-t from-brand-500/30 to-brand-400/15 rounded-t-sm hover:from-brand-500/50 hover:to-brand-400/30 transition-colors duration-500"
@@ -43,7 +41,7 @@ function TrendChartInner({ data }: { data: Array<{ date: string; count: number }
                 transition={{ duration: duration.reveal, ease: ease.out, delay: 0.4 + i * 0.04 }}
               />
             </div>
-            <span className="text-xs text-[var(--text-tertiary)] font-medium">{dayLabel}</span>
+            <span className="text-xs text-tertiary font-medium">{dayLabel}</span>
           </motion.div>
         )
       })}
@@ -71,9 +69,7 @@ export const TrendSection = function TrendSection({ data }: TrendSectionProps) {
           <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-gradient-to-br from-brand-50/25 to-brand-50/10 shrink-0 ring-1 ring-brand-200/40">
             <TrendingUp size={14} className="text-brand-fg" aria-hidden="true" />
           </div>
-          <h3 className="text-base font-semibold text-[var(--text-primary)]">
-            {t.review.reviewTrendTitle}
-          </h3>
+          <h3 className="text-base font-semibold text-primary">{t.review.reviewTrendTitle}</h3>
           <div className="w-1 h-5 bg-gradient-to-b from-brand/60 to-brand rounded-full ml-1" />
         </div>
         <TrendChartInner data={data} />

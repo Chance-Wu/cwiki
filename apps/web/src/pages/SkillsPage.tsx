@@ -170,7 +170,7 @@ export default function SkillsPage() {
           <div className="relative mb-4">
             <Search
               size={14}
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)] pointer-events-none z-10"
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-tertiary pointer-events-none z-10"
               aria-hidden="true"
             />
             <Input
@@ -183,7 +183,7 @@ export default function SkillsPage() {
             {skillSearch && (
               <button
                 onClick={() => setSkillSearch('')}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-all duration-150 active:scale-90"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-tertiary hover:text-primary transition-all duration-150 active:scale-90"
                 aria-label={t.common.close}
               >
                 <X size={14} aria-hidden="true" />

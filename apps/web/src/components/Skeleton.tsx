@@ -28,7 +28,7 @@ export function ListSkeleton({ rows = 5 }: { rows?: number }) {
 
 export function TabContentSkeleton() {
   return (
-    <div className="mt-4 pt-3 border-t border-[var(--border-default)] space-y-2">
+    <div className="mt-4 pt-3 border-t border-default space-y-2">
       {Array.from({ length: 4 }).map((_, i) => (
         <div key={i} className="flex items-center gap-3">
           <Skeleton className="h-3 w-3 rounded-full" />

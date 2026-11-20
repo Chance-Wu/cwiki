@@ -45,15 +45,13 @@ export default function EditForm({
       )}
       <div className="space-y-3">
         <div>
-          <label className="text-xs font-medium text-[var(--text-primary)] mb-1 block">
+          <label className="text-xs font-medium text-primary mb-1 block">
             {t.skills.description}
           </label>
           <Input value={description} onChange={(e) => setDescription(e.target.value)} autoFocus />
         </div>
         <div>
-          <label className="text-xs font-medium text-[var(--text-primary)] mb-1 block">
-            {t.skills.body}
-          </label>
+          <label className="text-xs font-medium text-primary mb-1 block">{t.skills.body}</label>
           <Textarea
             value={body}
             onChange={(e) => setBody(e.target.value)}
@@ -62,7 +60,7 @@ export default function EditForm({
           />
         </div>
       </div>
-      <div className="flex justify-end gap-2 mt-5 pt-3 border-t border-[var(--border-default)]">
+      <div className="flex justify-end gap-2 mt-5 pt-3 border-t border-default">
         <Button onClick={onCancel} variant="secondary">
           {t.common.cancel}
         </Button>

@@ -80,13 +80,11 @@ export const SessionComplete = function SessionComplete({
         >
           <CheckCircle2 size={28} className="text-success-fg" />
         </motion.div>
-        <h2 className="text-lg font-semibold text-[var(--text-primary)] mb-2">
-          {t.review.sessionComplete}
-        </h2>
-        <p className="text-xs text-[var(--text-secondary)] mb-6">
+        <h2 className="text-lg font-semibold text-primary mb-2">{t.review.sessionComplete}</h2>
+        <p className="text-xs text-secondary mb-6">
           {t.review.sessionReviewedCount.replace('{n}', String(sessionReviewed))}
           {elapsedSec > 0 && (
-            <span className="text-[var(--text-tertiary)]">
+            <span className="text-tertiary">
               {' · '}
               {tr.elapsedTime} {formatClock(elapsedSec)}
             </span>
@@ -105,20 +103,20 @@ export const SessionComplete = function SessionComplete({
             className={`gap-3 mb-6 ${sessionStreak >= 2 ? 'grid grid-cols-3' : 'grid grid-cols-2'}`}
           >
             <div className="bg-surface-elevated/40 rounded-lg ring-1 ring-subtle p-3.5">
-              <div className="text-2xl font-semibold text-[var(--text-primary)] tabular-nums">
+              <div className="text-2xl font-semibold text-primary tabular-nums">
                 <AnimatedNumber target={sessionAvgQuality ?? 0} decimals={1} delay={200} />
-                <span className="text-xs font-normal text-[var(--text-tertiary)] ml-0.5">/5</span>
+                <span className="text-xs font-normal text-tertiary ml-0.5">/5</span>
               </div>
-              <div className="text-xs text-[var(--text-secondary)] mt-1 font-medium">
+              <div className="text-xs text-secondary mt-1 font-medium">
                 {t.review.sessionAccuracy}
               </div>
             </div>
             <div className="bg-surface-elevated/40 rounded-lg ring-1 ring-subtle p-3.5">
-              <div className="text-2xl font-semibold text-[var(--text-primary)] tabular-nums">
+              <div className="text-2xl font-semibold text-primary tabular-nums">
                 <AnimatedNumber target={sessionGoodRate ?? 0} delay={350} />
-                <span className="text-xs font-normal text-[var(--text-tertiary)] ml-0.5">%</span>
+                <span className="text-xs font-normal text-tertiary ml-0.5">%</span>
               </div>
-              <div className="text-xs text-[var(--text-secondary)] mt-1 font-medium">
+              <div className="text-xs text-secondary mt-1 font-medium">
                 {t.review.sessionGoodRate}
               </div>
             </div>
@@ -128,9 +126,7 @@ export const SessionComplete = function SessionComplete({
                   <Flame size={22} />
                   <AnimatedNumber target={sessionStreak} delay={500} />
                 </div>
-                <div className="text-xs text-[var(--text-secondary)] mt-1 font-medium">
-                  {t.review.streak}
-                </div>
+                <div className="text-xs text-secondary mt-1 font-medium">{t.review.streak}</div>
               </div>
             )}
           </div>
@@ -139,19 +135,14 @@ export const SessionComplete = function SessionComplete({
         {/* 本轮逐条结果 */}
         {results.length > 0 && (
           <div className="mb-6 text-left">
-            <div className="mb-2 text-xs font-medium text-[var(--text-secondary)]">
-              {tr.sessionResults}
-            </div>
+            <div className="mb-2 text-xs font-medium text-secondary">{tr.sessionResults}</div>
             <ul className="max-h-56 space-y-1.5 overflow-y-auto scrollbar-thin pr-1">
               {results.map((r, i) => (
                 <li
                   key={`${r.title}-${i}`}
-                  className="flex items-center gap-2 rounded-lg border border-[var(--border-default)] bg-surface-elevated/30 px-2.5 py-1.5"
+                  className="flex items-center gap-2 rounded-lg border border-default bg-surface-elevated/30 px-2.5 py-1.5"
                 >
-                  <span
-                    className="min-w-0 flex-1 truncate text-xs text-[var(--text-primary)]"
-                    title={r.title}
-                  >
+                  <span className="min-w-0 flex-1 truncate text-xs text-primary" title={r.title}>
                     {r.title}
                   </span>
                   {r.prevMastery && r.prevMastery !== r.newMastery && (
@@ -164,7 +155,7 @@ export const SessionComplete = function SessionComplete({
                   <Badge
                     className={
                       MASTERY_COLORS[r.newMastery] ??
-                      'bg-surface-elevated/40 text-[var(--text-secondary)] border border-[var(--border-default)]'
+                      'bg-surface-elevated/40 text-secondary border border-default'
                     }
                   >
                     {tr[`mastery_${r.newMastery}`] ?? r.newMastery}

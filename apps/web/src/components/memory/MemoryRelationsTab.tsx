@@ -13,7 +13,7 @@ import { Button } from '../ui/Button'
 const RELATION_TYPES = ['related', 'supports', 'contradicts', 'supersedes', 'refines'] as const
 
 const FIELD_CLASS =
-  'rounded-lg border border-[var(--border-default)] bg-surface-card px-2 py-1.5 text-sm text-[var(--text-primary)] outline-none focus-visible:border-brand-400 focus-visible:ring-2 focus-visible:ring-brand-200/30'
+  'rounded-lg border border-default bg-surface-card px-2 py-1.5 text-sm text-primary outline-none focus-visible:border-brand-400 focus-visible:ring-2 focus-visible:ring-brand-200/30'
 
 interface Props {
   memoryId: string
@@ -141,9 +141,7 @@ export default function MemoryRelationsTab({ memoryId, onNavigateToMemory }: Pro
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-2">
-        <h4 className="text-sm font-medium text-[var(--text-secondary)]">
-          {t.memories.relationType}
-        </h4>
+        <h4 className="text-sm font-medium text-secondary">{t.memories.relationType}</h4>
         <Button
           size="sm"
           variant="secondary"
@@ -154,7 +152,7 @@ export default function MemoryRelationsTab({ memoryId, onNavigateToMemory }: Pro
       </div>
 
       {creating && (
-        <div className="space-y-2 rounded-lg border border-[var(--border-default)] bg-surface-inset p-3">
+        <div className="space-y-2 rounded-lg border border-default bg-surface-inset p-3">
           {!target ? (
             <>
               <input
@@ -174,11 +172,11 @@ export default function MemoryRelationsTab({ memoryId, onNavigateToMemory }: Pro
                       className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-brand-badge-bg"
                     >
                       <span
-                        className={`shrink-0 rounded-lg border px-1.5 py-0.5 text-sm ${TYPE_COLORS[item.type] || 'border-[var(--border-default)] bg-surface-inset text-[var(--text-secondary)]'}`}
+                        className={`shrink-0 rounded-lg border px-1.5 py-0.5 text-sm ${TYPE_COLORS[item.type] || 'border-default bg-surface-inset text-secondary'}`}
                       >
                         {typeLabel(t.common, item.type)}
                       </span>
-                      <span className="min-w-0 flex-1 truncate text-sm text-[var(--text-primary)]">
+                      <span className="min-w-0 flex-1 truncate text-sm text-primary">
                         {item.title}
                       </span>
                     </button>
@@ -186,15 +184,13 @@ export default function MemoryRelationsTab({ memoryId, onNavigateToMemory }: Pro
                 </div>
               )}
               {query.trim().length >= 2 && results.length === 0 && (
-                <p className="text-xs text-[var(--text-tertiary)]">{t.memories.noSearchResults}</p>
+                <p className="text-xs text-tertiary">{t.memories.noSearchResults}</p>
               )}
             </>
           ) : (
             <>
               <div className="flex items-center gap-2">
-                <span className="min-w-0 flex-1 truncate text-sm text-[var(--text-primary)]">
-                  {target.title}
-                </span>
+                <span className="min-w-0 flex-1 truncate text-sm text-primary">{target.title}</span>
                 <Button size="xs" variant="ghost" onClick={() => setTarget(null)}>
                   {t.common.cancel}
                 </Button>
@@ -234,19 +230,19 @@ export default function MemoryRelationsTab({ memoryId, onNavigateToMemory }: Pro
             return (
               <div
                 key={r.id}
-                className="flex flex-wrap items-center gap-2 rounded-lg border border-[var(--border-default)] bg-surface-inset p-2"
+                className="flex flex-wrap items-center gap-2 rounded-lg border border-default bg-surface-inset p-2"
               >
-                <span className="shrink-0 rounded-lg border border-[var(--glass-border)] bg-surface-card px-1.5 py-0.5 text-sm text-[var(--text-primary)]">
+                <span className="shrink-0 rounded-lg border border-glass bg-surface-card px-1.5 py-0.5 text-sm text-primary">
                   {relationLabel(r.relation_type)}
                 </span>
                 <button
                   type="button"
                   onClick={() => onNavigateToMemory?.(otherId)}
-                  className="min-w-0 flex-1 truncate text-left text-sm text-[var(--text-primary)] hover:underline"
+                  className="min-w-0 flex-1 truncate text-left text-sm text-primary hover:underline"
                 >
                   {other?.title ?? otherId.slice(0, 8)}
                 </button>
-                <span className="shrink-0 text-xs tabular-nums text-[var(--text-tertiary)]">
+                <span className="shrink-0 text-xs tabular-nums text-tertiary">
                   {Math.round(r.confidence * 100)}%
                 </span>
                 {editingId === r.id ? (
@@ -295,9 +291,7 @@ export default function MemoryRelationsTab({ memoryId, onNavigateToMemory }: Pro
 
       {relatedMemories.length > 0 && (
         <div>
-          <h4 className="mb-2 text-sm font-medium text-[var(--text-secondary)]">
-            {t.memories.relatedMemories}
-          </h4>
+          <h4 className="mb-2 text-sm font-medium text-secondary">{t.memories.relatedMemories}</h4>
           <div className="space-y-3">
             {relatedMemories.map((m) => (
               <div
@@ -311,19 +305,17 @@ export default function MemoryRelationsTab({ memoryId, onNavigateToMemory }: Pro
                     onNavigateToMemory?.(m.id)
                   }
                 }}
-                className="group relative flex cursor-pointer items-center gap-2 rounded-lg border border-[var(--border-default)] bg-surface-inset p-2 shadow-warm-xs transition-all duration-150 hover:bg-brand-badge-bg active:scale-[0.98]"
+                className="group relative flex cursor-pointer items-center gap-2 rounded-lg border border-default bg-surface-inset p-2 shadow-warm-xs transition-all duration-150 hover:bg-brand-badge-bg active:scale-[0.98]"
               >
                 <span className="absolute left-0 top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-full bg-brand-400 opacity-40 transition-opacity duration-150" />
                 <span
-                  className={`rounded-lg border px-1.5 py-0.5 text-sm ${TYPE_COLORS[m.type] || 'border-[var(--border-default)] bg-surface-inset text-[var(--text-secondary)]'}`}
+                  className={`rounded-lg border px-1.5 py-0.5 text-sm ${TYPE_COLORS[m.type] || 'border-default bg-surface-inset text-secondary'}`}
                 >
                   {typeLabel(t.common, m.type)}
                 </span>
-                <span className="min-w-0 flex-1 truncate text-sm text-[var(--text-primary)]">
-                  {m.title}
-                </span>
+                <span className="min-w-0 flex-1 truncate text-sm text-primary">{m.title}</span>
                 <svg
-                  className="h-4 w-4 shrink-0 text-[var(--text-tertiary)]"
+                  className="h-4 w-4 shrink-0 text-tertiary"
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"

@@ -1,11 +1,10 @@
 import { FolderOpen, Bot, Puzzle } from 'lucide-react'
 
-export const NEUTRAL_CHIP =
-  'bg-surface-elevated/50 text-[var(--text-secondary)] border border-[var(--border-default)]'
+export const NEUTRAL_CHIP = 'bg-surface-elevated/50 text-secondary border border-default'
 
 export const AGENT_BTN_ACTIVE = 'bg-brand-50 text-brand-fg border border-brand-200'
 export const AGENT_BTN_INACTIVE =
-  'bg-surface-elevated/30 text-[var(--text-secondary)] hover:bg-surface-card-hover'
+  'bg-surface-elevated/30 text-secondary hover:bg-surface-card-hover'
 
 export const SOURCE_CONFIG: Record<
   string,
@@ -13,13 +12,13 @@ export const SOURCE_CONFIG: Record<
 > = {
   project: {
     icon: FolderOpen,
-    color: 'text-[var(--text-secondary)]',
+    color: 'text-secondary',
     bg: 'bg-surface-elevated/40',
     ring: 'ring-subtle',
   },
   qoder: {
     icon: Bot,
-    color: 'text-[var(--text-secondary)]',
+    color: 'text-secondary',
     bg: 'bg-surface-elevated/40',
     ring: 'ring-subtle',
   },
@@ -27,7 +26,7 @@ export const SOURCE_CONFIG: Record<
   dsh: { icon: Bot, color: 'text-info-fg', bg: 'bg-info/22', ring: 'ring-info/35' },
   plugin: {
     icon: Puzzle,
-    color: 'text-[var(--text-secondary)]',
+    color: 'text-secondary',
     bg: 'bg-surface-elevated/40',
     ring: 'ring-subtle',
   },

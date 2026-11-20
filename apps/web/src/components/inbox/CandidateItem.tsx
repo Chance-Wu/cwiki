@@ -56,7 +56,7 @@ const CandidateItem = memo(function CandidateItem({
   return (
     <div
       data-candidate-index={idx}
-      className={`candidate-item-enter group bg-transparent px-4 py-3 cursor-pointer relative border-b border-[var(--border-default)] last:border-b-0 hover:bg-brand-badge-bg ${
+      className={`candidate-item-enter group bg-transparent px-4 py-3 cursor-pointer relative border-b border-default last:border-b-0 hover:bg-brand-badge-bg ${
         selected
           ? 'bg-brand-50/30 border-l-[3px] border-l-brand-400'
           : focused
@@ -95,7 +95,7 @@ const CandidateItem = memo(function CandidateItem({
         )}
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-2">
-            <h3 className="text-sm font-semibold text-[var(--text-primary)] break-words leading-snug tracking-[-0.01em]">
+            <h3 className="text-sm font-semibold text-primary break-words leading-snug tracking-[-0.01em]">
               {c.title}
             </h3>
             <div className="flex items-center gap-1.5 shrink-0">
@@ -124,7 +124,7 @@ const CandidateItem = memo(function CandidateItem({
                 </Badge>
               )}
               {c.confidence !== null && (
-                <span className="text-xs text-[var(--text-tertiary)] tabular-nums font-medium">
+                <span className="text-xs text-tertiary tabular-nums font-medium">
                   {Math.round(c.confidence * 100)}%
                 </span>
               )}
@@ -134,7 +134,7 @@ const CandidateItem = memo(function CandidateItem({
             <Badge
               className={
                 TYPE_COLORS[c.type] ||
-                'bg-surface-inset text-[var(--text-secondary)] border border-[var(--border-default)] shadow-warm-xs'
+                'bg-surface-inset text-secondary border border-default shadow-warm-xs'
               }
             >
               {typeLabel(t.common, c.type)}
@@ -177,7 +177,7 @@ const CandidateItem = memo(function CandidateItem({
                   variant="subtle"
                   size="xs"
                   onClick={() => onRevert(c)}
-                  className="text-[var(--text-secondary)]"
+                  className="text-secondary"
                 >
                   <Undo2 size={11} aria-hidden="true" />
                   {t.inbox.revert}
@@ -185,7 +185,7 @@ const CandidateItem = memo(function CandidateItem({
               </span>
             )}
             {c.updated_at && (
-              <span className="text-xs text-[var(--text-tertiary)] ml-auto">
+              <span className="text-xs text-tertiary ml-auto">
                 {formatTime(c.updated_at, locale)}
               </span>
             )}

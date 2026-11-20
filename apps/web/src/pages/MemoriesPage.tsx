@@ -9,6 +9,7 @@ import {
   useRef,
 } from 'react'
 import { useSearchParams } from 'react-router-dom'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
 import { spring } from '../lib/motion'
 import { Plus, Loader2, RefreshCw, Database } from 'lucide-react'
@@ -152,6 +153,7 @@ export default function MemoriesPage() {
   })
   const { history: searchHistory, addHistory, removeHistory, clearHistory } = useSearchHistory()
   const searchInputRef = useRef<SearchBoxHandle>(null)
+  const queryClient = useQueryClient()
 
   const isSearching = deferredQuery.trim().length > 0
 
@@ -182,32 +184,32 @@ export default function MemoriesPage() {
   const statsQuery = useMemoryStats(statusFilter !== 'all' ? statusFilter : undefined)
   const workspacesQuery = useWorkspacesList()
 
-  // 标签列表：与工作区/状态筛选保持一致，并清理已不存在的已选标签
-  const [tagsList, setTagsList] = useState<{ name: string; count: number }[]>([])
-  const refreshTagsList = useCallback(() => {
-    api
-      .listTags(
+  // 标签列表：与工作区/状态筛选保持一致；标签被编辑弹窗增删后经 handleTagsChanged 失效
+  const tagsQuery = useQuery({
+    queryKey: ['tags', workspaceFilter, statusFilter],
+    queryFn: () =>
+      api.listTags(
         workspaceFilter !== 'all' ? workspaceFilter : undefined,
         statusFilter !== 'all' ? statusFilter : undefined,
-      )
-      .then((res) => {
-        setTagsList(res.tags || [])
-        const names = new Set((res.tags || []).map((tag) => tag.name))
-        setSelectedTags((prev) => {
-          const next = prev.filter((tag) => names.has(tag))
-          return next.length === prev.length ? prev : next
-        })
-      })
-      .catch(() => {})
-  }, [workspaceFilter, statusFilter])
+      ),
+    staleTime: 30_000,
+  })
+  const tagsList = tagsQuery.data?.tags ?? []
+
+  // 数据刷新后清理已不存在的已选标签（静默失败与旧实现一致，不打断列表主流程）
   useEffect(() => {
-    refreshTagsList()
-  }, [refreshTagsList])
+    if (!tagsQuery.data) return
+    const names = new Set((tagsQuery.data.tags || []).map((tag) => tag.name))
+    setSelectedTags((prev) => {
+      const next = prev.filter((tag) => names.has(tag))
+      return next.length === prev.length ? prev : next
+    })
+  }, [tagsQuery.data])
 
   const handleTagsChanged = useCallback(() => {
-    refreshTagsList()
+    void queryClient.invalidateQueries({ queryKey: ['tags'] })
     void memoriesQuery.refetch()
-  }, [refreshTagsList, memoriesQuery])
+  }, [queryClient, memoriesQuery])
 
   // /v1/memories 返回 workspace_id（UUID），徽标展示需要名称——用工作区列表解析；
   // 解析不到时回退到 item 自带的 workspace 字段（搜索结果走此路径）
@@ -621,8 +623,8 @@ export default function MemoriesPage() {
       />
 
       {hasQualityFilters && (
-        <div className="flex items-center justify-between rounded-lg border border-[var(--border-default)] bg-[var(--surface-subtle)] px-3 py-2 text-xs">
-          <span className="text-[var(--text-secondary)]">
+        <div className="flex items-center justify-between rounded-lg border border-default bg-surface-subtle px-3 py-2 text-xs">
+          <span className="text-secondary">
             {t.memories.qualityFilter}：
             {[
               qualityMinConfidence !== undefined || qualityMaxConfidence !== undefined
@@ -663,7 +665,7 @@ export default function MemoriesPage() {
           <button
             type="button"
             onClick={clearQualityFilters}
-            className="text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)]"
+            className="text-secondary transition-colors hover:text-primary"
           >
             {t.memories.qualityClear}
           </button>
@@ -692,6 +694,13 @@ export default function MemoriesPage() {
         }}
       />
 
+      {/* 文本/语义模式一次取回 50 条封顶，取满时透出截断提示（混合模式走服务端分页无此限制） */}
+      {isSearching && !isServerPaginated && searchQuery.data?.capped && (
+        <div className="mb-4 rounded-lg border border-default bg-surface-subtle px-3 py-2 text-xs text-secondary">
+          {t.memories.searchCapped}
+        </div>
+      )}
+
       {/* 批量操作栏 */}
       {selectedIds.size > 0 && (
         <BatchActionBar
@@ -712,6 +721,13 @@ export default function MemoriesPage() {
 
       {loading && memories.length === 0 && !isSearching ? (
         <ListSkeleton rows={5} />
+      ) : !isSearching && memoriesQuery.isError ? (
+        // 列表查询失败必须显式报错，否则会落到空态分支，把"加载失败"误显示成"没有记忆"
+        <ErrorAlert
+          message={t.memories.listLoadFailed}
+          onRetry={() => void memoriesQuery.refetch()}
+          retryLabel={t.common.retry}
+        />
       ) : displayItems.length === 0 ? (
         <EmptyState
           illustration={<EmptyMemory />}

@@ -85,9 +85,7 @@ const StatCard = memo(function StatCard({
             >
               <Icon size={17} strokeWidth={2} aria-hidden="true" />
             </div>
-            <p className="text-xs text-[var(--text-secondary)] font-medium truncate tracking-wide">
-              {label}
-            </p>
+            <p className="text-xs text-secondary font-medium truncate tracking-wide">{label}</p>
           </div>
         </div>
 
@@ -95,8 +93,8 @@ const StatCard = memo(function StatCard({
           <motion.p
             className={`leading-none tabular-nums ${
               isEmpty
-                ? 'text-4xl md:text-5xl font-semibold text-[var(--text-tertiary)]'
-                : 'text-5xl md:text-6xl font-bold tracking-tight text-[var(--text-primary)]'
+                ? 'text-4xl md:text-5xl font-semibold text-tertiary'
+                : 'text-5xl md:text-6xl font-bold tracking-tight text-primary'
             }`}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -105,9 +103,7 @@ const StatCard = memo(function StatCard({
             <span ref={animatedRef}>0</span>
           </motion.p>
 
-          {subValue && (
-            <p className="text-xs text-[var(--text-tertiary)] mt-3 font-medium">{subValue}</p>
-          )}
+          {subValue && <p className="text-xs text-tertiary mt-3 font-medium">{subValue}</p>}
         </div>
       </div>
     </motion.div>

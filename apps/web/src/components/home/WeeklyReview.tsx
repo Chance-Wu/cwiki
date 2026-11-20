@@ -73,8 +73,8 @@ export default function WeeklyReview({ workspaceId }: Props) {
             <BookOpenCheck size={15} className="text-info-fg" aria-hidden="true" />
           </div>
           <div>
-            <h3 className="text-base font-semibold text-[var(--text-primary)]">{t.weekly.title}</h3>
-            <p className="mt-0.5 text-xs text-[var(--text-tertiary)]">
+            <h3 className="text-base font-semibold text-primary">{t.weekly.title}</h3>
+            <p className="mt-0.5 text-xs text-tertiary">
               {data
                 ? t.weekly.period
                     .replace('{start}', data.period_start)
@@ -111,59 +111,49 @@ export default function WeeklyReview({ workspaceId }: Props) {
             ].map(([label, value]) => (
               <div
                 key={String(label)}
-                className="rounded-xl border border-[var(--border-default)] bg-surface-elevated/20 px-3 py-2"
+                className="rounded-xl border border-default bg-surface-elevated/20 px-3 py-2"
               >
-                <div className="text-lg font-semibold tabular-nums text-[var(--text-primary)]">
-                  {value}
-                </div>
-                <div className="text-2xs text-[var(--text-tertiary)]">{label}</div>
+                <div className="text-lg font-semibold tabular-nums text-primary">{value}</div>
+                <div className="text-2xs text-tertiary">{label}</div>
               </div>
             ))}
           </div>
 
-          <div className="mt-4 border-t border-[var(--border-default)] pt-3">
-            <div className="mb-1.5 text-xs font-medium text-[var(--text-secondary)]">
-              {t.weekly.mostUsed}
-            </div>
+          <div className="mt-4 border-t border-default pt-3">
+            <div className="mb-1.5 text-xs font-medium text-secondary">{t.weekly.mostUsed}</div>
             {data.most_used.length ? (
               <ol className="space-y-1">
                 {data.most_used.map((item, index) => (
                   <li
                     key={item.memory_id}
-                    className="flex items-center gap-2 text-xs text-[var(--text-secondary)]"
+                    className="flex items-center gap-2 text-xs text-secondary"
                   >
-                    <span className="w-4 text-right tabular-nums text-[var(--text-tertiary)]">
-                      {index + 1}
-                    </span>
+                    <span className="w-4 text-right tabular-nums text-tertiary">{index + 1}</span>
                     <Link
                       to={`/memories?memoryId=${item.memory_id}`}
                       className="truncate hover:underline"
                     >
                       {item.title}
                     </Link>
-                    <span className="ml-auto tabular-nums text-[var(--text-tertiary)]">
-                      {item.uses}
-                    </span>
+                    <span className="ml-auto tabular-nums text-tertiary">{item.uses}</span>
                   </li>
                 ))}
               </ol>
             ) : (
-              <p className="text-xs text-[var(--text-tertiary)]">{t.weekly.noUsage}</p>
+              <p className="text-xs text-tertiary">{t.weekly.noUsage}</p>
             )}
           </div>
 
-          <div className="mt-4 border-t border-[var(--border-default)] pt-3">
-            <div className="mb-1.5 text-xs font-medium text-[var(--text-secondary)]">
-              {t.weekly.actionsTitle}
-            </div>
+          <div className="mt-4 border-t border-default pt-3">
+            <div className="mb-1.5 text-xs font-medium text-secondary">{t.weekly.actionsTitle}</div>
             {data.actions.conflicts.length === 0 &&
             data.actions.stale_memories.length === 0 &&
             data.actions.knowledge_gaps.length === 0 &&
             data.actions.retrieval_gaps.length === 0 &&
             data.actions.duplicate_pairs.length === 0 ? (
-              <p className="text-xs text-[var(--text-tertiary)]">{t.weekly.noActions}</p>
+              <p className="text-xs text-tertiary">{t.weekly.noActions}</p>
             ) : (
-              <ul className="space-y-1 text-xs text-[var(--text-secondary)]">
+              <ul className="space-y-1 text-xs text-secondary">
                 {data.actions.conflicts.map((c) => (
                   <li key={c.id} className="flex items-center gap-2">
                     <span className="rounded bg-warning/15 px-1.5 py-0.5 text-warning-fg">
@@ -204,14 +194,14 @@ export default function WeeklyReview({ workspaceId }: Props) {
                     >
                       {pair.right.title}
                     </Link>
-                    <span className="ml-auto tabular-nums text-[var(--text-tertiary)]">
+                    <span className="ml-auto tabular-nums text-tertiary">
                       {pair.similarity.toFixed(2)}
                     </span>
                   </li>
                 ))}
                 {data.actions.retrieval_gaps.map((m) => (
                   <li key={m.memory_id} className="flex items-center gap-2">
-                    <span className="rounded bg-surface-elevated px-1.5 py-0.5 text-[var(--text-tertiary)]">
+                    <span className="rounded bg-surface-elevated px-1.5 py-0.5 text-tertiary">
                       {t.weekly.retrievalGaps}
                     </span>
                     <Link
@@ -220,9 +210,7 @@ export default function WeeklyReview({ workspaceId }: Props) {
                     >
                       {m.title}
                     </Link>
-                    <span className="ml-auto tabular-nums text-[var(--text-tertiary)]">
-                      {m.retrievals}
-                    </span>
+                    <span className="ml-auto tabular-nums text-tertiary">{m.retrievals}</span>
                   </li>
                 ))}
                 {data.actions.knowledge_gaps.map((g) => (
@@ -236,9 +224,7 @@ export default function WeeklyReview({ workspaceId }: Props) {
                     >
                       {g.query}
                     </Link>
-                    <span className="ml-auto tabular-nums text-[var(--text-tertiary)]">
-                      {g.attempts}
-                    </span>
+                    <span className="ml-auto tabular-nums text-tertiary">{g.attempts}</span>
                   </li>
                 ))}
               </ul>

@@ -43,11 +43,11 @@ function InfoRow({
   danger?: boolean
 }) {
   return (
-    <div className="flex items-baseline justify-between gap-3 border-b border-[var(--border-default)] py-2">
-      <span className="shrink-0 text-xs font-medium text-[var(--text-secondary)]">{label}</span>
+    <div className="flex items-baseline justify-between gap-3 border-b border-default py-2">
+      <span className="shrink-0 text-xs font-medium text-secondary">{label}</span>
       <span
         className={`truncate text-xs font-semibold ${
-          danger ? 'text-danger-fg' : 'text-[var(--text-primary)]'
+          danger ? 'text-danger-fg' : 'text-primary'
         } ${mono ? 'font-mono' : ''}`}
         title={typeof value === 'string' ? value : undefined}
       >
@@ -226,7 +226,7 @@ export default function SettingsPage() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ ...spring.snappy, delay: 0.05 }}
             >
-              <Card className="p-4 md:p-5 transition-all duration-150 hover:shadow-warm-md hover:border-[var(--border-strong)]">
+              <Card className="p-4 md:p-5 transition-all duration-150 hover:shadow-warm-md hover:border-strong">
                 <div className="flex items-center gap-2.5 mb-3">
                   <motion.div
                     className="flex items-center justify-center w-8 h-8 rounded-lg bg-gradient-to-br from-brand-50 to-brand-100/50 shrink-0 ring-1 ring-brand-200/40 border border-brand-200/25 shadow-warm-xs"
@@ -235,16 +235,14 @@ export default function SettingsPage() {
                   >
                     <Globe size={15} className="text-brand-fg" aria-hidden="true" />
                   </motion.div>
-                  <h3 className="text-base font-semibold text-[var(--text-primary)]">
-                    {t.settings.language}
-                  </h3>
+                  <h3 className="text-base font-semibold text-primary">{t.settings.language}</h3>
                 </div>
                 <div className="flex items-center gap-3">
                   <Button onClick={toggleLocale} variant="secondary">
                     <Globe size={14} aria-hidden="true" />
                     {t.settings.switchLang}
                   </Button>
-                  <span className="text-xs text-[var(--text-secondary)] font-medium">
+                  <span className="text-xs text-secondary font-medium">
                     {t.settings.currentLang}:{' '}
                     {locale === 'zh' ? t.common.chinese : t.common.english}
                   </span>
@@ -258,7 +256,7 @@ export default function SettingsPage() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ ...spring.snappy, delay: 0.1 }}
             >
-              <Card className="p-4 md:p-5 transition-all duration-150 hover:shadow-warm-md hover:border-[var(--border-strong)]">
+              <Card className="p-4 md:p-5 transition-all duration-150 hover:shadow-warm-md hover:border-strong">
                 <div className="flex items-center gap-2.5 mb-3">
                   <motion.div
                     className="flex items-center justify-center w-8 h-8 rounded-lg bg-gradient-to-br from-warning/18 to-warning/8 shrink-0 ring-1 ring-warning/30 border border-warning/25 shadow-warm-xs"
@@ -273,9 +271,7 @@ export default function SettingsPage() {
                       <Monitor size={15} className="text-warning-fg" aria-hidden="true" />
                     )}
                   </motion.div>
-                  <h3 className="text-base font-semibold text-[var(--text-primary)]">
-                    {t.settings.appearance}
-                  </h3>
+                  <h3 className="text-base font-semibold text-primary">{t.settings.appearance}</h3>
                 </div>
                 <div className="flex items-center gap-3">
                   <Button onClick={toggleTheme} variant="secondary">
@@ -288,7 +284,7 @@ export default function SettingsPage() {
                     )}
                     {t.settings.switchTheme}
                   </Button>
-                  <span className="text-xs text-[var(--text-secondary)] font-medium">
+                  <span className="text-xs text-secondary font-medium">
                     {t.settings.theme}:{' '}
                     {theme === 'dark'
                       ? t.settings.themeDark
@@ -297,10 +293,8 @@ export default function SettingsPage() {
                         : t.settings.themeSystem}
                   </span>
                 </div>
-                <div className="mt-4 pt-4 border-t border-[var(--border-default)]">
-                  <p className="text-xs text-[var(--text-secondary)] font-medium mb-3">
-                    {t.settings.brandTheme}
-                  </p>
+                <div className="mt-4 pt-4 border-t border-default">
+                  <p className="text-xs text-secondary font-medium mb-3">{t.settings.brandTheme}</p>
                   <div className="flex items-center gap-3">
                     {[
                       { key: 'amber' as const, color: '#D97706', label: t.settings.brandAmber },
@@ -314,9 +308,7 @@ export default function SettingsPage() {
                         onClick={() => setBrandTheme(key)}
                         title={label}
                         className={`group relative w-8 h-8 rounded-full transition-all duration-200 hover:scale-110 ${
-                          brandTheme === key
-                            ? 'scale-110'
-                            : 'ring-1 ring-[var(--border-default)] hover:ring-[var(--border-strong)]'
+                          brandTheme === key ? 'scale-110' : 'ring-1 ring-default hover:ring-strong'
                         }`}
                         style={{
                           background: color,
@@ -351,7 +343,7 @@ export default function SettingsPage() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ ...spring.snappy, delay: 0.15 }}
             >
-              <Card className="p-4 md:p-5 transition-all duration-150 hover:shadow-warm-md hover:border-[var(--border-strong)]">
+              <Card className="p-4 md:p-5 transition-all duration-150 hover:shadow-warm-md hover:border-strong">
                 <div className="flex items-center gap-2.5 mb-3">
                   <motion.div
                     className="flex items-center justify-center w-8 h-8 rounded-lg bg-gradient-to-br from-info/18 to-info/8 shrink-0 ring-1 ring-info/30 border border-info/25 shadow-warm-xs"
@@ -360,12 +352,12 @@ export default function SettingsPage() {
                   >
                     <Bell size={15} className="text-info-fg" aria-hidden="true" />
                   </motion.div>
-                  <h3 className="text-base font-semibold text-[var(--text-primary)]">
+                  <h3 className="text-base font-semibold text-primary">
                     {t.settings.reviewReminder}
                   </h3>
                 </div>
                 <div className="flex items-center justify-between gap-3">
-                  <p className="text-xs text-[var(--text-secondary)] font-medium flex-1">
+                  <p className="text-xs text-secondary font-medium flex-1">
                     {t.settings.reviewReminderDesc}
                   </p>
                   <Button onClick={toggleReminder} variant="secondary">
@@ -388,7 +380,7 @@ export default function SettingsPage() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ ...spring.snappy, delay: 0.2 }}
             >
-              <Card className="p-4 md:p-5 transition-all duration-150 hover:shadow-warm-md hover:border-[var(--border-strong)]">
+              <Card className="p-4 md:p-5 transition-all duration-150 hover:shadow-warm-md hover:border-strong">
                 <div className="flex items-center gap-2.5 mb-3">
                   <motion.div
                     className="flex items-center justify-center w-8 h-8 rounded-lg bg-gradient-to-br from-success/18 to-success/8 shrink-0 ring-1 ring-success/30"
@@ -397,13 +389,13 @@ export default function SettingsPage() {
                   >
                     <Database size={15} className="text-success-fg" aria-hidden="true" />
                   </motion.div>
-                  <h3 className="text-base font-semibold text-[var(--text-primary)]">
+                  <h3 className="text-base font-semibold text-primary">
                     {t.settings.dataManagement}
                   </h3>
                 </div>
                 <div className="space-y-4">
                   <div>
-                    <p className="text-xs text-[var(--text-secondary)] mb-3 font-medium">
+                    <p className="text-xs text-secondary mb-3 font-medium">
                       {t.settings.exportDesc}
                     </p>
                     <div className="flex gap-2">
@@ -437,8 +429,8 @@ export default function SettingsPage() {
                       </Button>
                     </div>
                   </div>
-                  <div className="mt-5 pt-4 border-t border-[var(--border-default)]">
-                    <p className="text-xs text-[var(--text-secondary)] mb-3 font-medium">
+                  <div className="mt-5 pt-4 border-t border-default">
+                    <p className="text-xs text-secondary mb-3 font-medium">
                       {t.settings.importDesc}
                     </p>
                     <Button variant="secondary" asChild>
@@ -497,14 +489,12 @@ export default function SettingsPage() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ ...spring.snappy, delay: 0.35 }}
             >
-              <Card className="p-4 md:p-5 transition-all duration-150 hover:shadow-warm-md hover:border-[var(--border-strong)] bg-surface-elevated/20">
+              <Card className="p-4 md:p-5 transition-all duration-150 hover:shadow-warm-md hover:border-strong bg-surface-elevated/20">
                 <div className="flex items-center gap-2.5 mb-3">
                   <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-surface-elevated/40 shrink-0 ring-1 ring-subtle">
-                    <Info size={15} className="text-[var(--text-secondary)]" aria-hidden="true" />
+                    <Info size={15} className="text-secondary" aria-hidden="true" />
                   </div>
-                  <h3 className="text-base font-semibold text-[var(--text-primary)]">
-                    {t.settings.about}
-                  </h3>
+                  <h3 className="text-base font-semibold text-primary">{t.settings.about}</h3>
                 </div>
                 <div className="grid grid-cols-1 gap-x-8 sm:grid-cols-2">
                   <InfoRow label={t.settings.version} value={health?.version ?? '-'} />

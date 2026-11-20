@@ -107,15 +107,13 @@ export default function TagManagePanel({
   }
 
   return (
-    <div className="p-4 bg-surface-card border border-[var(--border-default)] rounded-xl shadow-lg space-y-4">
+    <div className="p-4 bg-surface-card border border-default rounded-xl shadow-lg space-y-4">
       {!hideHeader && (
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-[var(--text-primary)]">
-            {t.memories.tagManage}
-          </h3>
+          <h3 className="text-sm font-semibold text-primary">{t.memories.tagManage}</h3>
           <button
             onClick={onClose}
-            className="p-1 text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors"
+            className="p-1 text-tertiary hover:text-primary transition-colors"
           >
             <X size={16} />
           </button>
@@ -132,12 +130,10 @@ export default function TagManagePanel({
                   key={suggestion.tags.join('|')}
                   className="flex flex-wrap items-center gap-2 text-xs"
                 >
-                  <span className="min-w-0 flex-1 truncate text-[var(--text-secondary)]">
+                  <span className="min-w-0 flex-1 truncate text-secondary">
                     {suggestion.tags.join(' / ')} →{' '}
-                    <span className="font-medium text-[var(--text-primary)]">
-                      {suggestion.target}
-                    </span>
-                    <span className="ml-1 text-[var(--text-tertiary)]">
+                    <span className="font-medium text-primary">{suggestion.target}</span>
+                    <span className="ml-1 text-tertiary">
                       {suggestion.reason === 'case'
                         ? t.memories.reasonCase
                         : suggestion.reason === 'spacing'
@@ -160,21 +156,21 @@ export default function TagManagePanel({
           <div className="flex gap-2">
             <button
               onClick={() => setMode('rename')}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-surface-inset rounded-lg border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-brand-badge-bg hover:text-brand-500 transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-surface-inset rounded-lg border border-default text-secondary hover:bg-brand-badge-bg hover:text-brand-500 transition-colors"
             >
               <Pencil size={12} />
               {t.memories.renameTag}
             </button>
             <button
               onClick={() => setMode('merge')}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-surface-inset rounded-lg border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-brand-badge-bg hover:text-brand-500 transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-surface-inset rounded-lg border border-default text-secondary hover:bg-brand-badge-bg hover:text-brand-500 transition-colors"
             >
               <Merge size={12} />
               {t.memories.mergeTags}
             </button>
             <button
               onClick={() => setMode('delete')}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-surface-inset rounded-lg border border-[var(--border-default)] text-[var(--text-secondary)] hover:text-danger-fg hover:bg-danger-bg transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-surface-inset rounded-lg border border-default text-secondary hover:text-danger-fg hover:bg-danger-bg transition-colors"
             >
               <Trash2 size={12} />
               {t.memories.deleteTag}
@@ -186,10 +182,8 @@ export default function TagManagePanel({
                 key={tag.name}
                 className="flex items-center justify-between px-2 py-1 text-sm rounded hover:bg-surface-inset transition-colors"
               >
-                <span className="text-[var(--text-primary)]">{tag.name}</span>
-                <span className="text-xs text-[var(--text-tertiary)] tabular-nums">
-                  {tag.count}
-                </span>
+                <span className="text-primary">{tag.name}</span>
+                <span className="text-xs text-tertiary tabular-nums">{tag.count}</span>
               </div>
             ))}
           </div>
@@ -199,13 +193,11 @@ export default function TagManagePanel({
       {mode === 'rename' && (
         <div className="space-y-3">
           <div>
-            <label className="block text-xs text-[var(--text-secondary)] mb-1">
-              {t.memories.renameTag}
-            </label>
+            <label className="block text-xs text-secondary mb-1">{t.memories.renameTag}</label>
             <select
               value={selectedTag}
               onChange={(e) => setSelectedTag(e.target.value)}
-              className="w-full px-2 py-1.5 text-sm bg-surface-inset border border-[var(--border-default)] rounded-lg text-[var(--text-primary)]"
+              className="w-full px-2 py-1.5 text-sm bg-surface-inset border border-default rounded-lg text-primary"
             >
               <option value="">--</option>
               {tags.map((tag) => (
@@ -216,14 +208,12 @@ export default function TagManagePanel({
             </select>
           </div>
           <div>
-            <label className="block text-xs text-[var(--text-secondary)] mb-1">
-              {t.memories.tagNewName}
-            </label>
+            <label className="block text-xs text-secondary mb-1">{t.memories.tagNewName}</label>
             <input
               type="text"
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
-              className="w-full px-2 py-1.5 text-sm bg-surface-inset border border-[var(--border-default)] rounded-lg text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)]"
+              className="w-full px-2 py-1.5 text-sm bg-surface-inset border border-default rounded-lg text-primary placeholder:text-tertiary"
               placeholder={t.memories.tagNewName}
             />
           </div>
@@ -237,7 +227,7 @@ export default function TagManagePanel({
             </button>
             <button
               onClick={resetForm}
-              className="px-3 py-1 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+              className="px-3 py-1 text-sm text-secondary hover:text-primary transition-colors"
             >
               {t.common.cancel || '取消'}
             </button>
@@ -248,7 +238,7 @@ export default function TagManagePanel({
       {mode === 'merge' && (
         <div className="space-y-3">
           <div>
-            <label className="block text-xs text-[var(--text-secondary)] mb-1">
+            <label className="block text-xs text-secondary mb-1">
               {t.memories.tagMergeSources}（{mergeSources.length}/2+）
             </label>
             <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
@@ -260,7 +250,7 @@ export default function TagManagePanel({
                   className={`px-2 py-0.5 text-xs rounded-full border transition-colors ${
                     mergeSources.includes(tag.name)
                       ? 'bg-brand-500 text-white border-brand-500'
-                      : 'bg-surface-inset text-[var(--text-secondary)] border-[var(--border-default)] hover:bg-brand-badge-bg'
+                      : 'bg-surface-inset text-secondary border-default hover:bg-brand-badge-bg'
                   } ${mergeTarget === tag.name ? 'opacity-30 cursor-not-allowed' : ''}`}
                 >
                   {tag.name}
@@ -269,14 +259,12 @@ export default function TagManagePanel({
             </div>
           </div>
           <div>
-            <label className="block text-xs text-[var(--text-secondary)] mb-1">
-              {t.memories.tagMergeTarget}
-            </label>
+            <label className="block text-xs text-secondary mb-1">{t.memories.tagMergeTarget}</label>
             <input
               type="text"
               value={mergeTarget}
               onChange={(e) => setMergeTarget(e.target.value)}
-              className="w-full px-2 py-1.5 text-sm bg-surface-inset border border-[var(--border-default)] rounded-lg text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)]"
+              className="w-full px-2 py-1.5 text-sm bg-surface-inset border border-default rounded-lg text-primary placeholder:text-tertiary"
               placeholder={t.memories.tagMergeTarget}
             />
           </div>
@@ -290,7 +278,7 @@ export default function TagManagePanel({
             </button>
             <button
               onClick={resetForm}
-              className="px-3 py-1 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+              className="px-3 py-1 text-sm text-secondary hover:text-primary transition-colors"
             >
               {t.common.cancel || '取消'}
             </button>
@@ -301,13 +289,11 @@ export default function TagManagePanel({
       {mode === 'delete' && (
         <div className="space-y-3">
           <div>
-            <label className="block text-xs text-[var(--text-secondary)] mb-1">
-              {t.memories.deleteTag}
-            </label>
+            <label className="block text-xs text-secondary mb-1">{t.memories.deleteTag}</label>
             <select
               value={selectedTag}
               onChange={(e) => setSelectedTag(e.target.value)}
-              className="w-full px-2 py-1.5 text-sm bg-surface-inset border border-[var(--border-default)] rounded-lg text-[var(--text-primary)]"
+              className="w-full px-2 py-1.5 text-sm bg-surface-inset border border-default rounded-lg text-primary"
             >
               <option value="">--</option>
               {tags.map((tag) => (
@@ -332,7 +318,7 @@ export default function TagManagePanel({
             </button>
             <button
               onClick={resetForm}
-              className="px-3 py-1 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+              className="px-3 py-1 text-sm text-secondary hover:text-primary transition-colors"
             >
               {t.common.cancel || '取消'}
             </button>
