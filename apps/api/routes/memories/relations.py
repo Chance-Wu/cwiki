@@ -28,22 +28,13 @@ async def get_memory_relations(
     """获取记忆关系图，最多展开 depth 层。"""
     try:
         uid = uuid.UUID(memory_id)
-    except ValueError:
-        return {
-            "memory_id": memory_id,
-            "relations": [],
-            "related_memories": [],
-            "total_relations": 0,
-        }
+    except ValueError as exc:
+        # 与 get_memory_lifecycle 契约一致：畸形 UUID / 不存在的记忆一律 404
+        raise HTTPException(status_code=404, detail="Memory not found") from exc
 
     memory = await db.get(Memory, uid, options=_MEMORY_NO_EMBED)
     if memory is None:
-        return {
-            "memory_id": memory_id,
-            "relations": [],
-            "related_memories": [],
-            "total_relations": 0,
-        }
+        raise HTTPException(status_code=404, detail="Memory not found")
 
     relations: list[dict[str, Any]] = []
     visited: set[uuid.UUID] = {uid}

@@ -439,15 +439,18 @@ class TestMemoryLifecycle:
             await get_memory_lifecycle(memory_id=str(uuid.uuid4()), db=db)
         assert exc_info.value.status_code == 404
 
-    async def test_relations_returns_empty_for_unknown_memory(self):
+    async def test_relations_returns_404_for_unknown_memory(self):
+        """与 get_memory_lifecycle 契约一致：不存在的记忆返回 404。"""
+        from fastapi import HTTPException
+
         from apps.api.routes.memories import get_memory_relations
 
         db = AsyncMock()
         db.get = AsyncMock(return_value=None)
 
-        result = await get_memory_relations(memory_id=str(uuid.uuid4()), db=db)
-        assert result["relations"] == []
-        assert result["total_relations"] == 0
+        with pytest.raises(HTTPException) as exc_info:
+            await get_memory_relations(memory_id=str(uuid.uuid4()), db=db)
+        assert exc_info.value.status_code == 404
 
     async def test_create_relation_rejects_reverse_symmetric_duplicate(self):
         """对称关系（related/supports/contradicts）反向重复也应冲突。"""

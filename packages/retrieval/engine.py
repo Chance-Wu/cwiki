@@ -1271,22 +1271,18 @@ class RetrievalEngine:
             metadata_=metadata,
         )
 
-        # 批量构建最终候选的 trace 项
-        final_ids = {m["id"] for m in final_memories}
+        # 批量构建最终候选的 trace 项：rank 直接取最终交付序（rerank/过滤/
+        # 多样性之后的真实位置），score 保留 bm25 分项语义供对照分析。
         trace_items = [
             RetrievalTraceItem(
                 trace_id=trace_id,
-                memory_id=uuid.UUID(doc_id),
+                memory_id=uuid.UUID(m["id"]),
                 stage="final",
-                rank=rank,
-                score=data.get("bm25_score", 0),
+                rank=m.get("rank") or idx + 1,
+                score=m.get("bm25_score", 0),
                 used=True,
             )
-            for rank, (doc_id, data) in enumerate(
-                sorted(candidates.items(), key=lambda x: x[1].get("bm25_score", 0), reverse=True),
-                1,
-            )
-            if doc_id in final_ids
+            for idx, m in enumerate(final_memories)
         ]
 
         # 批量构建记忆使用记录

@@ -371,6 +371,12 @@ def recompute():
     return _py("scripts/recompute.py")
 
 
+@task("rescore-candidates")
+def rescore_candidates():
+    """回填存量 pending 候选的评分与质量门五维明细（--dry-run 只列出）。"""
+    return _py("scripts/rescore_candidates.py", *sys.argv[2:])
+
+
 def _web_dev() -> int:
     web_dir = ROOT / "apps" / "web"
     r = _run("npm", "install", cwd=web_dir)
